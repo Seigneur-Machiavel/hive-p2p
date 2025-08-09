@@ -11,7 +11,7 @@
 			"skipFiles": [
 				"<node_internals>/**"
 			],
-			"program": "${workspaceFolder}\\tests\\p2p_simulator.js"
+			"program": "${workspaceFolder}\\tests\\p2p_simulator.mjs"
 		}
 	]
 }
