@@ -1,0 +1,92 @@
+body {
+	margin: 0;
+	padding: 20px;
+	font-family: Arial, sans-serif;
+	background: #1a1a1a;
+	color: white;
+}
+
+#peersList {
+	position: fixed;
+	top: 5vh;
+	left: 20px;
+	background: rgba(0, 0, 0, 0.8);
+	border-radius: 8px;
+	padding: 10px;
+	max-height: 90vh;
+	overflow-y: auto;
+	min-width: 120px;
+	z-index: 1000;
+}
+#peersList h3 {
+	margin: 0 0 10px 0;
+	color: #4CAF50;
+}
+#peersList div {
+	padding: 6px 10px;
+	margin: 2px 0;
+	background: rgba(76, 175, 80, 0.2);
+	border-radius: 4px;
+	cursor: pointer;
+	transition: background 0.2s;
+}
+#peersList div.selected {
+	background: rgba(76, 175, 80, 0.4);
+}
+#peersList div:hover {
+	background: rgba(76, 175, 80, 0.4);
+}
+
+#simulationSettings {
+	position: fixed;
+	top: 5vh;
+	right: 20px;
+	background: rgba(0, 0, 0, 0.8);
+	border-radius: 8px;
+	padding: 10px;
+	font-size: 14px;
+	z-index: 1000;
+}
+#simulationSettings h3 {
+	text-align: right;
+	margin: 0 0 10px 0;
+	color: #4CAF50;
+}
+#simulationSettings div {
+	display: flex;
+	justify-content: space-between;
+	margin-bottom: 6px;
+	gap: 10px;
+}
+#simulationSettings div input {
+	text-align: center;
+	width: 50px;
+}
+
+#currentPeer {
+	position: fixed;
+	top: 20px;
+	right: 20px;
+	background: rgba(0, 0, 0, 0.8);
+	border-radius: 8px;
+	padding: 15px;
+	z-index: 1000;
+	color: #FFD700;
+}
+#tooltip {
+	position: fixed;
+	background: rgba(0, 0, 0, 0.9);
+	color: white;
+	padding: 10px;
+	border-radius: 4px;
+	pointer-events: none;
+	z-index: 1001;
+	font-size: 12px;
+	display: none;
+	max-width: 200px;
+}
+#networkCanvas {
+	position: absolute;
+	top: 20px;
+	left: 20px;
+}

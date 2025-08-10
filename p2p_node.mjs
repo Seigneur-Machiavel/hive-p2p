@@ -9,7 +9,8 @@ export class NodeP2P {
 	publicUrl; 
 	id; // should be based on crypto
 	peerStore;
-	bootstraps;
+	bootstraps; nBI = 0; // nBI: next Bootstrap Index
+	connexionEnhancer;
 	opts = {
 		targetNeighbors: 12, // The optimal number of neighbors to connect to
 		gossipTransmissionRate: 1, // 1 = 100% retransmission
@@ -23,111 +24,106 @@ export class NodeP2P {
 
 	/** @param {string} id The unique identifier for the node
 	 * @param {Array<string>} bootstraps List of bootstrap nodes used as P2P network entry */
-	constructor(id = 'toto', bootstraps = [], init = true) {
+	constructor(id = 'toto', bootstraps = [], init = true, verbose = 0) {
 		this.id = id;
 		this.peerStore = new PeerStore(id);
 		this.bootstraps = shuffleArray(bootstraps);
 
-		this.peerStore.onConnect.unshift((peerId, direction, ws) => {
-			console.log(`(${this.id}) ${direction === 'in' ? 'Incoming' : 'Outgoing'} connection established with peer ${peerId}`);
+		this.peerStore.onSignal.unshift((peerId, data) => this.sendMessage(peerId, 'signal', data));
+		this.peerStore.onConnect.unshift((peerId, direction) => {
+			if (verbose > 0) console.log(`(${this.id}) ${direction === 'in' ? 'Incoming' : 'Outgoing'} connection established with peer ${peerId}`);
 			if (direction === 'in') setTimeout(() => this.broadcast('peer_connected', peerId, 3), 1000);
 		});
 		this.peerStore.onDisconnect.unshift((peerId, direction) => {
 			console.log(`(${this.id}) ${direction === 'in' ? 'Incoming' : 'Outgoing'} connection closed with peer ${peerId}`);
 			setTimeout(() => this.broadcast('peer_disconnected', peerId, 3), 1000);
 		});
-		this.peerStore.onSignal.unshift((peerId, data, ws) =>
-			this.sendMessage(peerId, 'signal', data, ws));
 		this.peerStore.onData.unshift((peerId, data) => {
 			const deserialized = JSON.parse(data);
 			if (deserialized.route) this.#handleDirectMessage(peerId, deserialized);
 			else this.#handleGossipMessage(peerId, deserialized);
 		});
-		
-		console.log(`NodeP2P initialized: ${id}`);
-		if (init) this.#enhanceConnectionLoop();
+
+		if (verbose > 0) console.log(`NodeP2P initialized: ${id}`);
+		if (init) this.connexionEnhancer = setInterval(() => this.#enhanceConnection(), VARS.ENHANCE_CONNECTION_DELAY);
 	}
 	// PUBLIC (BOOTSTRAP)
 	setAsPublic(domain = 'localhost', port = VARS.SERVICE_NODE_PORT, upgradeTimeout = VARS.CONNECTION_UPGRADE_TIMEOUT) {
 		// create simple ws server to accept incoming connections (Require to open port)
+		this.publicUrl = `ws://${domain}:${port}`;
 		this.wsServer = new WebSocketServer({ port });
 		this.wsServer.on('error', (error) => console.error(`WebSocket error on Node #${this.id}:`, error));
 		this.wsServer.on('connection', (ws) => {
+			let remoteId;
 			ws.on('message', (message) => {
 				const parsedMessage = JSON.parse(message);
 				if (parsedMessage.route.length !== 2) return console.error('Received message does not have a valid route');
 				if (parsedMessage.route[1] !== this.id) return console.error(`Received message is not for this node (expected: ${this.id}, got: ${parsedMessage.route[1]})`);
-				if (parsedMessage.type === 'signal') this.#handleIncomingSignal(parsedMessage.route[0], parsedMessage.data, ws);
+				if (!parsedMessage.type === 'signal') return console.error(`Received message is not a signal (type: ${parsedMessage.type})`);
+				if (!remoteId) remoteId = parsedMessage.route[0];
+				try { this.#handleIncomingSignal(remoteId, parsedMessage.data, ws); }
+				catch (error) { console.error(`Error handling incoming signal for ${remoteId}:`, error); }
 			});
-			ws.on('close', () => this.peerStore.removeConnectingPeer(ws.remoteId));
+			ws.on('close', () => remoteId ? this.peerStore.removePeer(remoteId, 'connecting') : ws.close());
 			setTimeout(() => { if (ws.readyState === ws.OPEN) ws.close(); }, upgradeTimeout);
 		});
-
-		this.publicUrl = `ws://${domain}:${port}`;
 	}
 	getPublicIdCard() {
 		return { id: this.id, publicUrl: this.publicUrl };
 	}
 	// NETWORK CONSISTENCY
-	async #enhanceConnectionLoop(delay = VARS.ENHANCE_CONNECTION_DELAY) {
-		let nBI = 0; // nextBootstrapIndex
-		while (true) {
-			const connectedPeersCount = Object.keys(this.peerStore.peers.connected).length;
-			if (connectedPeersCount < this.opts.targetNeighbors / 2) nBI = this.#tryConnectNextBootstrap(nBI);
+	#enhanceConnection() {
+		const connectedPeersCount = Object.keys(this.peerStore.store.connected).length;
+		if (connectedPeersCount < this.opts.targetNeighbors / 2) this.nBI = this.#tryConnectNextBootstrap(this.nBI);
 
-			//if (this.id === 'peer_0') {
-			const targets = this.#pickPeerIds(this.opts.targetNeighbors - connectedPeersCount);
-			for (const targetId of targets) if (Math.random() < .3) this.peerStore.addConnectingPeer(targetId);
-			//}
-
-			await new Promise(resolve => setTimeout(resolve, delay));
-		}
+		const targets = this.#pickPeerIds(this.opts.targetNeighbors - connectedPeersCount);
+		for (const targetId of targets) if (Math.random() < VARS.ENHANCE_CONNECTION_RATE) this.peerStore.addConnectingPeer(targetId);
 	}
 	#tryConnectNextBootstrap(nextBootstrapIndex) {
 		if (this.bootstraps.length === 0) return;
 		const { id, publicUrl } = this.bootstraps[nextBootstrapIndex];
-		const canMakeATry = id && publicUrl && !this.peerStore.peers.connected[id];
+		const canMakeATry = id && publicUrl && !this.peerStore.store.connected[id] && !this.peerStore.store.connecting[id];
 		if (canMakeATry) this.#connectToPublicNode_UsingWs_UntilWebRtcUpgrade(id, publicUrl);
 		return (nextBootstrapIndex + 1) % this.bootstraps.length;
 	}
 	#connectToPublicNode_UsingWs_UntilWebRtcUpgrade(remoteId = 'toto', publicNodeUrl = 'localhost:8080') {
 		const ws = new WebSocket(publicNodeUrl);
 		ws.onopen = () => this.peerStore.addConnectingPeer(remoteId, ws);
-		ws.onmessage = (event) => {
-			const parsedMessage = JSON.parse(event.data);
-			if (parsedMessage.type === 'signal') this.#handleIncomingSignal(remoteId, parsedMessage.data);
-		};
-		ws.onclose = () => this.peerStore.removeConnectingPeer(remoteId);
+		ws.onmessage = (event) => { 
+			try { this.#handleIncomingSignal(remoteId, JSON.parse(event.data).data); }
+			catch (error) { console.error(`Error handling incoming signal for ${remoteId}:`, error); };
+		}
+		ws.onclose = () => this.peerStore.removePeer(remoteId, 'connecting');
 		ws.onerror = (error) => console.error(`WebSocket error:`, error);
 		return ws;
 	}
 	#pickPeerIds(count = 1, maxNeighbours = 10) {
 		const selectedPeers = [];
-		//for (const [peerId, peerInfo] of Object.entries(this.peerStore.peers.known))
-		const shuffledKeys = shuffleArray(Object.keys(this.peerStore.peers.known));
+		//for (const [peerId, peerInfo] of Object.entries(this.peerStore.store.known))
+		const shuffledKeys = shuffleArray(Object.keys(this.peerStore.store.known));
 		for (const peerId of shuffledKeys) {
-			const peerInfo = this.peerStore.peers.known[peerId];
+			const peerInfo = this.peerStore.store.known[peerId];
 			if (selectedPeers.length >= count) break;
 			else if (peerId === this.id) continue; // skip self
-			else if (this.peerStore.peers.connecting[peerId]) continue; // skip connecting peers
-			else if (this.peerStore.peers.connected[peerId]) continue; // skip already connected peers
+			else if (this.peerStore.store.connecting[peerId]) continue; // skip connecting peers
+			else if (this.peerStore.store.connected[peerId]) continue; // skip already connected peers
 			else if (peerInfo.connectionsCount <= maxNeighbours) selectedPeers.push(peerId);
 		}
 
 		return selectedPeers;
 	}
 	// MESSAGE SENDING
-	/** @param {string} remoteId @param {string | Uint8Array} data @param {WebSocket} [ws] optional WebSocket */
-	sendMessage(remoteId, type, data, ws, spread = 1) {
-		if (ws && ws.readyState === WebSocket.OPEN) { // special case for initial ws connection (type: signal)
-			ws.send(JSON.stringify(new DirectMessage([this.id, remoteId], type, data))); return; }
+	/** @param {string} remoteId @param {string | Uint8Array} data */
+	sendMessage(remoteId, type, data, spread = 1) {
+		const tempConActive = this.peerStore.store.connecting[remoteId]?.tempTransportInstance?.readyState === 1;
+		const pathFinder = new RouteBuilder(this.id, this.peerStore.store.known, this.peerStore.store.connected);
+		const builtResult = tempConActive
+			? { success: true, routes: [{ path: [this.id, remoteId] }] }
+			: pathFinder.buildRoutes(this.id, remoteId);
+		if (!builtResult.success) return;
 
-		const pathFinder = new RouteBuilder(this.id, this.peerStore.peers.known, this.peerStore.peers.connected);
-		const routes = pathFinder.buildRoutes(this.id, remoteId);
-		if (!routes.success) return;
-
-		for (let i = 0; i < Math.min(spread, routes.routes.length); i++) {
-			const msg = new DirectMessage(routes.routes[i].path, type, data);
+		for (let i = 0; i < Math.min(spread, builtResult.routes.length); i++) {
+			const msg = new DirectMessage(builtResult.routes[i].path, type, data);
 			this.peerStore.sendMessageToPeer(msg.route[1], msg); // send to next peer
 		}
 	}
@@ -141,8 +137,8 @@ export class NodeP2P {
 		if (senderId === this.id) return console.warn(`Direct message from self (${this.id}) is not allowed.`);
 		if (from !== prevId) return console.warn(`Direct message from ${from} to ${this.id} is not routed correctly. Expected previous ID: ${prevId}, but got: ${from}`);
 		if (myIdPosition !== route.length - 1) return this.peerStore.sendMessageToPeer(nextId, message); // forward to next
+		// ... or this node is the target of the message
 		
-		// This node is the target of the message
 		if (log) {
 			if (senderId === from) console.log(`(${this.id}) Direct message received from ${senderId}: ${data}`);
 			else console.log(`(${this.id}) Direct message received from ${senderId} (lastRelay: ${from}): ${data}`);
@@ -151,17 +147,18 @@ export class NodeP2P {
 		this.peerStore.digestValidRoute(route); // peer discovery by the way
 		if (type === 'signal') this.#handleIncomingSignal(senderId, data);
 	}
-	/** @param {string} senderId @param {string} data @param {WebSocket} [ws] optional WebSocket */
-	#handleIncomingSignal(senderId, data, ws) {
-		const conn = this.peerStore.peers.connecting[senderId];
-		if (!conn && data.type === 'offer') this.peerStore.addConnectingPeer(senderId, ws, data);
+	/** @param {string} senderId @param {string} data @param {WebSocket} [tempTransportInstance] optional WebSocket */
+	#handleIncomingSignal(senderId, data, tempTransportInstance) {
+		if (!senderId || typeof data !== 'object') return;
+		const conn = this.peerStore.store.connecting[senderId];
+		if (!conn && data.type === 'offer') this.peerStore.addConnectingPeer(senderId, tempTransportInstance, data);
 		else if (conn && data.type !== 'offer') this.peerStore.assignConnectingPeerSignal(senderId, data);
 	}
 
 	/** @param {string} topic @param {string | Uint8Array} data @param {number} [TTL] */
 	broadcast(topic, data, TTL = 3) {
 		const message = new GossipMessage(this.id, topic, data, TTL);
-		for (const peerId in this.peerStore.peers.connected) this.peerStore.sendMessageToPeer(peerId, message);
+		for (const peerId in this.peerStore.store.connected) this.peerStore.sendMessageToPeer(peerId, message);
 	}
 	/** @param {string} from @param {GossipMessage} message */
 	#handleGossipMessage(from, message) {
@@ -173,11 +170,18 @@ export class NodeP2P {
 
 		if (TTL < 1) return; // stop forwarding if TTL is 0
 		if (this.id === senderId) return; // avoid sending our own message again
-		for (const [peerId, conn] of Object.entries(this.peerStore.peers.connected)) {
+		for (const [peerId, conn] of Object.entries(this.peerStore.store.connected)) {
 			if (peerId === from) continue; // avoid sending back to sender
 			if (Math.random() > this.opts.gossipTransmissionRate) continue; // apply gossip transmission rate
-			conn.simplePeerInstance.send(JSON.stringify(new GossipMessage(senderId, topic, data, TTL - 1)));
+			try { conn.transportInstance.send(JSON.stringify(new GossipMessage(senderId, topic, data, TTL - 1))); }
+			catch (error) { console.error(`Error sending gossip message from ${this.id} to ${peerId}:`, error); }
 		}
+	}
+
+	destroy() {
+		this.peerStore.destroy();
+		if (this.wsServer) this.wsServer.close();
+		if (this.connexionEnhancer) clearInterval(this.connexionEnhancer);
 	}
 }
 

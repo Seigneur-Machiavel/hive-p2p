@@ -1,16 +1,33 @@
 import wrtc from 'wrtc';
 import SimplePeer from 'simple-peer';
+import { TestTransport } from './p2p_test_transport.mjs';
 import { VARS } from './p2p_utils.mjs';
 import { GossipMessage, DirectMessage } from './p2p_message.mjs';
+/**
+ * @typedef {import('ws').WebSocket} WebSocket
+ *
+ * @typedef {Object} Store
+ * @property {Object<string, PeerConnection>} connected
+ * @property {Object<string, PeerConnection>} connecting
+ * @property {Object<string, KnownPeer>} known
+ */
+
+/** @type {Record<string, SimplePeer>} */
+const TRANSPORTS = {
+	'SimplePeer': SimplePeer,
+	'Test': TestTransport
+}
 
 export class PeerConnection {
-	simplePeerInstance;
+	/** @type {WebSocket | undefined} Transport used for initial connection to public node (usually a WebSocket) */
+	tempTransportInstance;
+	transportInstance;
 	direction;
 	peerId;
 
-	/** @param {string} peerId @param {SimplePeer.Instance} simplePeerInstance @param {'in' | 'out'} direction */
-	constructor(peerId, simplePeerInstance, direction = 'in') {
-		this.simplePeerInstance = simplePeerInstance;
+	/** @param {string} peerId @param {SimplePeer.Instance} transportInstance @param {'in' | 'out'} direction */
+	constructor(peerId, transportInstance, direction = 'in') {
+		this.transportInstance = transportInstance;
 		this.direction = direction;
 		this.peerId = peerId;
 	}
@@ -38,64 +55,58 @@ export class KnownPeer {
 	}
 }
 
-/**
- * @typedef {Object} PeerStorePeers
- * @property {Object<string, PeerConnection>} connected
- * @property {Object<string, PeerConnection>} connecting
- * @property {Object<string, KnownPeer>} known
- */
-
 export class PeerStore {
-	/** @type {PeerStorePeers} */
-	peers = {
-		connected: {},
-		connecting: {},
-		known: {}
-	}
-	onConnect = [
-		(peerId, direction, ws) => this.#upgradeConnectingToConnected(peerId, direction, ws),
-	];
-	onDisconnect = [
-		(peerId) => this.removeConnectedPeer(peerId)
-	];
-	onSignal = [
-		/*(peerId, data, ws, sCT) => { // debug log (testing trickle: true => lot faster)
-			if (data.type === 'offer') console.log(`Signal created in ${Date.now() - sCT}ms`);
-		}*/
-	];
+	/** @type {boolean} Flag to indicate if the peer store is destroyed */
+	dd = false;
+	/** @type {Store} */
+	store = { connected: {}, connecting: {}, known: {} }
+	onConnect = [(peerId, direction) => this.#upgradeConnectingToConnected(peerId)];
+	onDisconnect = [(peerId) => this.removePeer(peerId, 'connected')];
+	onSignal = [];
 	onData = [];
 	connectingTimeouts = {};
 
 	constructor() {}
 
-	/** @param {string} remoteId @param {WebSocket} [ws] @param {string} [remoteSDP] */
-	addConnectingPeer(remoteId, ws, remoteSDP) {
+	/**
+	 * @param {string} remoteId
+	 * @param {WebSocket} [tempTransportInstance]
+	 * @param {string} [remoteSDP]
+	 * @param {'SimplePeer' | 'Test'} [transport] */
+	addConnectingPeer(remoteId, tempTransportInstance, remoteSDP, transport = 'Test') { // SimplePeer
 		if (!remoteId) return console.error('Invalid remoteId');
 		const direction = remoteSDP ? 'in' : 'out';
 		if (direction === 'in' && remoteSDP.type !== 'offer') return console.error(`Invalid remote SDP type: ${remoteSDP.type}. Expected 'offer'.`);
 		
-		const { connected, connecting } = this.peers;
+		const { connected, connecting } = this.store;
 		if (connected[remoteId]) return console.warn(`Peer with ID ${remoteId} already connected.`), connected[remoteId];
 		if (connecting[remoteId]) return console.warn(`Peer with ID ${remoteId} is already connecting.`), connecting[remoteId];
 
 		const sCT = Date.now(); // signalCreationTime (debug)
-		const simplePeerInstance = new SimplePeer({ initiator: !remoteSDP, trickle: true, wrtc });
-		connecting[remoteId] = new PeerConnection(remoteId, simplePeerInstance, direction);
-		// mode non-fiable : = new SimplePeer({ channelConfig: { ordered: false, maxRetransmits: 0 } });
-		simplePeerInstance.on('connect', () => {
-			for (const cb of this.onConnect) cb(remoteId, direction, ws);
-			simplePeerInstance.on('close', () => { for (const cb of this.onDisconnect) cb(remoteId, direction); });
-			simplePeerInstance.on('data', data => { for (const cb of this.onData) cb(remoteId, data); });
-		});
-		simplePeerInstance.on('signal', data => { for (const cb of this.onSignal) cb(remoteId, data, ws, sCT); });
-		simplePeerInstance.on('error', error => console.error(`SimplePeer error for ${remoteId}:`, error));
+		const Transport = TRANSPORTS[transport];
+		const transportInstance = new Transport({ initiator: !remoteSDP, trickle: true, wrtc });
+		connecting[remoteId] = new PeerConnection(remoteId, transportInstance, direction);
+		connecting[remoteId].tempTransportInstance = tempTransportInstance;
 
-		if (remoteSDP) simplePeerInstance.signal(remoteSDP);
-		this.connectingTimeouts[remoteId] = setTimeout(() => this.removeConnectingPeer(remoteId), VARS.CONNECTION_UPGRADE_TIMEOUT);
+		transportInstance.on('connect', () => {
+			if (this.dd) return;
+			for (const cb of this.onConnect) cb(remoteId, direction);
+			transportInstance.on('close', () => { if (!this.dd) for (const cb of this.onDisconnect) cb(remoteId, direction); });
+			transportInstance.on('data', data => { if (!this.dd) for (const cb of this.onData) cb(remoteId, data); });
+		});
+		transportInstance.on('signal', data => { if (!this.dd) for (const cb of this.onSignal) cb(remoteId, data, sCT); });
+		transportInstance.on('error', error => {
+			if (error.message === 'cannot signal after peer is destroyed') return; // avoid logging
+			console.error(`transportInstance error for ${remoteId}:`, error);
+		});
+
+		if (remoteSDP) try { transportInstance.signal(remoteSDP); } catch (error) { console.error(`Error signaling remote SDP for ${remoteId}:`, error.message); }
+		this.connectingTimeouts[remoteId] = setTimeout(() => this.removePeer(remoteId, 'connecting'), VARS.CONNECTION_UPGRADE_TIMEOUT);
 	}
 	assignConnectingPeerSignal(remoteId, signalData) {
+		if (this.dd) return;
 		if (!remoteId || !signalData) return console.error('Invalid remoteId or signalData');
-		const peer = this.peers.connecting[remoteId];
+		const peer = this.store.connecting[remoteId];
 		if (!peer) return;
 
 		const validTypes = ['answer', 'candidate'];
@@ -103,50 +114,58 @@ export class PeerStore {
 		if (signalData.type === 'answer' && peer.direction === 'in') // catch simultaneous opposite connections
 			return console.error(`Received ${signalData.type} for ${remoteId} incoming connexion is not allowed.`);
 
-		peer.simplePeerInstance.signal(signalData);
+		try { peer.transportInstance.signal(signalData); } catch (error) { console.error(`Error signaling ${signalData.type} for ${remoteId}:`, error.message); }
 	}
-	#upgradeConnectingToConnected(remoteId, direction, ws) {
-		if (direction === 'in' && ws) ws.close(); // Close the WebSocket if used for signaling
-		if (!this.peers.connecting[remoteId]) return console.error(`Peer with ID ${remoteId} is not connecting.`);
-		this.peers.connected[remoteId] = this.peers.connecting[remoteId];
-		delete this.peers.connecting[remoteId];
+	#upgradeConnectingToConnected(remoteId) {
+		if (!this.store.connecting[remoteId]) return console.error(`Peer with ID ${remoteId} is not connecting.`);
 		clearTimeout(this.connectingTimeouts[remoteId]);
+		
+		this.store.connected[remoteId] = this.store.connecting[remoteId];
+		delete this.store.connecting[remoteId];
 		delete this.connectingTimeouts[remoteId];
+		if (this.store.connected[remoteId].tempTransportInstance) // close temporary transport (usually WebSocket)
+			this.store.connected[remoteId].tempTransportInstance.close();
 	}
-	removeConnectingPeer(remoteId) {
-		if (!this.peers.connecting[remoteId]) return;
-		if (this.peers.connecting[remoteId].simplePeerInstance) this.peers.connecting[remoteId].simplePeerInstance.destroy();
-		delete this.peers.connecting[remoteId];
-	}
-	removeConnectedPeer(remoteId) {
-		if (!this.peers.connected[remoteId]) return;
-		if (this.peers.connected[remoteId].simplePeerInstance) this.peers.connected[remoteId].simplePeerInstance.destroy();
-		delete this.peers.connected[remoteId];
+	/** @param {string} remoteId @param {'connected' | 'connecting'} status */
+	removePeer(remoteId, status) {
+		if (!this.store[status]?.[remoteId]) return;
+		if (this.store[status]?.[remoteId]?.tempTransportInstance) this.store[status][remoteId].tempTransportInstance.close();
+		if (this.store[status]?.[remoteId]?.transportInstance) this.store[status][remoteId].transportInstance.destroy();
+		delete this.store[status][remoteId];
 	}
 
 	linkPeers(peerId1, peerId2) {
 		if (!peerId1 || !peerId2) return;
-		if (!this.peers.known[peerId1]) this.peers.known[peerId1] = new KnownPeer(peerId1);
-		if (!this.peers.known[peerId2]) this.peers.known[peerId2] = new KnownPeer(peerId2);
-		this.peers.known[peerId1].addNeighbour(peerId2);
-		this.peers.known[peerId2].addNeighbour(peerId1);
+		if (!this.store.known[peerId1]) this.store.known[peerId1] = new KnownPeer(peerId1);
+		if (!this.store.known[peerId2]) this.store.known[peerId2] = new KnownPeer(peerId2);
+		this.store.known[peerId1].addNeighbour(peerId2);
+		this.store.known[peerId2].addNeighbour(peerId1);
 	}
 	unlinkPeers(peerId1 = 'toto', peerId2 = 'tutu') {
 		if (!peerId1 || !peerId2) return;
-		if (this.peers.known[peerId1]) this.peers.known[peerId1].removeNeighbour(peerId2);
-		if (this.peers.known[peerId2]) this.peers.known[peerId2].removeNeighbour(peerId1);
-		if (this.peers.known[peerId1]?.connectionsCount === 0) delete this.peers.known[peerId1];
-		if (this.peers.known[peerId2]?.connectionsCount === 0) delete this.peers.known[peerId2];
+		if (this.store.known[peerId1]) this.store.known[peerId1].removeNeighbour(peerId2);
+		if (this.store.known[peerId2]) this.store.known[peerId2].removeNeighbour(peerId1);
+		if (this.store.known[peerId1]?.connectionsCount === 0) delete this.store.known[peerId1];
+		if (this.store.known[peerId2]?.connectionsCount === 0) delete this.store.known[peerId2];
 	}
 	digestValidRoute(route = []) { // each peerId of the route can be linked in our known peers
-		for (let i = 0; i < route.length; i++)
-			if (i === 0) continue;
-			else this.linkPeers(route[i - 1], route[i]);
+		for (let i = 1; i < route.length; i++)
+			this.linkPeers(route[i - 1], route[i]);
 	}
 
 	/** @param {string} remoteId @param {GossipMessage | DirectMessage} message */
 	sendMessageToPeer(remoteId, message) {
-		if (!this.peers.connected[remoteId]) console.error(`Peer with ID ${remoteId} is not connected.`);
-		else this.peers.connected[remoteId].simplePeerInstance.send(JSON.stringify(message));
+		const status = this.store.connected[remoteId] ? 'connected' : this.store.connecting[remoteId] ? 'connecting' : null;
+		if (!status) return console.error(`Peer with ID ${remoteId} is not connected or connecting.`);
+		if (status === 'connected') this.store.connected[remoteId].transportInstance.send(JSON.stringify(message));
+		else this.store.connecting[remoteId].tempTransportInstance.send(JSON.stringify(message));
+	}
+
+	destroy() {
+		this.dd = true;
+		for (const peerId in this.store.connected) this.removePeer(peerId, 'connected');
+		for (const peerId in this.store.connecting) this.removePeer(peerId, 'connecting');
+		for (const timeoutId in this.connectingTimeouts)
+			{ clearTimeout(this.connectingTimeouts[timeoutId]); delete this.connectingTimeouts[timeoutId]; }
 	}
 }
