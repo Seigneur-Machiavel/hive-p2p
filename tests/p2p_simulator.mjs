@@ -2,8 +2,8 @@
 import { createNodeP2P, NodeP2P } from '../p2p_node.mjs';
 
 const settings = {
-	publicPeersCount: 5,
-	peersCount: 10,
+	publicPeersCount: 2,
+	peersCount: 5,
 	chosenPeerCount: 1
 };
 

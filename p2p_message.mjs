@@ -1,5 +1,3 @@
-
-
 export class GossipMessage {
 	senderId;
 	topic;
@@ -22,13 +20,13 @@ export class DirectMessage {
 	isFlexible;
 
 	/**
-	 * @param {string | string[]} route chain of peerIds to reach the target, start with sender end with the target peerId
+	 * @param {string[]} route chain of peerIds to reach the target, start by sender, end by target
 	 * @param {string} type type of message
 	 * @param {string | Uint8Array} data message content, should be encrypted with target peer's public key
 	 * @param {boolean} isFlexible Whether the message can be sent through a different route if the primary route fails, default is false
 	 */
 	constructor(route, type, data, isFlexible = false) {
-		this.route = route instanceof Array ? route : [route];
+		this.route = route;
 		this.type = type;
 		this.data = data;
 		this.isFlexible = isFlexible;

@@ -11,18 +11,24 @@
  */
 
 export class RouteBuilder {
-	/** @param {Object} knownPeers - The peers.known object from PeerStore */
-	constructor(knownPeers) { this.knownPeers = knownPeers; }
+	constructor(selfId = 'toto', knownPeers = {}, connectedPeers = {}) {
+		this.selfId = selfId;
+		this.knownPeers = knownPeers;
+		this.connectedPeers = connectedPeers;
+	}
 
 	/** Find all possible routes between two peers using exhaustive BFS
 	 * @param {string} from - Source peer ID
-	 * @param {string} remoteId - Destination peer ID  
+	 * @param {string} remoteId - Destination peer ID
 	 * @param {number} maxRoutes - Maximum number of routes to return (default: 5)
 	 * @param {number} maxHops - Maximum relays allowed (default: 3)
 	 * @param {number} maxNodes - Maximum nodes to explore (default: 1728 = 12³)
+	 * @param {boolean} sortByScore - Whether to sort routes by score (default: true)
 	 * @returns {RouteResult} Result containing found routes and metadata */
-	buildRoutes(from, remoteId, maxRoutes = 5, maxHops = 3, maxNodes = 1728) {
+	buildRoutes(from, remoteId, maxRoutes = 5, maxHops = 3, maxNodes = 1728, sortByScore = true) {
 		if (from === remoteId) return { routes: [], success: false, nodesExplored: 0 };
+		if (from === this.selfId && this.connectedPeers[remoteId])
+			return { routes: [[from, remoteId]], success: true, nodesExplored: 1 };
 
 		let nodesExplored = 0;
 		const foundRoutes = [];
@@ -32,7 +38,7 @@ export class RouteBuilder {
 			nodesExplored++;
 
 			if (depth >= maxHops) continue; // Don't explore beyond max depth
-			const neighbors = this.getPeerNeighbours(current);
+			const neighbors = Object.keys(this.knownPeers[current]?.neighbours || {});
 			for (const neighbor of neighbors) {
 				if (path.includes(neighbor)) continue; // Skip if this would create a cycle
 				
@@ -50,9 +56,7 @@ export class RouteBuilder {
 			hops: path.length - 1,
 			score: this.calculateRouteScore(path)
 		}));
-
-		routesWithScores.sort((a, b) => b.score - a.score); // Sort by score (best first) and limit results
-
+		if (sortByScore) routesWithScores.sort((a, b) => b.score - a.score); // Sort by score (best first)
 		return { routes: routesWithScores.slice(0, maxRoutes), success: true,  nodesExplored };
 	}
 
@@ -66,12 +70,5 @@ export class RouteBuilder {
 		if (hops === 2) return 0.7;  // 2 hops
 		if (hops === 3) return 0.5;  // 3 hops
 		return 0.3; // 4+ hops (shouldn't happen with maxHops=3)
-	}
-
-	/** Get neighbor peer IDs for a given peer
-	 * @param {string} peerId - Peer ID
-	 * @returns {string[]} Array of neighbor peer IDs */
-	getPeerNeighbours(peerId) {
-		return Object.keys(this.knownPeers[peerId]?.neighbours || {});
 	}
 }

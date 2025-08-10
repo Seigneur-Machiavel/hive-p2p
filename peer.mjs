@@ -2,7 +2,6 @@ import wrtc from 'wrtc';
 import SimplePeer from 'simple-peer';
 import { VARS } from './p2p_utils.mjs';
 import { GossipMessage, DirectMessage } from './p2p_message.mjs';
-import { RouteBuilder } from './path_finder.mjs';
 
 export class PeerConnection {
 	simplePeerInstance;
@@ -59,22 +58,28 @@ export class PeerStore {
 	onDisconnect = [
 		(peerId) => this.removeConnectedPeer(peerId)
 	];
-	onSignal = [];
+	onSignal = [
+		/*(peerId, data, ws, sCT) => { // debug log (testing trickle: true => lot faster)
+			if (data.type === 'offer') console.log(`Signal created in ${Date.now() - sCT}ms`);
+		}*/
+	];
 	onData = [];
 	connectingTimeouts = {};
-	pathFinder = new RouteBuilder(this.peers.known);
 
 	constructor() {}
 
 	/** @param {string} remoteId @param {WebSocket} [ws] @param {string} [remoteSDP] */
 	addConnectingPeer(remoteId, ws, remoteSDP) {
-		if (remoteSDP && remoteSDP.type !== 'offer') return console.error(`Invalid remote SDP type: ${remoteSDP.type}. Expected 'offer'.`);
+		if (!remoteId) return console.error('Invalid remoteId');
+		const direction = remoteSDP ? 'in' : 'out';
+		if (direction === 'in' && remoteSDP.type !== 'offer') return console.error(`Invalid remote SDP type: ${remoteSDP.type}. Expected 'offer'.`);
+		
 		const { connected, connecting } = this.peers;
 		if (connected[remoteId]) return console.warn(`Peer with ID ${remoteId} already connected.`), connected[remoteId];
 		if (connecting[remoteId]) return console.warn(`Peer with ID ${remoteId} is already connecting.`), connecting[remoteId];
 
-		const simplePeerInstance = new SimplePeer({ initiator: !remoteSDP, trickle: false, wrtc });
-		const direction = remoteSDP ? 'in' : 'out';
+		const sCT = Date.now(); // signalCreationTime (debug)
+		const simplePeerInstance = new SimplePeer({ initiator: !remoteSDP, trickle: true, wrtc });
 		connecting[remoteId] = new PeerConnection(remoteId, simplePeerInstance, direction);
 		// mode non-fiable : = new SimplePeer({ channelConfig: { ordered: false, maxRetransmits: 0 } });
 		simplePeerInstance.on('connect', () => {
@@ -82,18 +87,23 @@ export class PeerStore {
 			simplePeerInstance.on('close', () => { for (const cb of this.onDisconnect) cb(remoteId, direction); });
 			simplePeerInstance.on('data', data => { for (const cb of this.onData) cb(remoteId, data); });
 		});
-		simplePeerInstance.on('signal', data => { for (const cb of this.onSignal) cb(remoteId, data, ws); });
+		simplePeerInstance.on('signal', data => { for (const cb of this.onSignal) cb(remoteId, data, ws, sCT); });
+		simplePeerInstance.on('error', error => console.error(`SimplePeer error for ${remoteId}:`, error));
 
 		if (remoteSDP) simplePeerInstance.signal(remoteSDP);
 		this.connectingTimeouts[remoteId] = setTimeout(() => this.removeConnectingPeer(remoteId), VARS.CONNECTION_UPGRADE_TIMEOUT);
 	}
 	assignConnectingPeerSignal(remoteId, signalData) {
-		if (signalData && signalData.type !== 'answer') return console.error(`Invalid signal data type: ${signalData.type}. Expected 'answer'.`);
-		const connectingPeer = this.peers.connecting[remoteId];
-		if (!connectingPeer) return console.error(`Peer with ID ${remoteId} does not exist.`);
-		if (connectingPeer.direction === 'in') return console.error(`Received 'answer' for ${remoteId} incoming connexion is not allowed.`);
+		if (!remoteId || !signalData) return console.error('Invalid remoteId or signalData');
+		const peer = this.peers.connecting[remoteId];
+		if (!peer) return;
 
-		connectingPeer.simplePeerInstance.signal(signalData);
+		const validTypes = ['answer', 'candidate'];
+		if (!validTypes.includes(signalData.type)) return console.error(`Invalid signal data type: ${signalData.type}. Expected 'answer' or 'candidate'.`);
+		if (signalData.type === 'answer' && peer.direction === 'in') // catch simultaneous opposite connections
+			return console.error(`Received ${signalData.type} for ${remoteId} incoming connexion is not allowed.`);
+
+		peer.simplePeerInstance.signal(signalData);
 	}
 	#upgradeConnectingToConnected(remoteId, direction, ws) {
 		if (direction === 'in' && ws) ws.close(); // Close the WebSocket if used for signaling
