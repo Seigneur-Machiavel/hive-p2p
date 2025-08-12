@@ -1,76 +1,89 @@
 // HERE WE ARE BASICALLY COPYING THE PRINCIPLE OF "SimplePeer"
 
 class Sandbox {
+	// --- WebSocket Simulation ---
+	/** @type {Record<string, TestWsServer>} */
+	publicWsServers = {};
+	inscribeWebSocketServer(url, testWsServer) {
+		this.publicWsServers[url] = testWsServer;
+	}
+	removeWebSocketServer(url) {
+		delete this.publicWsServers[url];
+	}
+	/** @param {string} url @param {TestWsConnection} testWsConnection */
+	connectToWebSocketServer(url, testWsConnection) {
+		const server = this.publicWsServers[url];
+		if (!server) return;
+		const serverWsConnection = new TestWsConnection(server, testWsConnection);
+		server.callbacks.connection.forEach(cb => cb(serverWsConnection)); // emit connection event
+		return serverWsConnection;
+	}
+
+	// --- SimplePeer Simulation ---
 	static SIGNAL_TIMEOUT = 8_000;
 
-	/** @type {Array<Object<string, boolean>>} */
-	peersConnections = [];
-	/** @type {Array<TestTransport>} */
-	peers = [];
-	inscribePeer(peer) {
-		const peerIndex = this.peers.length;
-		this.peers.push(peer);
-		this.peersConnections[peerIndex] = {};
-		return peerIndex;
+	// -------------
+	globalIndex = 0; // index to attribute transportInstances ID
+	/** @type {Record<string, TestTransport>} */
+	connections = {};
+	/** @type {Record<string, TestTransport>} */
+	transportInstances = {};
+	inscribeInstance(transportInstance) {
+		const transportId = this.globalIndex++;
+		this.transportInstances[transportId] = transportInstance;
+		return transportId;
 	}
-	#createLinkBetweenPeers(peerIndexA, peerIndexB) {
-		const [indexAstr, indexBstr] = [peerIndexA.toString(), peerIndexB.toString()];
-		this.peersConnections[indexAstr] = this.peersConnections[indexAstr] || {};
-		this.peersConnections[indexBstr] = this.peersConnections[indexBstr] || {};
-		this.peersConnections[indexAstr][indexBstr] = true;
-		this.peersConnections[indexBstr][indexAstr] = true;
-		this.peers[peerIndexA].callbacks.connect.forEach(cb => cb()); // emit connect event for peer A
-		this.peers[peerIndexB].callbacks.connect.forEach(cb => cb()); // emit connect event for peer B
-	}
-	#deleteLinkBetweenPeers(peerIndexA, peerIndexB) {
-		const [indexAstr, indexBstr] = [peerIndexA.toString(), peerIndexB.toString()];
-		if (this.peersConnections[indexAstr]?.[indexBstr])
-			delete this.peersConnections[indexAstr][indexBstr];
-		if (this.peersConnections[indexBstr]?.[indexAstr])
-			delete this.peersConnections[indexBstr][indexAstr];
+	#linkInstances(idA, idB) {
+		const [ tA, tB ] = [this.transportInstances[idA], this.transportInstances[idB]];
+		if (!tA || !tB) return; // one instances missing
+		if (tA.closing || tB.closing) return; // one of the instances is closing
 
-		if (Object.keys(this.peersConnections[indexAstr]).length === 0)
-			delete this.peersConnections[indexAstr];
-		if (Object.keys(this.peersConnections[indexBstr]).length === 0)
-			delete this.peersConnections[indexBstr];
-	}
-	sendData(fromPeerIndex, toPeerIndex, data) {
-		if (!this.arePeersLinked(fromPeerIndex, toPeerIndex)) {
-			console.error(`No link exists between peers ${fromPeerIndex} and ${toPeerIndex}`);
-			return false;
-		}
-		const peer = this.peers[toPeerIndex];
-		for (const cb of peer.callbacks.data) cb(data); // emit data event
+		const conns = this.connections;
+		if (conns[idA] || conns[idB]) return; // at least one is already linked
+
+		conns[idA] = tB;
+		conns[idB] = tA;
+		tA.callbacks.connect.forEach(cb => cb()); // emit connect event for transportInstance A
+		tB.callbacks.connect.forEach(cb => cb()); // emit connect event for transportInstance B
 		return true;
 	}
-	destroyPeer(peerIndex) {
-		const sdp = this.PENDING_OFFERS[peerIndex];
-		if (sdp !== undefined) this.#destroySignal(peerIndex, sdp.id);
-		for (const peerIndexB of Object.keys(this.peersConnections[peerIndex] || {}))
-			this.#deleteLinkBetweenPeers(peerIndex, peerIndexB);
+	sendData(fromId, toId, data) {
+		if (fromId === undefined) return { success: false, reason: `Cannot send message from id: ${fromId}` };
+		if (toId === undefined) return { success: false, reason: `Cannot send message to id: ${toId}` };
+		const transportInstance = this.connections[fromId];
+		if (!transportInstance) return { success: false, reason: `No transport instance found for id: ${fromId}` };
+		if (transportInstance.id !== toId) return { success: false, reason: `Wrong id for transportInstance ${fromId} !== ${toId}` };
+		for (const cb of transportInstance.callbacks.data) cb(data); // emit data event
+		return { success: true };
 	}
-	arePeersLinked(peerIndexA, peerIndexB) {
-		const [indexAstr, indexBstr] = [peerIndexA.toString(), peerIndexB.toString()];
-		const linkA = this.peersConnections[indexAstr]?.[indexBstr];
-		const linkB = this.peersConnections[indexBstr]?.[indexAstr];
-		return linkA === true && linkB === true;
-	}
-	PENDING_OFFERS = {}; // key: peerIndex, value: signalData
-	OFFERS_EMITTERS = {}; // key: signalId, value: peerIndex
-	PENDING_ANSWERS = {}; // key: peerIndex, value: signalData
-	ANSWER_EMITTERS = {}; // key: signalId, value: peerIndex
+	destroyTransport(id) {
+		const sdp = this.PENDING_OFFERS[id];
+		if (sdp !== undefined) this.#destroySignal(id, sdp.id);
 
-	#addSignalOffer(peerIndex, signalData) {
-		this.PENDING_OFFERS[peerIndex] = signalData;
-		this.OFFERS_EMITTERS[signalData.id] = peerIndex;
-		setTimeout(() => this.#destroySignal(peerIndex, signalData.id), Sandbox.SIGNAL_TIMEOUT);
+		this.connections[id]?.close(); // close remote instance
+		this.transportInstances[id]?.close(); // close local instance
+
+		setTimeout(() => { // cleanup after short delay to digest close events
+			delete this.connections[id];
+			delete this.transportInstances[id];
+		}, 1000);
 	}
-	#addSignalAnswer(peerIndex, signalData) {
-		this.PENDING_ANSWERS[peerIndex] = signalData;
-		this.ANSWER_EMITTERS[signalData.id] = peerIndex;
-		setTimeout(() => this.#destroySignal(peerIndex, signalData.id), Sandbox.SIGNAL_TIMEOUT);
+	PENDING_OFFERS = {}; // key: id, value: signalData
+	OFFERS_EMITTERS = {}; // key: signalId, value: id
+	PENDING_ANSWERS = {}; // key: id, value: signalData
+	ANSWER_EMITTERS = {}; // key: signalId, value: id
+
+	#addSignalOffer(id, signalData) {
+		this.PENDING_OFFERS[id] = signalData;
+		this.OFFERS_EMITTERS[signalData.id] = id;
+		setTimeout(() => this.#destroySignal(id, signalData.id), Sandbox.SIGNAL_TIMEOUT);
 	}
-	buildSDP(peerIndex, type = 'offer') {
+	#addSignalAnswer(id, signalData) {
+		this.PENDING_ANSWERS[id] = signalData;
+		this.ANSWER_EMITTERS[signalData.id] = id;
+		setTimeout(() => this.#destroySignal(id, signalData.id), Sandbox.SIGNAL_TIMEOUT);
+	}
+	buildSDP(id, type = 'offer') {
 		const SDP = {
 			type,
 			sdp: {
@@ -93,46 +106,129 @@ class Sandbox {
 				]
 			}
 		}
-		if (type === 'offer') this.#addSignalOffer(peerIndex, SDP.sdp);
-		else if (type === 'answer') this.#addSignalAnswer(peerIndex, SDP.sdp);
+		if (type === 'offer') this.#addSignalOffer(id, SDP.sdp);
+		else if (type === 'answer') this.#addSignalAnswer(id, SDP.sdp);
 		else return console.error(`Invalid signal type: ${type}. Expected 'offer' or 'answer'.`);
 
 		return SDP;
 	}
-	#destroySignal(peerIndex) {
-		const offer = this.PENDING_OFFERS[peerIndex];
-		const answer = this.PENDING_ANSWERS[peerIndex];
+	#destroySignal(id) {
+		const offer = this.PENDING_OFFERS[id];
+		const answer = this.PENDING_ANSWERS[id];
 		if (offer) {
-			delete this.PENDING_OFFERS[peerIndex];
+			delete this.PENDING_OFFERS[id];
 			delete this.OFFERS_EMITTERS[offer.id];
 		} else if (answer) {
-			delete this.PENDING_ANSWERS[peerIndex];
+			delete this.PENDING_ANSWERS[id];
 			delete this.ANSWER_EMITTERS[answer.id];
 		}
 	}
-	digestSignal(SDP, receiverPeerIndex) {
+	digestSignal(SDP, receiverId) {
 		const { type, sdp } = SDP;
 		if (type !== 'answer' && type !== 'offer') return console.error(`Invalid signal type: ${type}. Expected 'offer' or 'answer'.`), { success: false };
 
-		const peerIndex = type === 'offer' ? this.OFFERS_EMITTERS[sdp.id] : this.ANSWER_EMITTERS[sdp.id];
-		const receiverPeer = this.peers[receiverPeerIndex];
-		if (peerIndex === undefined || receiverPeer === undefined) return;
+		const signalAssociatedId = type === 'offer' ? this.OFFERS_EMITTERS[sdp.id] : this.ANSWER_EMITTERS[sdp.id];
+		const receiver = this.transportInstances[receiverId];
+		if (signalAssociatedId === undefined || receiver === undefined) return;
 
 		if (type === 'answer') {
-			this.#destroySignal(peerIndex, sdp.id);
-			this.#createLinkBetweenPeers(peerIndex, receiverPeerIndex);
-			return { success: true, peerIndex };
+			this.#destroySignal(signalAssociatedId, sdp.id);
+			if (this.#linkInstances(signalAssociatedId, receiverId)) return { success: true, remoteId: signalAssociatedId };
+			else return console.error(`Failed to link transport instances for e:${signalAssociatedId} => r:${receiverId}`), { success: false };
 		}
-
 		
 		return {
-			success: peerIndex !== undefined,
-			peerIndex,
-			signalData: peerIndex !== undefined ? this.buildSDP(receiverPeerIndex, 'answer') : undefined
+			success: signalAssociatedId !== undefined,
+			remoteId: signalAssociatedId,
+			signalData: signalAssociatedId !== undefined ? this.buildSDP(receiverId, 'answer') : undefined
 		};
 	}
 }
 const SANDBOX = new Sandbox();
+
+export class TestWsConnection { // WebSocket like
+	/** @type {TestWsConnection} */
+	remoteWs;
+	delayBeforeConnectionTry = 500;
+	readyState = 0;
+	url; // outgoing connection only
+	callbacks = {
+		message: [],
+		close: []
+	}
+	onmessage;
+	onopen;
+	onclose;
+	onerror;
+
+	constructor(url = 'ws://...', clientWsConnection) {
+		if (!clientWsConnection) this.url = url;
+		setTimeout(() => this.#init(clientWsConnection), this.delayBeforeConnectionTry);
+	}
+	#init(clientWsConnection) {
+		if (clientWsConnection) this.remoteWs = clientWsConnection;
+		else this.remoteWs = SANDBOX.connectToWebSocketServer(this.url, this);
+
+		if (!this.remoteWs) console.error(`Failed to connect to WebSocket server at ${this.url}`);
+		if (!this.remoteWs && clientWsConnection)
+			setTimeout(() => this.#dispatchError(new Error(`Failed to connect to WebSocket server at ${this.url}`)), 10_000);
+
+		if (this.remoteWs) this.readyState = 1; // OPEN
+		if (this.remoteWs && this.onopen) this.onopen();
+	}
+	on(event, callback) {
+		if (!this.callbacks[event]) return console.error(`Unknown event: ${event}`);
+		this.callbacks[event].push(callback);
+	}
+	close() {
+		if (this.closing) return;
+		this.closing = true;
+		this.readyState = 3; // CLOSED
+
+		this.callbacks.close.forEach(cb => cb()); // emit close event
+		if (this.onclose) this.onclose();
+		setTimeout(() => { if (this.remoteWs) this.remoteWs.close(); }, 100);
+	}
+	send(message) {
+		if (!this.remoteWs) {
+			console.error(`No WebSocket server found for URL: ${this.url}`);
+			this.close(); // disconnected, abort operation
+		}
+
+		//const serialized = JSON.stringify(message);
+		this.remoteWs.callbacks.message.forEach(cb => cb(message)); // emit message event
+		if (this.remoteWs?.onmessage) this.remoteWs.onmessage({ data: message }); // emit onmessage event
+	}
+	#dispatchError(error) {
+		this.callbacks.error.forEach(cb => cb({ error }));
+		if (this.onerror) this.onerror({ error });
+	}
+}
+export class TestWsServer { // WebSocket like
+	url;
+	clients = new Set();
+	callbacks = {
+		connection: [ (client) => this.clients.add(client) ],
+		close: [ (client) => this.clients.delete(client) ],
+		error: []
+	};
+
+	constructor(opts = { port, host: domain }) {
+		this.url = `ws://${opts.host}:${opts.port}`;
+		SANDBOX.inscribeWebSocketServer(this.url, this);
+	}
+
+	on(event, callback) {
+		if (!this.callbacks[event]) return console.error(`Unknown event: ${event}`);
+		this.callbacks[event].push(callback);
+	}
+	close() {
+		if (this.closing) return;
+		this.closing = true;
+		SANDBOX.removeWebSocketServer(this.url);
+		for (const cb of this.callbacks.close) cb();
+	}
+}
 
 class TestTransportOptions {
 	/** @type {number} */
@@ -146,9 +242,9 @@ class TestTransportOptions {
 	wrtc;
 }
 
-export class TestTransport {
-	peerIndex = 0;
-	remotePeerIndex = null;
+export class TestTransport { // SimplePeer like
+	id = 0;
+	remoteId = null;
 	// SimplePeer.Options: { initiator: !remoteSDP, trickle: true, wrtc }
 	signalCreationDelay;
 	initiator;
@@ -156,14 +252,14 @@ export class TestTransport {
 	wrtc;
 	/** @param {TestTransportOptions} opts */
 	constructor(opts = { initiator: false, trickle: true, wrtc: null, timeout: 5000 }) {
-		this.peerIndex = SANDBOX.inscribePeer(this);
+		this.id = SANDBOX.inscribeInstance(this);
 		this.signalCreationDelay = opts.signalCreationDelay || TestTransportOptions.defaultSignalCreationDelay;
 		this.initiator = opts.initiator;
 		this.trickle = opts.trickle;
 		this.wrtc = opts.wrtc;
 
 		if (!this.initiator) return; // standby
-		const SDP = SANDBOX.buildSDP(this.peerIndex, 'offer'); // emit signal event 'offer'
+		const SDP = SANDBOX.buildSDP(this.id, 'offer'); // emit signal event 'offer'
 		setTimeout(() => this.callbacks.signal.forEach(cb => cb(SDP)), this.signalCreationDelay);
 	}
 
@@ -182,33 +278,33 @@ export class TestTransport {
 		this.callbacks.error.forEach(cb => cb({ error }));
 	}
 	signal(remoteSDP) {
-		if (remoteSDP.type === 'offer' && SANDBOX.PENDING_OFFERS[this.peerIndex])
+		if (remoteSDP.type === 'offer' && SANDBOX.PENDING_OFFERS[this.id])
 			return this.dispatchError(`Signal with ID ${remoteSDP.sdp.id} already exists.`);
 		if (!remoteSDP.sdp || !remoteSDP.sdp.id || remoteSDP.type !== 'offer' && remoteSDP.type !== 'answer')
 			return this.dispatchError('Invalid remote SDP:', remoteSDP);
 
-		const result = SANDBOX.digestSignal(remoteSDP, this.peerIndex);
-		if (!result) return this.dispatchError(`Failed to digest signal for peer: ${this.peerIndex}`);
+		const result = SANDBOX.digestSignal(remoteSDP, this.id);
+		if (!result) return this.dispatchError(`Failed to digest signal for peer: ${this.id}`);
 
-		const { success, peerIndex, signalData } = result;
+		const { success, remoteId, signalData } = result;
 		if (!success) return this.dispatchError(`No peer found with signal ID: ${remoteSDP.sdp.id}`);
 
-		this.remotePeerIndex = peerIndex;
+		this.remoteId = remoteId;
 		if (signalData) this.callbacks.signal.forEach(cb => cb(signalData)); // emit signal event 'answer'
 	}
-	/** @param { string | Uint8Array } message */
+	/** @param {string | Uint8Array} message */
 	send(message) {
-		const canSend = SANDBOX.arePeersLinked(this.peerIndex, this.remotePeerIndex);
-		if (!canSend) return console.error(`No link exists between peers ${this.peerIndex} and ${this.remotePeerIndex}`);
-		SANDBOX.sendData(this.peerIndex, this.remotePeerIndex, message);
+		const { success, reason } = SANDBOX.sendData(this.id, this.remoteId, message);
+		//if (!success) this.destroy(reason);
 	}
 	close() {
 		this.destroy();
 	}
 	destroy(errorMsg = null) {
-		SANDBOX.destroyPeer(this.peerIndex);
+		if (this.closing) return;
+		this.closing = true;
 		if (!errorMsg) this.callbacks.close.forEach(cb => cb()); // emit close event
 		else this.callbacks.error.forEach(cb => cb(errorMsg));
-		delete SANDBOX.peersConnections[this.peerIndex];
+		SANDBOX.destroyTransport(this.id);
 	}
 }

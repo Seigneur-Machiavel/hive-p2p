@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>P2P Network Visualization - Three.js</title>
+	<link rel="stylesheet" href="./tests/p2p_simulator.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+	<script src="./tests/p2p_visualizer.mjs" type="module"></script>
+</head>
+<body>
+    <div id="peersList" style="display: none;">
+        <h3>Peers List</h3>
+    </div>
+    <div id="simulationSettings" style="display: none;">
+        <h3>Simulation Settings</h3>
+        <div>
+            <label for="publicPeersCount">Public:</label>
+            <input type="number" id="publicPeersCount" value="2">
+        </div>
+        <div>
+            <label for="peersCount">Standard:</label>
+            <input type="number" id="peersCount" value="20">
+        </div>
+        <div>
+            <label for="chosenPeerCount">Chosen:</label>
+            <input type="number" id="chosenPeerCount" value="3">
+        </div>
+		<div>
+			<button id="startMock" style="width: 35%;">Mock</button>
+			<button id="addMoreNodes" style="width: 60%;">+50 Nodes</button>
+		</div>
+		<button id="startSimulation" style="width: 100%;">Start</button>
+    </div>
+    <div id="tooltip"></div>
+    <div id="info">
+		<button id="modeSwitchBtn">2D</button>
+        <div>FPS: <span id="fpsCount">0</span></div>
+        <div>Nodes: <span id="nodeCount">0</span></div>
+        <div>Connections: <span id="connectionCount">0</span></div>
+		---------------------------------
+        <div><pre>
+Left-Click = connect
+Right-Click = select
+Left-Handle = pan
+Right-Handle = rotate
+Wheel = zoom</pre></div>
+    </div>
+</body>
+</html>

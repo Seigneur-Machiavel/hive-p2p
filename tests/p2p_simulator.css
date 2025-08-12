@@ -1,28 +1,33 @@
 body {
 	margin: 0;
-	padding: 20px;
 	font-family: Arial, sans-serif;
 	background: #1a1a1a;
 	color: white;
+	overflow: hidden;
+}
+
+button {
+	cursor: pointer;
 }
 
 #peersList {
 	position: fixed;
-	top: 5vh;
-	left: 20px;
+	top: 10px;
+	left: 10px;
 	background: rgba(0, 0, 0, 0.8);
 	border-radius: 8px;
 	padding: 10px;
-	max-height: 90vh;
+	max-height: 50vh;
 	overflow-y: auto;
-	min-width: 120px;
+	min-width: 130px;
+	max-width: 200px;
 	z-index: 1000;
 }
 #peersList h3 {
 	margin: 0 0 10px 0;
 	color: #4CAF50;
 }
-#peersList div {
+#peersList div[data-peer-id] {
 	padding: 6px 10px;
 	margin: 2px 0;
 	background: rgba(76, 175, 80, 0.2);
@@ -30,17 +35,34 @@ body {
 	cursor: pointer;
 	transition: background 0.2s;
 }
-#peersList div.selected {
+#peersList div[data-peer-id].selected {
 	background: rgba(76, 175, 80, 0.4);
 }
-#peersList div:hover {
+#peersList div[data-peer-id]:hover {
 	background: rgba(76, 175, 80, 0.4);
+}
+#info {
+	position: absolute;
+	bottom: 10px;
+	left: 10px;
+	background: rgba(0,0,0,0.8);
+	padding: 10px;
+	border-radius: 5px;
+	font-size: 12px;
+}
+#info pre {
+	margin: 5px 0 0 0;
+}
+#modeSwitchBtn {
+	position: absolute;
+    top: 10px;
+    right: 10px;
 }
 
 #simulationSettings {
 	position: fixed;
-	top: 5vh;
-	right: 20px;
+	top: 10px;
+	right: 10px;
 	background: rgba(0, 0, 0, 0.8);
 	border-radius: 8px;
 	padding: 10px;

@@ -28,7 +28,7 @@ export class RouteBuilder {
 	buildRoutes(from, remoteId, maxRoutes = 5, maxHops = 3, maxNodes = 1728, sortByScore = true) {
 		if (from === remoteId) return { routes: [], success: false, nodesExplored: 0 };
 		if (from === this.selfId && this.connectedPeers[remoteId])
-			return { routes: [[from, remoteId]], success: true, nodesExplored: 1 };
+			return { routes: [{ path: [from, remoteId] }], success: true, nodesExplored: 1 };
 
 		let nodesExplored = 0;
 		const foundRoutes = [];

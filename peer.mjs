@@ -10,6 +10,7 @@ import { GossipMessage, DirectMessage } from './p2p_message.mjs';
  * @property {Object<string, PeerConnection>} connected
  * @property {Object<string, PeerConnection>} connecting
  * @property {Object<string, KnownPeer>} known
+ * @property {Object<string, number>} bannedUntil
  */
 
 /** @type {Record<string, SimplePeer>} */
@@ -30,6 +31,9 @@ export class PeerConnection {
 		this.transportInstance = transportInstance;
 		this.direction = direction;
 		this.peerId = peerId;
+	}
+	close() {
+		this.transportInstance.destroy();
 	}
 }
 export class KnownPeer {
@@ -59,7 +63,7 @@ export class PeerStore {
 	/** @type {boolean} Flag to indicate if the peer store is destroyed */
 	dd = false;
 	/** @type {Store} */
-	store = { connected: {}, connecting: {}, known: {} }
+	store = { connected: {}, connecting: {}, known: {}, bannedUntil: {} };
 	onConnect = [(peerId, direction) => this.#upgradeConnectingToConnected(peerId)];
 	onDisconnect = [(peerId) => this.removePeer(peerId, 'connected')];
 	onSignal = [];
@@ -126,6 +130,17 @@ export class PeerStore {
 		if (this.store.connected[remoteId].tempTransportInstance) // close temporary transport (usually WebSocket)
 			this.store.connected[remoteId].tempTransportInstance.close();
 	}
+	banPeer(peerId, duration = 60_000) {
+		if (!peerId) return;
+		this.store.bannedUntil[peerId] = Date.now() + duration;
+		this.store.connected[peerId]?.close();
+	}
+	isBanned(peerId) {
+		if (!this.store.bannedUntil[peerId]) return false;
+		const remainingBanTime = this.store.bannedUntil[peerId];
+		if (remainingBanTime < Date.now()) delete this.store.bannedUntil[peerId];
+		else return true;
+	}
 	/** @param {string} remoteId @param {'connected' | 'connecting'} status */
 	removePeer(remoteId, status) {
 		if (!this.store[status]?.[remoteId]) return;
@@ -156,9 +171,13 @@ export class PeerStore {
 	/** @param {string} remoteId @param {GossipMessage | DirectMessage} message */
 	sendMessageToPeer(remoteId, message) {
 		const status = this.store.connected[remoteId] ? 'connected' : this.store.connecting[remoteId] ? 'connecting' : null;
-		if (!status) return console.error(`Peer with ID ${remoteId} is not connected or connecting.`);
-		if (status === 'connected') this.store.connected[remoteId].transportInstance.send(JSON.stringify(message));
-		else this.store.connecting[remoteId].tempTransportInstance.send(JSON.stringify(message));
+		if (!status)  return { success: false, reason: `Peer with ID ${remoteId} is not connected or connecting.` };
+		
+		const transportInstance = status === 'connected' ? this.store.connected[remoteId].transportInstance : this.store.connecting[remoteId].tempTransportInstance;
+		if (!transportInstance) return { success: false, reason: `Transport instance is not available for peer ${remoteId}.` };
+		try { transportInstance.send(JSON.stringify(message));
+		} catch (error) { console.error(`Error sending message to ${remoteId}:`, error); }
+		return { success: true };
 	}
 
 	destroy() {
