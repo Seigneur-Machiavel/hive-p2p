@@ -33,7 +33,7 @@ class SimulationInterface {
 	}
 	start(settings) {
 		this.#sendWsMessage({ type: 'start', settings });
-		setTimeout(() => this.simulationInterface.subscribeToPeerMessages(this.currentPeerId), 2000);
+		setTimeout(() => this.subscribeToPeerMessages(this.currentPeerId), 2000);
 	}
 	getPeerInfo() {
 		this.#sendWsMessage({ type: 'getPeerInfo', peerId: this.currentPeerId });
