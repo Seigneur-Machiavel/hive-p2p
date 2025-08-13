@@ -10,7 +10,6 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@mapbox/node-pre-gyp": "^2.0.0",
     "express": "^5.1.0",
     "simple-peer": "^9.11.1",
     "wrtc": "^0.4.7",

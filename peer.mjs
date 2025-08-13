@@ -3,6 +3,7 @@ import SimplePeer from 'simple-peer';
 import { TestTransport } from './p2p_test_transport.mjs';
 import { VARS } from './p2p_utils.mjs';
 import { GossipMessage, DirectMessage } from './p2p_message.mjs';
+
 /**
  * @typedef {import('ws').WebSocket} WebSocket
  *
@@ -61,9 +62,9 @@ export class KnownPeer {
 
 export class PeerStore {
 	/** @type {boolean} Flag to indicate if the peer store is destroyed */
-	dd = false;
+	isStoreDestroyed = false;
 	/** @type {Store} */
-	store = { connected: {}, connecting: {}, known: {}, bannedUntil: {} };
+	store = {connected: {}, connecting: {}, known: {}, bannedUntil: {}};
 	onConnect = [(peerId, direction) => this.#upgradeConnectingToConnected(peerId)];
 	onDisconnect = [(peerId) => this.removePeer(peerId, 'connected')];
 	onSignal = [];
@@ -93,22 +94,23 @@ export class PeerStore {
 		connecting[remoteId].tempTransportInstance = tempTransportInstance;
 
 		transportInstance.on('connect', () => {
-			if (this.dd) return;
+			if (this.isStoreDestroyed) return;
 			for (const cb of this.onConnect) cb(remoteId, direction);
-			transportInstance.on('close', () => { if (!this.dd) for (const cb of this.onDisconnect) cb(remoteId, direction); });
-			transportInstance.on('data', data => { if (!this.dd) for (const cb of this.onData) cb(remoteId, data); });
+			transportInstance.on('close', () => { if (!this.isStoreDestroyed) for (const cb of this.onDisconnect) cb(remoteId, direction); });
+			transportInstance.on('data', data => { if (!this.isStoreDestroyed) for (const cb of this.onData) cb(remoteId, data); });
 		});
-		transportInstance.on('signal', data => { if (!this.dd) for (const cb of this.onSignal) cb(remoteId, data, sCT); });
+		transportInstance.on('signal', data => { if (!this.isStoreDestroyed) for (const cb of this.onSignal) cb(remoteId, data, sCT); });
 		transportInstance.on('error', error => {
 			if (error.message === 'cannot signal after peer is destroyed') return; // avoid logging
-			console.error(`transportInstance error for ${remoteId}:`, error);
+			console.error(`transportInstance error for ${remoteId}:`, error.stack);
 		});
 
 		if (remoteSDP) try { transportInstance.signal(remoteSDP); } catch (error) { console.error(`Error signaling remote SDP for ${remoteId}:`, error.message); }
-		this.connectingTimeouts[remoteId] = setTimeout(() => this.removePeer(remoteId, 'connecting'), VARS.CONNECTION_UPGRADE_TIMEOUT);
+		this.connectingTimeouts[remoteId] = setTimeout(() =>
+			this.removePeer(remoteId, 'connecting'), VARS.CONNECTION_UPGRADE_TIMEOUT);
 	}
 	assignConnectingPeerSignal(remoteId, signalData) {
-		if (this.dd) return;
+		if (this.peerStoreIsDestroyed) return;
 		if (!remoteId || !signalData) return console.error('Invalid remoteId or signalData');
 		const peer = this.store.connecting[remoteId];
 		if (!peer) return;
@@ -143,9 +145,13 @@ export class PeerStore {
 	}
 	/** @param {string} remoteId @param {'connected' | 'connecting'} status */
 	removePeer(remoteId, status) {
-		if (!this.store[status]?.[remoteId]) return;
-		if (this.store[status]?.[remoteId]?.tempTransportInstance) this.store[status][remoteId].tempTransportInstance.close();
-		if (this.store[status]?.[remoteId]?.transportInstance) this.store[status][remoteId].transportInstance.destroy();
+		const [ connectingConn, connectedConn ] = [ this.store.connecting[remoteId], this.store.connected[remoteId] ];
+		if (connectingConn && connectedConn) throw new Error(`Peer ${remoteId} is both connecting and connected.`);
+		if (!connectingConn && !connectedConn) return;
+
+		const conn = status === 'connected' ? connectedConn : connectingConn;
+		if (conn && conn.tempTransportInstance) conn.tempTransportInstance.close();
+		if (conn && conn.transportInstance) conn.transportInstance.destroy();
 		delete this.store[status][remoteId];
 	}
 
@@ -176,12 +182,12 @@ export class PeerStore {
 		const transportInstance = status === 'connected' ? this.store.connected[remoteId].transportInstance : this.store.connecting[remoteId].tempTransportInstance;
 		if (!transportInstance) return { success: false, reason: `Transport instance is not available for peer ${remoteId}.` };
 		try { transportInstance.send(JSON.stringify(message));
-		} catch (error) { console.error(`Error sending message to ${remoteId}:`, error); }
+		} catch (error) { console.error(`Error sending message to ${remoteId}:`, error.stack); }
 		return { success: true };
 	}
 
 	destroy() {
-		this.dd = true;
+		this.peerStoreIsDestroyed = true;
 		for (const peerId in this.store.connected) this.removePeer(peerId, 'connected');
 		for (const peerId in this.store.connecting) this.removePeer(peerId, 'connecting');
 		for (const timeoutId in this.connectingTimeouts)

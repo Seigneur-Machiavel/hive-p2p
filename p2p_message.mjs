@@ -1,3 +1,5 @@
+// DEPRECATING
+
 export class GossipMessage {
 	senderId;
 	topic;

@@ -1,9 +1,12 @@
 import { PeerStore } from './peer.mjs';
+import { Gossip } from './p2p_gossip.mjs';
 import { VARS, shuffleArray } from './p2p_utils.mjs';
 import { WebSocketServer } from 'ws';
 import { TestWsServer, TestWsConnection } from './p2p_test_transport.mjs';
 import { RouteBuilder } from './path_finder.mjs';
-import { GossipMessage, DirectMessage } from './p2p_message.mjs';
+import { DirectMessage } from './p2p_message.mjs'; // DEPRECATING
+
+// caught Exceptions, add handler for
 
 const BOOTSTRAP_TRANSPORTS = {
 	/** @type {Record<string, WebSocketServer>} */
@@ -26,30 +29,21 @@ export class NodeP2P {
 
 	id; // should be based on crypto
 	peerStore;
+	gossip;
 	transportName;
 	useTestBootstrapTransport = false; // if true, use TestWs for bootstrap connections
 	bootstraps; nBI = 0; // nBI: next Bootstrap Index
 	connexionEnhancer1;
 	connexionEnhancer2;
 
-	opts = {
-		targetNeighbors: 12, // The optimal number of neighbors to connect to
-		gossipTransmissionRate: 1, // 1 = 100% retransmission
-	};
-	/** @type {Record<string, Record<string, Function>>} */
-	gossipHandlers = {
-		'peer_connected': { 'p2pnode': (senderId, data) => this.peerStore.linkPeers(data, senderId)},
-		'peer_disconnected': { 'p2pnode': (senderId, data) => this.peerStore.unlinkPeers(data, senderId)},
-		// Add more gossip event handlers here
-	};
-
 	/** @param {string} id The unique identifier for the node
 	 * @param {Array<string>} bootstraps List of bootstrap nodes used as P2P network entry
-	 * @param {'SimplePeer' | 'Test'} transport The transport protocol to use*/
+	 * @param {'SimplePeer' | 'Test'} transport The transport protocol to use */
 	constructor(id = 'toto', bootstraps = [], transport = 'SimplePeer', init = true, verbose = 0) {
 		this.verbose = verbose;
 		this.id = id;
 		this.peerStore = new PeerStore(id);
+		this.gossip = new Gossip(id, this.peerStore);
 		this.bootstraps = shuffleArray(bootstraps);
 		this.transportName = transport;
 		this.useTestBootstrapTransport = transport === 'Test';
@@ -61,14 +55,14 @@ export class NodeP2P {
 			if (direction === 'in') setTimeout(() => this.broadcast('peer_connected', peerId, 3), 1000); // TODO chose best delay
 		});
 		this.peerStore.onDisconnect.unshift((peerId, direction) => {
-			console.log(`(${this.id}) ${direction === 'in' ? 'Incoming' : 'Outgoing'} connection closed with peer ${peerId}`);
+			if (verbose > 1) console.log(`(${this.id}) ${direction === 'in' ? 'Incoming' : 'Outgoing'} connection closed with peer ${peerId}`);
 			this.peerStore.unlinkPeers(this.id, peerId);
 			setTimeout(() => this.broadcast('peer_disconnected', peerId, 3), 1000);
 		});
 		this.peerStore.onData.unshift((peerId, data) => {
 			const deserialized = JSON.parse(data);
 			if (deserialized.route) this.#handleDirectMessage(peerId, deserialized);
-			else this.#handleGossipMessage(peerId, deserialized);
+			else this.gossip.handleGossipMessage(peerId, deserialized, data, this.verbose);
 		});
 
 		if (verbose > 0) console.log(`NodeP2P initialized: ${id}`);
@@ -77,6 +71,12 @@ export class NodeP2P {
 		this.connexionEnhancer1 = setInterval(() => this.#tryConnectNextBootstrap(), ecd);
 		setInterval(() => this.connexionEnhancer2 = setInterval(() => this.#tryConnectMoreNodes(), ecd), 1000);
 	}
+
+	// API
+	/** @param {string} topic @param {string | Uint8Array} data @param {number} [TTL] */
+	broadcast(topic, data, TTL = VARS.GOSSIP_DEFAULT_TTL) { this.gossip.broadcast(topic, data, TTL); }
+	tryConnectToPeer(targetId = 'toto') { this.peerStore.addConnectingPeer(targetId, undefined, undefined, this.transportName); }
+
 	// PUBLIC (BOOTSTRAP)
 	setAsPublic(domain = 'localhost', port = VARS.SERVICE_NODE_PORT, upgradeTimeout = VARS.CONNECTION_UPGRADE_TIMEOUT * 2) {
 		// public node kick peer after 1min and ban it for 1min to improve network consistency
@@ -111,29 +111,6 @@ export class NodeP2P {
 		return { id: this.id, publicUrl: this.publicUrl };
 	}
 	// NETWORK MANAGEMENT
-	#enhanceConnection() { // DEPRECATED
-		const connectedPeersCount = Object.keys(this.peerStore.store.connected).length;
-		if (connectedPeersCount < this.opts.targetNeighbors) this.nBI = this.#tryConnectNextBootstrap(this.nBI);
-		/*if (connectedPeersCount >= this.opts.targetNeighbors) {
-			for (const conn of Object.values(this.peerStore.store.connected)) {
-				const peer = this.peerStore.store.known[conn.peerId];
-				const isBootstrap = this.#isInBootstrapList(conn.peerId);
-				if (peer && !isBootstrap) continue;
-				conn.close();
-				//console.log(`(${this.id}) Disconnected from ${isBootstrap ? 'bootstrap' : 'regular'} peer ${conn.peerId} to enhance connections.`);
-			}
-		}*/
-		if (connectedPeersCount >= this.opts.targetNeighbors) return; // no need to enhance connections if we have enough
-
-		const targets = this.#pickPeerIds(this.opts.targetNeighbors - connectedPeersCount);
-		for (const targetId of targets) if (Math.random() < VARS.ENHANCE_CONNECTION_RATE) this.tryConnectToPeer(targetId);
-	}
-	tryConnectToPeer(targetId) {
-		this.peerStore.addConnectingPeer(targetId, undefined, undefined, this.transportName);
-	}
-	#isInBootstrapList(peerId) {
-		return this.bootstraps.some(bootstrap => bootstrap.id === peerId);
-	}
 	#tryConnectNextBootstrap(nextBootstrapIndex) {
 		if (this.bootstraps.length === 0) return;
 		const connectedPeersCount = Object.keys(this.peerStore.store.connected).length;
@@ -155,12 +132,12 @@ export class NodeP2P {
 			} catch (error) { console.error(`Error handling incoming signal for ${remoteId}:`, error); }
 		}
 		ws.onclose = () => this.peerStore.removePeer(remoteId, 'connecting');
-		ws.onerror = (error) => console.error(`WebSocket error:`, error);
+		ws.onerror = (error) => console.error(`WebSocket error:`, error.stack);
 		return ws;
 	}
-	#tryConnectMoreNodes(maxNeighbours = 10, ignoreBannedPeers = true) {
+	#tryConnectMoreNodes(ignoreBannedPeers = true) {
 		const connectedPeersCount = Object.keys(this.peerStore.store.connected).length;
-		const maxTargets = (maxNeighbours - connectedPeersCount);
+		const maxTargets = (VARS.TARGET_NEIGHBORS - connectedPeersCount);
 		const targets = [];
 		//for (const [peerId, peerInfo] of Object.entries(this.peerStore.store.known))
 		const shuffledKeys = shuffleArray(Object.keys(this.peerStore.store.known));
@@ -171,26 +148,10 @@ export class NodeP2P {
 			else if (peerId === this.id) continue; // skip self
 			else if (this.peerStore.store.connecting[peerId]) continue; // skip connecting peers
 			else if (this.peerStore.store.connected[peerId]) continue; // skip already connected peers
-			else if (peerInfo.connectionsCount <= maxNeighbours) targets.push(peerId);
+			else if (peerInfo.connectionsCount <= VARS.TARGET_NEIGHBORS) targets.push(peerId);
 		}
 
 		for (const targetId of targets) if (Math.random() < VARS.ENHANCE_CONNECTION_RATE) this.tryConnectToPeer(targetId);
-	}
-	#pickPeerIds(count = 1, maxNeighbours = 10, ignoreBannedPeers = true) { // DEPRECATED
-		const selectedPeers = [];
-		//for (const [peerId, peerInfo] of Object.entries(this.peerStore.store.known))
-		const shuffledKeys = shuffleArray(Object.keys(this.peerStore.store.known));
-		for (const peerId of shuffledKeys) {
-			if (ignoreBannedPeers && this.peerStore.isBanned(peerId)) continue;
-			const peerInfo = this.peerStore.store.known[peerId];
-			if (selectedPeers.length >= count) break;
-			else if (peerId === this.id) continue; // skip self
-			else if (this.peerStore.store.connecting[peerId]) continue; // skip connecting peers
-			else if (this.peerStore.store.connected[peerId]) continue; // skip already connected peers
-			else if (peerInfo.connectionsCount <= maxNeighbours) selectedPeers.push(peerId);
-		}
-
-		return selectedPeers;
 	}
 	// DIRECT MESSAGING
 	/** @param {string} remoteId @param {string | Uint8Array} data */
@@ -237,32 +198,10 @@ export class NodeP2P {
 		if (!conn && data.type === 'offer') this.peerStore.addConnectingPeer(senderId, tempTransportInstance, data, this.transportName);
 		else if (conn && data.type !== 'offer') this.peerStore.assignConnectingPeerSignal(senderId, data);
 	}
-	// GOSSIP MESSAGING
-	/** @param {string} topic @param {string | Uint8Array} data @param {number} [TTL] */
-	broadcast(topic, data, TTL = 3) {
-		const message = new GossipMessage(this.id, topic, data, TTL);
-		for (const peerId in this.peerStore.store.connected) this.peerStore.sendMessageToPeer(peerId, message);
-	}
-	/** @param {string} from @param {GossipMessage} message */
-	#handleGossipMessage(from, message) {
-		const { senderId, topic, data, TTL } = message;
-		//if (from === senderId) console.log(`(${this.id}) Gossip message received from ${senderId} on topic ${topic}:`, data);
-		//else console.log(`(${this.id}) Gossip message received from ${senderId} (lastRelay: ${from}) on topic ${topic}:`, data);
-
-		for (const handler of Object.values(this.gossipHandlers[topic] || {})) handler(senderId, data);
-
-		if (TTL < 1) return; // stop forwarding if TTL is 0
-		if (this.id === senderId) return; // avoid sending our own message again
-		for (const [peerId, conn] of Object.entries(this.peerStore.store.connected)) {
-			if (peerId === from) continue; // avoid sending back to sender
-			if (Math.random() > this.opts.gossipTransmissionRate) continue; // apply gossip transmission rate
-			try { conn.transportInstance.send(JSON.stringify(new GossipMessage(senderId, topic, data, TTL - 1))); }
-			catch (error) { if (this.verbose > 1) console.error(`Error sending gossip message from ${this.id} to ${peerId}:`, error.stack); }
-		}
-	}
 
 	destroy() {
 		this.peerStore.destroy();
+		this.gossip.destroy();
 		if (this.wsServer) this.wsServer.close();
 		if (this.connexionEnhancer1) clearInterval(this.connexionEnhancer1);
 		if (this.connexionEnhancer2) clearInterval(this.connexionEnhancer2);

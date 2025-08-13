@@ -1,13 +1,14 @@
 import { NetworkRenderer } from './NetworkRenderer.mjs';
 
 class SimulationInterface {
+	#subscriptionsPeerId = null;
+	#connectingWs = false;
+	#ws;
 	currentPeerId;
-	ws;
 	onSettings;
 	onPeersIds;
 	onPeerInfo;
 	onPeerMessage;
-	onSubscriptionStatus;
 
 	/** @param {function} onSettings @param {function} onPeersIds @param {function} onPeerInfo */
 	constructor(onSettings, onPeersIds, onPeerInfo) {
@@ -16,22 +17,28 @@ class SimulationInterface {
 		this.onPeersIds = onPeersIds;
 		this.onPeerInfo = onPeerInfo;
 		this.#setupWs();
+		window.addEventListener('beforeunload', () => this.#ws ? this.#ws.close() : null);
+		setInterval(() => { if (this.currentPeerId) this.getPeerInfo(this.currentPeerId) }, 1000);
+		setInterval(() => { this.getPeerIds() }, 5000);
 	}
 
 	#setupWs(url = 'ws://localhost:3000') {
-		this.ws = new WebSocket(url);
-		setInterval(() => { if (this.currentPeerId) this.getPeerInfo(this.currentPeerId) }, 1000);
-		setInterval(() => { this.getPeerIds() }, 5000);
-		this.ws.onmessage = (event) => {
+		if (this.#ws) this.#ws.close();
+		this.#connectingWs = true;
+		this.#ws = new WebSocket(url);
+		this.#ws.onmessage = (event) => {
 			const msg = JSON.parse(event.data);
+			if (msg.type === 'simulationStarted' && this.currentPeerId) this.subscribeToPeerMessages(this.currentPeerId, true);
 			if (msg.type === 'settings') this.onSettings(msg.data);
 			if (msg.type === 'peersIds') this.onPeersIds(msg.data);
 			if (msg.type === 'peerInfo') this.onPeerInfo(msg.data);
 			if (msg.type === 'peerMessage' && this.onPeerMessage) this.onPeerMessage(msg.remoteId, msg.data);
-			if (msg.type === 'subscriptionStatus' && this.onSubscriptionStatus) this.onSubscriptionStatus(msg.data.success, msg.data.peerId);
+			if (msg.type === 'subscribeToPeerMessage' && msg.data.success) this.#subscriptionsPeerId = msg.data.peerId;
 		};
+		this.#connectingWs = false;
 	}
 	start(settings) {
+		this.#subscriptionsPeerId = null;
 		this.#sendWsMessage({ type: 'start', settings });
 		setTimeout(() => this.subscribeToPeerMessages(this.currentPeerId), 2000);
 	}
@@ -41,7 +48,8 @@ class SimulationInterface {
 	getPeerIds() {
 		this.#sendWsMessage({ type: 'getPeersIds' });
 	}
-	subscribeToPeerMessages(peerId) {
+	subscribeToPeerMessages(peerId, force = false) {
+		if (!force && this.#subscriptionsPeerId === peerId) return; // avoid re-subscribing
 		this.#sendWsMessage({ type: 'subscribeToPeerMessages', peerId });
 	}
 	tryToConnectNode(fromId, targetId) {
@@ -49,8 +57,11 @@ class SimulationInterface {
 		this.#sendWsMessage({ type: 'tryToConnectNode', fromId, targetId });
 	}
 	#sendWsMessage(msg) {
-		if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg));
-		else console.error('WebSocket is not connected. Please start the server first.');
+		if (this.#ws?.readyState === WebSocket.OPEN) this.#ws.send(JSON.stringify(msg));
+		else {
+			console.error(`WebSocket is not connected. ${this.#connectingWs ? 'Trying to connect...' : ''}`);
+			if (!this.#connectingWs) this.#setupWs();
+		}
 	}
 }
 
@@ -78,14 +89,11 @@ class NetworkVisualizer {
 			this.elements.peersList.style.display = 'block';
 			this.elements.simulationSettings.style.display = 'block';
 			this.simulationInterface = new SimulationInterface(
-				(settings) => { if (!this.mockRunning) this.#handleSettings(settings); },
-				(peersIds) => { if (!this.mockRunning) this.#updatePeersList(peersIds); },
-				(peerInfo) => { if (!this.mockRunning) this.#updateNetworkFromPeerInfo(peerInfo); }
+				(settings) => { if (!this.mockRunning) this.#handleSettings(settings); }, // event: onSettings
+				(peersIds) => { if (!this.mockRunning) this.#updatePeersList(peersIds); }, // event: onPeersIds
+				(peerInfo) => { if (!this.mockRunning) this.#updateNetworkFromPeerInfo(peerInfo); } // event: onPeerInfo
 			);
 
-			this.simulationInterface.onSubscriptionStatus = (success, peerId) => {
-				console.log(`Subscription status for ${peerId}: ${success ? 'subscribed' : 'failed'}`);
-			};
 			this.simulationInterface.onPeerMessage = (remoteId, data) => {
 				//console.log(`Received message ${data} from ${remoteId}`);
 				const msg = JSON.parse(data);
@@ -101,8 +109,7 @@ class NetworkVisualizer {
 			this.elements.startSimulation.onclick = () => {
 				this.mockRunning = false;
 				this.networkRenderer.clearNetwork();
-				if (this.simulationInterface.ws?.readyState !== WebSocket.OPEN) alert('WebSocket is not connected.');
-				else this.simulationInterface.start(this.#getSimulatorSettings());
+				this.simulationInterface.start(this.#getSimulatorSettings());
 			}
 			//setTimeout(() => this.#generateMockNetwork(), 100);
 		}
@@ -119,6 +126,12 @@ class NetworkVisualizer {
 			else peerItem.classList.remove('selected');
 
 		this.#setCurrentPeer(peerId);
+	}
+	#setCurrentPeer(id, clearNetworkOneChange = true) {
+		if (this.currentPeerId !== id) this.simulationInterface.subscribeToPeerMessages(id);
+		this.currentPeerId = id;
+		this.simulationInterface.currentPeerId = id;
+		this.networkRenderer.setCurrentPeer(id, clearNetworkOneChange);
 	}
 	#getSimulatorSettings() {
 		return {
@@ -179,12 +192,6 @@ class NetworkVisualizer {
 
 		//console.log(`Updated network map: ${Object.keys(nodes).length} nodes | ${Object.keys(connections).length} connections`);
 		//this.networkRenderer.connections = connections;
-	}
-	#setCurrentPeer(id, clearNetworkOneChange = true) {
-		if (this.currentPeerId !== id) this.simulationInterface.subscribeToPeerMessages(id);
-		this.currentPeerId = id;
-		this.simulationInterface.currentPeerId = id;
-		this.networkRenderer.setCurrentPeer(id, clearNetworkOneChange);
 	}
 	// SIMULATION METHODS
 	#handleSettings(settings = { publicPeersCount: 2, peersCount: 5, chosenPeerCount: 1 }) {

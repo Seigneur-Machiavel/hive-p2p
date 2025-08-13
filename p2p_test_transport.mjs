@@ -200,8 +200,8 @@ export class TestWsConnection { // WebSocket like
 		if (this.remoteWs?.onmessage) this.remoteWs.onmessage({ data: message }); // emit onmessage event
 	}
 	#dispatchError(error) {
-		this.callbacks.error.forEach(cb => cb({ error }));
-		if (this.onerror) this.onerror({ error });
+		this.callbacks.error.forEach(cb => cb(error));
+		if (this.onerror) this.onerror(error);
 	}
 }
 export class TestWsServer { // WebSocket like
@@ -232,7 +232,7 @@ export class TestWsServer { // WebSocket like
 
 class TestTransportOptions {
 	/** @type {number} */
-	signalCreationDelay = 1000;
+	signalCreationDelay = 250;
 	static defaultSignalCreationDelay = 1000;
 	/** @type {boolean} */
 	initiator;
@@ -274,8 +274,7 @@ export class TestTransport { // SimplePeer like
 		if (this.callbacks[event]) this.callbacks[event].push(callbacks);
 	}
 	dispatchError(message) {
-		const error = new Error(message);
-		this.callbacks.error.forEach(cb => cb({ error }));
+		this.callbacks.error.forEach(cb => cb({ error: new Error(message) }));
 	}
 	signal(remoteSDP) {
 		if (remoteSDP.type === 'offer' && SANDBOX.PENDING_OFFERS[this.id])
@@ -304,7 +303,7 @@ export class TestTransport { // SimplePeer like
 		if (this.closing) return;
 		this.closing = true;
 		if (!errorMsg) this.callbacks.close.forEach(cb => cb()); // emit close event
-		else this.callbacks.error.forEach(cb => cb(errorMsg));
+		else this.dispatchError(errorMsg);
 		SANDBOX.destroyTransport(this.id);
 	}
 }
