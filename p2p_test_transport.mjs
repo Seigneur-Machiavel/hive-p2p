@@ -169,7 +169,7 @@ export class TestWsConnection { // WebSocket like
 		if (clientWsConnection) this.remoteWs = clientWsConnection;
 		else this.remoteWs = SANDBOX.connectToWebSocketServer(this.url, this);
 
-		if (!this.remoteWs) console.error(`Failed to connect to WebSocket server at ${this.url}`);
+		//if (!this.remoteWs) console.error(`Failed to connect to WebSocket server at ${this.url}`);
 		if (!this.remoteWs && clientWsConnection)
 			setTimeout(() => this.#dispatchError(new Error(`Failed to connect to WebSocket server at ${this.url}`)), 10_000);
 
@@ -274,7 +274,7 @@ export class TestTransport { // SimplePeer like
 		if (this.callbacks[event]) this.callbacks[event].push(callbacks);
 	}
 	dispatchError(message) {
-		this.callbacks.error.forEach(cb => cb({ error: new Error(message) }));
+		this.callbacks.error.forEach(cb => cb(new Error(message)));
 	}
 	signal(remoteSDP) {
 		if (remoteSDP.type === 'offer' && SANDBOX.PENDING_OFFERS[this.id])

@@ -1,7 +1,8 @@
 import path from 'path';
 import express from 'express';
 import { WebSocketServer } from 'ws';
-import { createNodeP2P, NodeP2P } from '../p2p_node.mjs';
+import { NodeP2P } from '../p2p_node.mjs';
+import { shuffleArray } from '../p2p_utils.mjs';
 
 const sVARS = { // SIMULATION VARIABLES
 	startTime: Date.now(),
@@ -10,12 +11,13 @@ const sVARS = { // SIMULATION VARIABLES
 	publicPeersCount: 2,
 	peersCount: 5,
 	chosenPeerCount: 1,
+	delayBetweenInit: 2, // 0 = faster for simulating big networks but > 0 = should be more realistic
 	randomMessagePerSecond: 10, // 20 = 1 message every 50ms, 0 = disabled ( max: 500 )
 };
 if (sVARS.transport === 'Test') {
-	sVARS.publicPeersCount = 3; // stable: 3
-	sVARS.peersCount = 50; // stable: 25
-	sVARS.chosenPeerCount = 5; // stable: 5
+	sVARS.publicPeersCount = 10; // stable: 3
+	sVARS.peersCount = 380; // stable: 25
+	sVARS.chosenPeerCount = 10; // stable: 5
 }
 
 const peers = {
@@ -32,35 +34,34 @@ async function destroyAllExistingPeers() {
 	for (const peer of peers.public) { peer.destroy(); peers.public = []; totalDestroyed ++; }
 	for (const peer of peers.standard) { peer.destroy(); peers.standard = []; totalDestroyed ++; }
 	for (const peer of peers.chosen) { peer.destroy(); peers.chosen = []; totalDestroyed ++; }
-	if (totalDestroyed === 0) return;
-	await new Promise(resolve => setTimeout(resolve, 500)); // wait for destruction to complete
-	console.log(`| ° ${totalDestroyed} EXISTING PEERS DESTROYED ° |`);
+
+	return totalDestroyed;
 }
 async function initPeers() {
-	await destroyAllExistingPeers();
+	const totalDestroyed = await destroyAllExistingPeers();
+	console.log(`| ° ${totalDestroyed} EXISTING PEERS DESTROYED ° |`);
+	if (totalDestroyed !== 0) await new Promise(resolve => setTimeout(resolve, 500)); // wait for destruction to complete
 
+	const t = sVARS.transport;
 	console.log('| °°° INITIALIZING PEERS... °°° |');
 	// INIT PUBLIC PEERS ------------------------------------------------
+	const publicPeersCards = [];
 	for (let i = 0; i < sVARS.publicPeersCount; i++) {
-		const peer = createNodeP2P(`public_${i}`, [], sVARS.transport);
-		peer.setAsPublic(`localhost`, 8080 + i, 10_000);
+		const peer = NodeP2P.createNode(`public_${i}`, [], t);
+		const card = peer.setAsPublic(`localhost`, 8080 + i, 10_000);
 		peers.public.push(peer);
+		publicPeersCards.push(card);
 	}
-	console.log(`${peers.public.length} public peers created.`);
-	const publicPeersCards = peers.public.map(peer => peer.getPublicIdCard());
-	
-	// INIT STANDARD PEERS ----------------------------------------------
-	let nextPublicPeerIndex = 0;
-	for (let i = 0; i < sVARS.peersCount; i++) {
-		peers.standard.push(createNodeP2P(`peer_${i}`, [publicPeersCards[nextPublicPeerIndex]], sVARS.transport));
-		nextPublicPeerIndex = (nextPublicPeerIndex + 1) % peers.public.length;
-	}
-	console.log(`${peers.standard.length} peers created.`);
-	
-	// INIT CHOSEN PEERS (to be connected with 2 public peers) ----------
-	await new Promise(resolve => setTimeout(resolve, 500)); // ensure the chosen nodes are last to connect
-	for (let i = 0; i < sVARS.chosenPeerCount; i++)
-		peers.chosen.push(createNodeP2P(`chosen_${i}`, publicPeersCards, sVARS.transport));
+
+	// CREATE STANDARD & CHOSEN PEERS -----------------------------------
+	const d = sVARS.delayBetweenInit;
+	for (let i = 0; i < sVARS.peersCount; i++) peers.standard.push(NodeP2P.createNode(`peer_${i}`, [publicPeersCards[i % publicPeersCards.length]], t, d === 0));
+	for (let i = 0; i < sVARS.chosenPeerCount; i++) peers.chosen.push(NodeP2P.createNode(`chosen_${i}`, publicPeersCards, t, d === 0));
+	console.log(`Peers created: { P: ${peers.public.length}, S: ${peers.standard.length}, C: ${peers.chosen.length} }`);
+	if (d === 0) return; // already initialized
+
+	const toInit = shuffleArray([...peers.chosen, ...peers.standard])
+	let initInterval = setInterval(() => toInit.pop()?.init() || clearInterval(initInterval), d);
 }
 if (sVARS.autoStart) initPeers();
 
@@ -115,16 +116,27 @@ class SubscriptionsManager {
 	sessionMsg = 0;
 	TMPT = {}; // Gossip "total Msg Per Topic"
 	MTP = {}; // Gossip "Msg Per Topic"
-	onPeerMessage = null;
+	onPeerMessage = null; // currently subscribed peer
+	interval;
 
-	addPeerMessageListener(peerId, ws) {
+	constructor(delay = 10_000) {
+		console.info('SubscriptionsManager initialized');
+		this.interval = setInterval(() => {
+			console.info(`${Math.floor((Date.now() - sVARS.startTime) / 1000)} sec elapsed ----------------------`);
+			console.info(`Total messages: ${sManager.totalMsg} (+${this.sessionMsg})`);
+			for (const topic in this.TMPT) console.info(`Topic "${topic}" messages:  ${this.TMPT[topic]} (+${this.MTP[topic] || 0})`);
+			for (const topic in this.MTP) this.MTP[topic] = 0; // reset per topic count
+			this.sessionMsg = 0; // reset session count
+		}, delay);
+	}
+	addPeerMessageListener(peerId) {
 		const peer = getPeer(peerId);
 		if (!peer) return false;
 		
 		this.onPeerMessage = peerId;
-		peer.peerStore.onData.unshift((remoteId, d) => {
+		peer.peerStore.on('data', (remoteId, d) => {
 			const data = JSON.parse(d);
-			ws.send(JSON.stringify({ type: 'peerMessage', remoteId, data: JSON.stringify(data) }));
+			clientWs.send(JSON.stringify({ type: 'peerMessage', remoteId, data: JSON.stringify(data) }));
 			if (data.topic) {
 				this.TMPT[data.topic] ? this.TMPT[data.topic]++ : this.TMPT[data.topic] = 1;
 				this.MTP[data.topic] ? this.MTP[data.topic]++ : this.MTP[data.topic] = 1;
@@ -135,70 +147,60 @@ class SubscriptionsManager {
 	}
 	removePeerMessageListener() {
 		const peer = getPeer(this.onPeerMessage);
-		if (peer) peer.peerStore.onData.splice(0, 1);
+		if (peer) peer.peerStore.callbacks.data.splice(0, 1);
 		this.onPeerMessage = null;
 	}
-	removeAllListeners() {
+	destroy(returnNewInstance = false) {
 		this.removePeerMessageListener();
+		if (this.interval) clearInterval(this.interval);
+		if (returnNewInstance) return new SubscriptionsManager();
 	}
 };
 
-const sManager = new SubscriptionsManager();
-setInterval(() => {
-	console.log(`${Math.floor((Date.now() - sVARS.startTime) / 1000)} sec elapsed ----------------------`);
-	console.log(`Total messages: ${sManager.totalMsg} (+${sManager.sessionMsg})`);
-	for (const topic in sManager.TMPT) console.log(`Topic "${topic}" messages:  ${sManager.TMPT[topic]} (+${sManager.MTP[topic] || 0})`);
-	for (const topic in sManager.MTP) sManager.MTP[topic] = 0; // reset per topic count
-	sManager.sessionMsg = 0; // reset session count
-}, 10_000);
-
-let wsBusy = false; // to prevent multiple messages at once
+/** @type {WebSocket} */
+let clientWs;
+const msgQueue = [];
 const wss = new WebSocketServer({ server });
+let sManager = new SubscriptionsManager();
 wss.on('connection', (ws) => {
-	ws.on('message', async (message) => {
-		if (wsBusy) return; // prevent multiple messages at once
-		wsBusy = true;
-		await onMessage(ws, message);
-		wsBusy = false;
-	});
-	ws.on('close', () => { sManager.removeAllListeners(); wsBusy = false; });
+	if (clientWs) clientWs.close();
+	clientWs = ws;
+	ws.on('message', async (message) => msgQueue.push(JSON.parse(message)));
+	ws.on('close', () => sManager.destroy());
 	ws.send(JSON.stringify({ type: 'settings', data: sVARS }));
-	if (peers.public.length > 0 || peers.standard.length > 0 || peers.chosen.length > 0)
-		ws.send(JSON.stringify({ type: 'peersIds', data: peersIdsObj() }));
+	const zeroPeers = peers.public.length + peers.standard.length + peers.chosen.length === 0;
+	if (!zeroPeers) ws.send(JSON.stringify({ type: 'peersIds', data: peersIdsObj() }));
 });
 
-async function onMessage(ws, message, minLogTime = 5) {
-	const data = JSON.parse(message);
+const onMessage = async (data, minLogTime = 5) => {
 	const startTime = Date.now();
-	// if (logTreatmentTime) console.log(`Message ${data.type} processed in ${Date.now() - startTime}ms`);
 	const send = (msgObj) => {
-		const tt = Date.now() - startTime;
-		if (tt < minLogTime) ws.send(JSON.stringify(msgObj));	
-		else ws.send(JSON.stringify(msgObj), () => console.log(`Message ${msgObj.type} sent (${tt}ms)`));
+		clientWs.send(JSON.stringify(msgObj), () => {
+			const tt = Date.now() - startTime;
+			if (tt > minLogTime) console.log(`Message ${msgObj.type} sent (${tt}ms)`);
+		});
 	}
 
 	switch (data.type) {
 		case 'start':
 			sVARS.startTime = Date.now();
-			sManager.removeAllListeners();
+			sManager = sManager.destroy(true);
 			for (const setting in data.settings) sVARS[setting] = data.settings[setting];
 			await initPeers();
 			send({ type: 'settings', data: sVARS });
 			send({ type: 'peersIds', data: peersIdsObj() });
 			send({ type: 'simulationStarted' });
-			//initPeers().then(() => send({ type: 'peersIds', data: peersIdsObj() }));
 			break;
 		case 'getPeersIds':
 			send({ type: 'peersIds', data: peersIdsObj() });
 			break;
 		case 'getPeerInfo':
-			const peerInfo = getPeerInfo(data.peerId);
-			send({ type: 'peerInfo', data: peerInfo });
+			send({ type: 'peerInfo', data: { peerId: data.peerId, peerInfo: getPeerInfo(data.peerId) } });
 			break;
 		case 'subscribeToPeerMessages':
 			if (sManager.onPeerMessage === data.peerId) return; // already subscribed
-			sManager.removePeerMessageListener();
-			if (sManager.addPeerMessageListener(data.peerId, ws))
+			sManager = sManager.destroy(true);
+			if (sManager.addPeerMessageListener(data.peerId))
 				send({ type: 'subscribeToPeerMessage', data: { success: true, peerId: data.peerId } });
 			break;
 		case 'tryToConnectNode':
@@ -207,4 +209,9 @@ async function onMessage(ws, message, minLogTime = 5) {
 			getPeer(fromId)?.tryConnectToPeer(targetId);
 			break;
 	}
+}
+
+while (true) {
+	if (msgQueue.length > 0) await onMessage(msgQueue.pop());
+	await new Promise(resolve => setTimeout(resolve, 10)); // prevent blocking the event loop
 }

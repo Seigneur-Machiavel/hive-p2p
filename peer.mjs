@@ -2,10 +2,11 @@ import wrtc from 'wrtc';
 import SimplePeer from 'simple-peer';
 import { TestTransport } from './p2p_test_transport.mjs';
 import { VARS } from './p2p_utils.mjs';
-import { GossipMessage, DirectMessage } from './p2p_message.mjs';
 
 /**
  * @typedef {import('ws').WebSocket} WebSocket
+ * @typedef {import('./p2p_direct.mjs').DirectMessage} DirectMessage
+ * @typedef {import('./p2p_gossip.mjs').GossipMessage} GossipMessage
  *
  * @typedef {Object} Store
  * @property {Object<string, PeerConnection>} connected
@@ -65,14 +66,23 @@ export class PeerStore {
 	isStoreDestroyed = false;
 	/** @type {Store} */
 	store = {connected: {}, connecting: {}, known: {}, bannedUntil: {}};
-	onConnect = [(peerId, direction) => this.#upgradeConnectingToConnected(peerId)];
-	onDisconnect = [(peerId) => this.removePeer(peerId, 'connected')];
-	onSignal = [];
-	onData = [];
 	connectingTimeouts = {};
+	
+	/** @type {Record<string, Function[]>} */
+	callbacks = {
+		'connect': [(peerId, direction) => this.#upgradeConnectingToConnected(peerId)],
+		'disconnect': [(peerId) => this.removePeer(peerId, 'connected')],
+		'signal': [],
+		'data': []
+	};
 
 	constructor() {}
 
+	/** @param {string} callbackType @param {Function} callback */
+	on(callbackType, callback) {
+		if (!this.callbacks[callbackType]) throw new Error(`Unknown callback type: ${callbackType}`);
+		this.callbacks[callbackType].unshift(callback);
+	}
 	/**
 	 * @param {string} remoteId
 	 * @param {WebSocket} [tempTransportInstance]
@@ -85,7 +95,7 @@ export class PeerStore {
 		
 		const { connected, connecting } = this.store;
 		if (connected[remoteId]) return console.warn(`Peer with ID ${remoteId} already connected.`), connected[remoteId];
-		if (connecting[remoteId]) return console.warn(`Peer with ID ${remoteId} is already connecting.`), connecting[remoteId];
+		if (connecting[remoteId]) return //console.warn(`Peer with ID ${remoteId} is already connecting.`), connecting[remoteId];
 
 		const sCT = Date.now(); // signalCreationTime (debug)
 		const Transport = TRANSPORTS[transport];
@@ -95,12 +105,13 @@ export class PeerStore {
 
 		transportInstance.on('connect', () => {
 			if (this.isStoreDestroyed) return;
-			for (const cb of this.onConnect) cb(remoteId, direction);
-			transportInstance.on('close', () => { if (!this.isStoreDestroyed) for (const cb of this.onDisconnect) cb(remoteId, direction); });
-			transportInstance.on('data', data => { if (!this.isStoreDestroyed) for (const cb of this.onData) cb(remoteId, data); });
+			for (const cb of this.callbacks.connect) cb(remoteId, direction);
+			transportInstance.on('close', () => { if (!this.isStoreDestroyed) for (const cb of this.callbacks.disconnect) cb(remoteId, direction); });
+			transportInstance.on('data', data => { if (!this.isStoreDestroyed) for (const cb of this.callbacks.data) cb(remoteId, data); });
 		});
-		transportInstance.on('signal', data => { if (!this.isStoreDestroyed) for (const cb of this.onSignal) cb(remoteId, data, sCT); });
+		transportInstance.on('signal', data => { if (!this.isStoreDestroyed) for (const cb of this.callbacks.signal) cb(remoteId, data, sCT); });
 		transportInstance.on('error', error => {
+			if (error.message.includes('Failed to digest signal for peer')) return; // avoid logging
 			if (error.message === 'cannot signal after peer is destroyed') return; // avoid logging
 			console.error(`transportInstance error for ${remoteId}:`, error.stack);
 		});
@@ -185,7 +196,6 @@ export class PeerStore {
 		} catch (error) { console.error(`Error sending message to ${remoteId}:`, error.stack); }
 		return { success: true };
 	}
-
 	destroy() {
 		this.peerStoreIsDestroyed = true;
 		for (const peerId in this.store.connected) this.removePeer(peerId, 'connected');

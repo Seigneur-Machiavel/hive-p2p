@@ -56,7 +56,7 @@ class NetworkRendererOptions {
 		nodeBorderRadius = 3,
 		attraction = .01, // .001
 		repulsion = 50000,
-		damping = .5, // .02
+		damping = 1, // .5
 		centerForce = .0005,
 		maxVelocity = .2,
 		repulsionOpts = {
@@ -70,13 +70,13 @@ class NetworkRendererOptions {
 			standardDistance: 200,
 			bothChosenDistance: 1000,
 
-			publicMultiplier: 50, // .5
-			bothPublicMultiplier: 500, // 20
+			publicMultiplier: 100, // .5
+			bothPublicMultiplier: 1000, // 20
 			bothChosenMultiplier: 1 // 2
 		},
 		attractionOpts = {
 			minDistance: 50,
-			publicMultiplier: 100, // 10
+			publicMultiplier: 200, // 10
 			bothPublicMultiplier: .1,
 			chosenMultiplier: 1 // 1.5
 		}
@@ -96,7 +96,7 @@ class NetworkRendererOptions {
 
 export class NetworkRenderer {
 	autoRotateEnabled = true;
-	autoRotateSpeed = .002;
+	autoRotateSpeed = .001;
 	autoRotateDelay = 3000; // delay before activating auto-rotation after mouse event
 	elements;
 	options;

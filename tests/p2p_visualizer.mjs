@@ -91,7 +91,7 @@ class NetworkVisualizer {
 			this.simulationInterface = new SimulationInterface(
 				(settings) => { if (!this.mockRunning) this.#handleSettings(settings); }, // event: onSettings
 				(peersIds) => { if (!this.mockRunning) this.#updatePeersList(peersIds); }, // event: onPeersIds
-				(peerInfo) => { if (!this.mockRunning) this.#updateNetworkFromPeerInfo(peerInfo); } // event: onPeerInfo
+				(data) => { if (!this.mockRunning && data.peerId === this.currentPeerId) this.#updateNetworkFromPeerInfo(data.peerInfo); } // event: onPeerInfo
 			);
 
 			this.simulationInterface.onPeerMessage = (remoteId, data) => {

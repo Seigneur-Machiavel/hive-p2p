@@ -4,7 +4,7 @@ import { VARS, xxHash32 } from "./p2p_utils.mjs";
  * @typedef {import('./peer.mjs').PeerStore} PeerStore
  */
 
-class GossipMessage {
+export class GossipMessage {
 	senderId;
 	topic;
 	data;
@@ -53,8 +53,8 @@ export class Gossip {
 	id;
 	peerStore;
 
-	/** @type {Record<string, Record<string, Function>>} */
-	gossipHandlers = {
+	/** @type {Record<string, Function[]>} */
+	callbacks = {
 		'peer_connected': [(senderId, data) => this.peerStore.linkPeers(data, senderId)],
 		'peer_disconnected': [(senderId, data) => this.peerStore.unlinkPeers(data, senderId)],
 		// Add more gossip event handlers here
@@ -76,7 +76,7 @@ export class Gossip {
 		//if (this.bloomFilter.addMessage(serializedMessage) === false) return; // already processed this message
 		const { senderId, topic, data, TTL } = message;
 		if (this.bloomFilter.addMessage(senderId, topic, data, TTL) === false) return; // already processed this message
-		for (const handler of this.gossipHandlers[topic] || []) handler(senderId, data);
+		for (const cb of this.callbacks[topic] || []) cb(senderId, data);
 
 		if (TTL < 1) return; // stop forwarding if TTL is 0
 		if (this.id === senderId) return; // avoid sending our own message again
