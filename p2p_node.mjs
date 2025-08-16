@@ -51,7 +51,9 @@ export class NodeP2P {
 		this.peerStore = new PeerStore(id);
 		this.messager = new Messager(id, this.peerStore);
 		this.gossip = new Gossip(id, this.peerStore);
-		this.bootstraps = shuffleArray(bootstraps);
+		//this.bootstraps = shuffleArray(bootstraps);
+		this.bootstraps = bootstraps;
+		this.nBI = Math.random() * bootstraps.length | 0;
 		this.transportName = transport;
 		this.useTestBootstrapTransport = transport === 'Test';
 
@@ -87,7 +89,7 @@ export class NodeP2P {
 		this.#tryConnectNextBootstrap(); // first shot ASAP
 		const ecd = VARS.ENHANCE_CONNECTION_DELAY;
 		this.connexionEnhancer1 = setInterval(() => this.#tryConnectNextBootstrap(), ecd);
-		setInterval(() => this.connexionEnhancer2 = setInterval(() => this.#tryConnectMoreNodes(), ecd), 1000);
+		setTimeout(() => this.connexionEnhancer2 = setInterval(() => this.#tryConnectMoreNodes(), ecd), 1000);
 		return true;
 	}
 	/** @param {string} topic @param {string | Uint8Array} data @param {number} [TTL] */
@@ -106,9 +108,11 @@ export class NodeP2P {
 	// BOOTSTRAP METHODS
 	setAsPublic(domain = 'localhost', port = VARS.SERVICE_NODE_PORT, upgradeTimeout = VARS.CONNECTION_UPGRADE_TIMEOUT * 2) {
 		// public node kick peer after 1min and ban it for 1min to improve network consistency
-		const [banDelay, banDuration] = [VARS.PUBLIC_NODE_AUTO_BAN_DELAY, VARS.PUBLIC_NODE_AUTO_BAN_DURATION]; 
-		this.peerStore.on('connect', (peerId, direction) =>
-			direction === 'in' ? setTimeout(() => this.peerStore.banPeer(peerId, banDuration), banDelay) : null);
+		const [banDelays, banDuration] = [VARS.PUBLIC_NODE_AUTO_BAN_DELAY, VARS.PUBLIC_NODE_AUTO_BAN_DURATION];
+		this.peerStore.on('connect', (peerId, direction) =>{
+			const banDelay = Math.random() * (banDelays.max - banDelays.min) + banDelays.min;
+			if (direction === 'in') setTimeout(() => this.peerStore.banPeer(peerId, banDuration), banDelay);
+		});
 		// create simple ws server to accept incoming connections (Require to open port)
 		this.publicUrl = `ws://${domain}:${port}`;
 		const Transport = BOOTSTRAP_TRANSPORTS.server[this.useTestBootstrapTransport ? 'Test' : 'WebSocket'];
@@ -164,9 +168,7 @@ export class NodeP2P {
 		const connectedPeersCount = Object.keys(this.peerStore.store.connected).length;
 		const maxTargets = (VARS.TARGET_NEIGHBORS - connectedPeersCount);
 		const targets = [];
-		//for (const [peerId, peerInfo] of Object.entries(this.peerStore.store.known))
-		const shuffledKeys = shuffleArray(Object.keys(this.peerStore.store.known));
-		for (const peerId of shuffledKeys) {
+		for (const peerId of shuffleArray(Object.keys(this.peerStore.store.known))) {
 			if (ignoreBannedPeers && this.peerStore.isBanned(peerId)) continue;
 			const peerInfo = this.peerStore.store.known[peerId];
 			if (targets.length >= maxTargets) break;
@@ -182,7 +184,12 @@ export class NodeP2P {
 	#handleIncomingSignal(senderId, data, tempTransportInstance) {
 		if (!senderId || typeof data !== 'object') return;
 		const conn = this.peerStore.store.connecting[senderId];
-		if (!conn && data.type === 'offer') this.peerStore.addConnectingPeer(senderId, tempTransportInstance, data, this.transportName);
-		else if (conn && data.type !== 'offer') this.peerStore.assignConnectingPeerSignal(senderId, data);
+		if (conn && data.type !== 'offer') this.peerStore.assignConnectingPeerSignal(senderId, data);
+		else if (!conn && data.type === 'offer') {
+			const sharedNeighbours = this.peerStore.sharedNeighbours(this.id, senderId);
+			// if shared neighbours => avoid connection
+			if (sharedNeighbours.length > 2) this.peerStore.banPeer(senderId, 30_000);
+			else this.peerStore.addConnectingPeer(senderId, tempTransportInstance, data, this.transportName);
+		}
 	}
 }

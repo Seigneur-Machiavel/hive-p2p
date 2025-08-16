@@ -7,11 +7,17 @@
 		{
 			"type": "node",
 			"request": "launch",
-			"name": "Launch Program",
-			"skipFiles": [
-				"<node_internals>/**"
-			],
-			"program": "${workspaceFolder}\\tests\\p2p_simulator.mjs"
+			"name": "Start_Simulation",
+			"skipFiles": ["<node_internals>/**"],
+			"program": "${workspaceFolder}\\tests\\p2p_simulator.mjs",
+		},
+		{
+			"type": "node",
+			"request": "launch",
+			"name": "With_Inspect",
+			"skipFiles": ["<node_internals>/**"],
+			"program": "${workspaceFolder}\\tests\\p2p_simulator.mjs",
+			"runtimeArgs": ["--inspect"]
 		}
 	]
 }

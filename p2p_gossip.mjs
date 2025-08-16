@@ -21,12 +21,14 @@ export class GossipMessage {
 
 class DegenerateBloomFilter {
 	/** @type {Record<string, number>} */
-	msgHashes = {};
+	seenTimeouts = {};
+	msgHashes = [];
+	nMHi = 0; // Next Message Hash Index to control
 	cleanupDurationWarning = 10;
 	cleanupIntervalTime = 1000;
 	cleanupInterval;
 
-	constructor() {
+	/*constructor() {
 		this.cleanupInterval = setInterval(() => {
 			const now = Date.now();
 			for (const [hash, timestamp] of Object.entries(this.msgHashes))
@@ -42,6 +44,26 @@ class DegenerateBloomFilter {
 		const n = Date.now();
 		if (this.msgHashes[h] && n < this.msgHashes[h]) return false; // already exists and not expired
 		else this.msgHashes[h] = n + (TTL * 1000);
+	}*/
+	// TRYING TO OPTIMIZE THIS CRAP
+	addMessage(senderId, topic, data, TTL = VARS.GOSSIP_MESSAGE_TTL) {
+		const h = xxHash32(`${senderId}${topic}${JSON.stringify(data)}`);
+		const n = Date.now();
+		let forwardMessage = true;
+		if (this.seenTimeouts[h] && n < this.seenTimeouts[h]) forwardMessage = false; // already exists and not expired
+		else this.#addMessageHash(h, n + (TTL * 1000)); // add/update timeout
+		this.#cleanupNext(n); // cleanup next message hash if needed
+
+		return forwardMessage;
+	}
+	#addMessageHash(h, t) {
+		if (!this.seenTimeouts[h]) this.msgHashes.push(h);
+		this.seenTimeouts[h] = t; // add/update timeout
+	}
+	#cleanupNext(now = Date.now()) {
+		this.nMHi = (this.nMHi + 1) % this.msgHashes.length;
+		const t = this.msgHashes[this.nMHi];
+		if (t && now > t) delete this.seenTimeouts[this.nMHi];
 	}
 	destroy() {
 		clearInterval(this.cleanupInterval);

@@ -67,7 +67,7 @@ class SimulationInterface {
 
 class NetworkVisualizer {
 	mockRunning = false;
-	autoSelectCurrentPeerCategory = 'standard'; // 'public' | 'standard' | 'chosen' | false
+	autoSelectCurrentPeerCategory = ['standard', 'chosen', 'public']; // 'public' | 'standard' | 'chosen' | false
 	currentPeerId;
 	lastPeerInfo;
 	networkRenderer = new NetworkRenderer();
@@ -215,10 +215,13 @@ class NetworkVisualizer {
 				element.appendChild(peerItem);
 			}
 			if (this.currentPeerId || peerIds.length === 0) continue; // Skip if current peer is set or no peers in this category
-			if (category === this.autoSelectCurrentPeerCategory) this.#setSelectedPeer(peerIds[0]);
+			//if (this.autoSelectCurrentPeerCategory.includes(category)) this.#setSelectedPeer(peerIds[0]);
 		}
 
-		if (this.currentPeerId) this.#setSelectedPeer(this.currentPeerId); // Auto-select current peer
+		if (this.currentPeerId) return this.#setSelectedPeer(this.currentPeerId); // Auto-select current peer
+
+		for (const category of this.autoSelectCurrentPeerCategory)
+			for (const peerId of peersData[category] || []) return this.#setSelectedPeer(peerId);
 	}
 	// MOCK METHODS
 	#generateMockNetwork() {

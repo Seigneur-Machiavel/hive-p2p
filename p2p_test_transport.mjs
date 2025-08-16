@@ -207,9 +207,10 @@ export class TestWsConnection { // WebSocket like
 export class TestWsServer { // WebSocket like
 	url;
 	clients = new Set();
+	maxClients = 10;
 	callbacks = {
-		connection: [ (client) => this.clients.add(client) ],
-		close: [ (client) => this.clients.delete(client) ],
+		connection: [ (conn) => this.clients.size < this.maxClients ? this.clients.add(conn) : conn.close() ],
+		close: [ (conn) => this.clients.delete(conn) ],
 		error: []
 	};
 

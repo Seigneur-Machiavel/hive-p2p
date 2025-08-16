@@ -36,49 +36,34 @@ class NetworkRendererOptions {
 	 * 
 	 * @param {Object} repulsionOpts
 	 * @param {number} repulsionOpts.maxDistance
-	 * @param {number} repulsionOpts.bothPublicDistance
-	 * @param {number} repulsionOpts.publicDistance
-	 * @param {number} repulsionOpts.standardDistance
-	 * @param {number} repulsionOpts.bothChosenDistance
 	 * @param {number} repulsionOpts.publicMultiplier
 	 * @param {number} repulsionOpts.bothPublicMultiplier
-	 * @param {number} repulsionOpts.bothChosenMultiplier
 	 *
 	 * @param {Object} attractionOpts
 	 * @param {number} attractionOpts.minDistance
+	 * @param {number} attractionOpts.publicDistance
 	 * @param {number} attractionOpts.publicMultiplier
 	 * @param {number} attractionOpts.bothPublicMultiplier
-	 * @param {number} attractionOpts.chosenMultiplier
 	 * */
 	constructor(
 		mode = '3d',
 		nodeRadius = 12,
 		nodeBorderRadius = 3,
-		attraction = .01, // .001
-		repulsion = 50000,
-		damping = 1, // .5
-		centerForce = .0005,
-		maxVelocity = .2,
+		attraction = .005, // .001
+		repulsion = 5000, // 5000
+		damping = .5, // .5
+		centerForce = .0002, // .0005
+		maxVelocity = .5, // .2
 		repulsionOpts = {
-			maxDistance: 50,
-			/*1bothPublicDistance: 0,
-			publicDistance: 0,
-			standardDistance: 50,
-			bothChosenDistance: 0,*/
-			bothPublicDistance: 5000, // 2000
-			publicDistance: 500, // 500,
-			standardDistance: 200,
-			bothChosenDistance: 1000,
-
-			publicMultiplier: 100, // .5
-			bothPublicMultiplier: 1000, // 20
-			bothChosenMultiplier: 1 // 2
+			maxDistance: 10_000,
+			publicMultiplier: 10, // .5
+			bothPublicMultiplier: 50, // 20
 		},
 		attractionOpts = {
-			minDistance: 50,
-			publicMultiplier: 200, // 10
-			bothPublicMultiplier: .1,
-			chosenMultiplier: 1 // 1.5
+			minDistance: 20, // 50
+			publicDistance: 100,
+			publicMultiplier: 1_000, // 10
+			bothPublicMultiplier: .001
 		}
 	) {
 		this.mode = mode;
@@ -663,19 +648,12 @@ export class NetworkRenderer {
                 const dx = pos.x - otherPos.x;
                 const dy = pos.y - otherPos.y;
                 const dz = pos.z - otherPos.z;
+				const neighbourIsPublic = otherNode.isPublic;
                 const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
-
-				let maxDistance = this.options.repulsionOpts.standardDistance;
-				if (node.isPublic) maxDistance += this.options.repulsionOpts.publicDistance;
-				if (node.isPublic && otherNode.isPublic) maxDistance += this.options.repulsionOpts.bothPublicDistance;
-				if (node.isChosen && otherNode.isChosen) maxDistance += this.options.repulsionOpts.bothChosenDistance;
-				if (distance >= Math.max(maxDistance, this.options.repulsionOpts.maxDistance)) continue;
-                
-                if (distance < maxDistance) {
+                if (distance < this.options.repulsionOpts.maxDistance) {
 					let multiplier = 1;
-					if (node.isPublic || otherNode.isPublic) multiplier = this.options.repulsionOpts.publicMultiplier;
-					if (node.isPublic && otherNode.isPublic) multiplier = this.options.repulsionOpts.bothPublicMultiplier;
-					if (node.isChosen && otherNode.isChosen) multiplier = this.options.repulsionOpts.bothChosenMultiplier;
+					if (neighbourIsPublic) multiplier = this.options.repulsionOpts.publicMultiplier;
+					if (node.isPublic && neighbourIsPublic) multiplier = this.options.repulsionOpts.bothPublicMultiplier;
                     const force = this.options.repulsion * multiplier / (distance * distance + 1);
                     fx += (dx / distance) * force;
                     fy += (dy / distance) * force;
@@ -695,10 +673,12 @@ export class NetworkRenderer {
                 const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
                 
 				let multiplier = 1;
-				if (node.isChosen) multiplier = this.options.attractionOpts.chosenMultiplier;
-				if (node.isPublic || neighbourIsPublic) multiplier = this.options.attractionOpts.publicMultiplier;
+				if (neighbourIsPublic) multiplier = this.options.attractionOpts.publicMultiplier;
 				if (node.isPublic && neighbourIsPublic) multiplier = this.options.attractionOpts.bothPublicMultiplier;
-                if (distance > this.options.attractionOpts.minDistance) {
+                
+				let minDistance = this.options.attractionOpts.minDistance;
+				if (neighbourIsPublic) minDistance += this.options.attractionOpts.publicDistance;
+				if (distance > minDistance) {
                     const force = distance * this.options.attraction * multiplier;
                     fx += (dx / distance) * force;
                     fy += (dy / distance) * force;

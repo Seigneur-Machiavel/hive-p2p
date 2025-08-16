@@ -15,9 +15,9 @@ const sVARS = { // SIMULATION VARIABLES
 	randomMessagePerSecond: 10, // 20 = 1 message every 50ms, 0 = disabled ( max: 500 )
 };
 if (sVARS.transport === 'Test') {
-	sVARS.publicPeersCount = 10; // stable: 3
-	sVARS.peersCount = 380; // stable: 25
-	sVARS.chosenPeerCount = 10; // stable: 5
+	sVARS.publicPeersCount = 400; // stable: 3, strong: 200
+	sVARS.peersCount = 1000; // stable: 25, strong: 1000
+	sVARS.chosenPeerCount = 1000; // stable: 5, strong: 200
 }
 
 const peers = {
@@ -159,14 +159,13 @@ class SubscriptionsManager {
 
 /** @type {WebSocket} */
 let clientWs;
-const msgQueue = [];
-const wss = new WebSocketServer({ server });
+let msgQueue = [];
 let sManager = new SubscriptionsManager();
-wss.on('connection', (ws) => {
+new WebSocketServer({ server }).on('connection', (ws) => {
 	if (clientWs) clientWs.close();
 	clientWs = ws;
 	ws.on('message', async (message) => msgQueue.push(JSON.parse(message)));
-	ws.on('close', () => sManager.destroy());
+	ws.on('close', () => { sManager.destroy(); msgQueue = []; });
 	ws.send(JSON.stringify({ type: 'settings', data: sVARS }));
 	const zeroPeers = peers.public.length + peers.standard.length + peers.chosen.length === 0;
 	if (!zeroPeers) ws.send(JSON.stringify({ type: 'peersIds', data: peersIdsObj() }));
@@ -184,7 +183,7 @@ const onMessage = async (data, minLogTime = 5) => {
 	switch (data.type) {
 		case 'start':
 			sVARS.startTime = Date.now();
-			sManager = sManager.destroy(true);
+			sManager = sManager ? sManager.destroy(true) : new SubscriptionsManager();
 			for (const setting in data.settings) sVARS[setting] = data.settings[setting];
 			await initPeers();
 			send({ type: 'settings', data: sVARS });

@@ -83,6 +83,12 @@ export class PeerStore {
 		if (!this.callbacks[callbackType]) throw new Error(`Unknown callback type: ${callbackType}`);
 		this.callbacks[callbackType].unshift(callback);
 	}
+	sharedNeighbours(peerId1, peerId2) {
+		if (!this.store.known[peerId1] || !this.store.known[peerId2]) return [];
+		const neighbours1 = this.store.known[peerId1].neighbours;
+		const neighbours2 = this.store.known[peerId2].neighbours;
+		return Object.keys(neighbours1).filter(id => neighbours2[id]);
+	}
 	/**
 	 * @param {string} remoteId
 	 * @param {WebSocket} [tempTransportInstance]
