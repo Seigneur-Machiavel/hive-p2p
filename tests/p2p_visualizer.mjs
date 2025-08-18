@@ -146,10 +146,10 @@ class NetworkVisualizer {
 		this.lastPeerInfo = peerInfo;
 
 		const newlyUpdated = {};
-		const digestPeerUpdate = (id = 'toto', status = 'unknown', neighbours = [], updateStats = false) => {
+		const digestPeerUpdate = (id = 'toto', status = 'unknown', neighbours = []) => {
 			const isPublic = id.startsWith('public_');
 			const isChosen = id.startsWith('chosen_');
-			this.networkRenderer.addOrUpdateNode(id, status, isPublic, isChosen, neighbours, updateStats);
+			this.networkRenderer.addOrUpdateNode(id, status, isPublic, isChosen, neighbours);
 			newlyUpdated[id] = true;
 		}
 
@@ -173,25 +173,17 @@ class NetworkVisualizer {
 		for (const id of Object.keys(nodes)) // filter absent nodes
 			if (!newlyUpdated[id] && id !== this.currentPeerId) this.networkRenderer.removeNode(id);
 
-		// ensure current peer is updated and update stats
-		if (peerInfo.id === this.currentPeerId) digestPeerUpdate(peerInfo.id, 'current', peerInfo.store.connected, true);
+		// ensure current peer is updated
+		if (peerInfo.id === this.currentPeerId) digestPeerUpdate(peerInfo.id, 'current', peerInfo.store.connected);
 
 		// Create connections
-		const connections = {};
-		const connectionsByPeer = {};
-		for (const [id, node] of Object.entries(nodes)) connectionsByPeer[id] = node.neighbours || {};
+		const connections = [];
 		for (const [id, node] of Object.entries(nodes))
-			for (const neighbourId of node.neighbours) {
-				const conStr = `${id}:${neighbourId}`;
-				const conStrRev = `${neighbourId}:${id}`;
-				this.networkRenderer.addConnection(id, neighbourId);
-
-				if (connections[conStr] !== undefined || connections[conStrRev] !== undefined) continue;
-				connections[conStr] = false; // "false" means not drawn
-			}
+			for (const neighbourId of node.neighbours) connections.push([id, neighbourId]);
 
 		//console.log(`Updated network map: ${Object.keys(nodes).length} nodes | ${Object.keys(connections).length} connections`);
-		//this.networkRenderer.connections = connections;
+		this.networkRenderer.digestConnectionsArray(connections);
+		this.networkRenderer.updateStats(peerInfo.store.connected.length);
 	}
 	// SIMULATION METHODS
 	#handleSettings(settings = { publicPeersCount: 2, peersCount: 5, chosenPeerCount: 1 }) {
@@ -223,7 +215,7 @@ class NetworkVisualizer {
 		for (const category of this.autoSelectCurrentPeerCategory)
 			for (const peerId of peersData[category] || []) return this.#setSelectedPeer(peerId);
 	}
-	// MOCK METHODS
+	// MOCK METHODS (DEPRECATING)
 	#generateMockNetwork() {
 		this.mockRunning = true;
 		this.networkRenderer.clearNetwork();

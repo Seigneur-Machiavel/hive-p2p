@@ -1,3 +1,4 @@
+import { MESSAGER } from "./utils/p2p_params.mjs";
 
 /**
  * @typedef {import('./peer.mjs').PeerStore} PeerStore
@@ -13,7 +14,7 @@
  * @property {number} nodesExplored - Number of nodes visited during search
  */
 
-export class RouteBuilder {
+export class RouteBuilder { // CAN BE IMPROVED
 	constructor(selfId = 'toto', knownPeers = {}, connectedPeers = {}) {
 		this.selfId = selfId;
 		this.knownPeers = knownPeers;
@@ -21,6 +22,7 @@ export class RouteBuilder {
 	}
 
 	/** Find all possible routes between two peers using exhaustive BFS
+	 * - CAN BE IMPROVED
 	 * @param {string} from - Source peer ID
 	 * @param {string} remoteId - Destination peer ID
 	 * @param {number} maxRoutes - Maximum number of routes to return (default: 5)
@@ -53,26 +55,14 @@ export class RouteBuilder {
 		}
 
 		if (foundRoutes.length === 0) return { routes: [], success: false, nodesExplored };
-
+		
 		const routesWithScores = foundRoutes.map(path => ({
 			path,
 			hops: path.length - 1,
-			score: this.calculateRouteScore(path)
+			score: Math.max(0, 1 - (path.length * .1))
 		}));
 		if (sortByScore) routesWithScores.sort((a, b) => b.score - a.score); // Sort by score (best first)
 		return { routes: routesWithScores.slice(0, maxRoutes), success: true,  nodesExplored };
-	}
-
-	/** Calculate route quality score based on path length
-	 * @param {string[]} path - Route path
-	 * @returns {number} Score between 0 and 1 (higher is better) */
-	calculateRouteScore(path) {
-		const hops = path.length - 1;
-		if (hops === 0) return 1.0;  // Direct connection (shouldn't happen)
-		if (hops === 1) return 0.9;  // 1 hop
-		if (hops === 2) return 0.7;  // 2 hops
-		if (hops === 3) return 0.5;  // 3 hops
-		return 0.3; // 4+ hops (shouldn't happen with maxHops=3)
 	}
 }
 
@@ -99,6 +89,9 @@ export class DirectMessage {
 export class Messager {
 	id;
 	peerStore;
+	maxHops = MESSAGER.MAX_HOPS;
+	maxRoutes = MESSAGER.MAX_ROUTES;
+	maxNodes = MESSAGER.MAX_NODES;
 
 	/** @type {Record<string, Function[]>} */
 	callbacks = {
@@ -119,7 +112,7 @@ export class Messager {
 		const pathFinder = new RouteBuilder(this.id, this.peerStore.store.known, this.peerStore.store.connected);
 		const builtResult = tempConActive
 			? { success: true, routes: [{ path: [this.id, remoteId] }] }
-			: pathFinder.buildRoutes(this.id, remoteId);
+			: pathFinder.buildRoutes(this.id, remoteId, this.maxRoutes, this.maxHops, this.maxNodes, true);
 		if (!builtResult.success) return { success: false, reason: 'No route found' };
 
 		for (let i = 0; i < Math.min(spread, builtResult.routes.length); i++) {

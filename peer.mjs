@@ -1,11 +1,10 @@
 import wrtc from 'wrtc';
 import SimplePeer from 'simple-peer';
-import { TestTransport } from './p2p_test_transport.mjs';
-import { VARS } from './p2p_utils.mjs';
+import { TestTransport } from './tests/p2p_test_transport.mjs';
 
 /**
  * @typedef {import('ws').WebSocket} WebSocket
- * @typedef {import('./p2p_direct.mjs').DirectMessage} DirectMessage
+ * @typedef {import('./p2p_messager.mjs').DirectMessage} DirectMessage
  * @typedef {import('./p2p_gossip.mjs').GossipMessage} GossipMessage
  *
  * @typedef {Object} Store
@@ -35,7 +34,8 @@ export class PeerConnection {
 		this.peerId = peerId;
 	}
 	close() {
-		this.transportInstance.destroy();
+		this.tempTransportInstance?.close();
+		this.transportInstance?.destroy();
 	}
 }
 export class KnownPeer {
@@ -66,6 +66,7 @@ export class PeerStore {
 	isStoreDestroyed = false;
 	/** @type {Store} */
 	store = {connected: {}, connecting: {}, known: {}, bannedUntil: {}};
+	connectionUpgradeTimeout;
 	connectingTimeouts = {};
 	
 	/** @type {Record<string, Function[]>} */
@@ -76,7 +77,7 @@ export class PeerStore {
 		'data': []
 	};
 
-	constructor() {}
+	constructor(connectionUpgradeTimeout = 1000) { this.connectionUpgradeTimeout = connectionUpgradeTimeout; }
 
 	/** @param {string} callbackType @param {Function} callback */
 	on(callbackType, callback) {
@@ -124,7 +125,7 @@ export class PeerStore {
 
 		if (remoteSDP) try { transportInstance.signal(remoteSDP); } catch (error) { console.error(`Error signaling remote SDP for ${remoteId}:`, error.message); }
 		this.connectingTimeouts[remoteId] = setTimeout(() =>
-			this.removePeer(remoteId, 'connecting'), VARS.CONNECTION_UPGRADE_TIMEOUT);
+			this.removePeer(remoteId, 'connecting'), this.connectionUpgradeTimeout);
 	}
 	assignConnectingPeerSignal(remoteId, signalData) {
 		if (this.peerStoreIsDestroyed) return;
@@ -167,8 +168,7 @@ export class PeerStore {
 		if (!connectingConn && !connectedConn) return;
 
 		const conn = status === 'connected' ? connectedConn : connectingConn;
-		if (conn && conn.tempTransportInstance) conn.tempTransportInstance.close();
-		if (conn && conn.transportInstance) conn.transportInstance.destroy();
+		if (conn && conn) conn.close();
 		delete this.store[status][remoteId];
 	}
 

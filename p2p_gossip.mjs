@@ -1,4 +1,5 @@
-import { VARS, xxHash32 } from "./p2p_utils.mjs";
+import { GOSSIP } from './utils/p2p_params.mjs';
+import { xxHash32 } from './utils/xxhash32.mjs';
 
 /**
  * @typedef {import('./peer.mjs').PeerStore} PeerStore
@@ -28,25 +29,8 @@ class DegenerateBloomFilter {
 	cleanupIntervalTime = 1000;
 	cleanupInterval;
 
-	/*constructor() {
-		this.cleanupInterval = setInterval(() => {
-			const now = Date.now();
-			for (const [hash, timestamp] of Object.entries(this.msgHashes))
-				if (now > timestamp) delete this.msgHashes[hash];
-
-			const cleanupTime = Date.now() - now;
-			if (cleanupTime < this.cleanupDurationWarning) return;
-			console.warn(`Gossip message cleanup took longer than expected: ${cleanupTime}ms`);
-		}, VARS.GOSSIP_CLEANUP_INTERVAL);
-	}
-	addMessage(senderId, topic, data, TTL = VARS.GOSSIP_MESSAGE_TTL) {
-		const h = xxHash32(`${senderId}${topic}${JSON.stringify(data)}`);
-		const n = Date.now();
-		if (this.msgHashes[h] && n < this.msgHashes[h]) return false; // already exists and not expired
-		else this.msgHashes[h] = n + (TTL * 1000);
-	}*/
 	// TRYING TO OPTIMIZE THIS CRAP
-	addMessage(senderId, topic, data, TTL = VARS.GOSSIP_MESSAGE_TTL) {
+	addMessage(senderId, topic, data, TTL = GOSSIP.TTL.default) {
 		const h = xxHash32(`${senderId}${topic}${JSON.stringify(data)}`);
 		const n = Date.now();
 		let forwardMessage = true;
@@ -89,7 +73,7 @@ export class Gossip {
 	}
 
 	/** @param {string} topic @param {string | Uint8Array} data @param {number} [TTL] */
-	broadcast(topic, data, TTL = VARS.GOSSIP_DEFAULT_TTL) {
+	broadcast(topic, data, TTL = GOSSIP.TTL.default) {
 		const message = new GossipMessage(this.id, topic, data, TTL);
 		for (const peerId in this.peerStore.store.connected) this.peerStore.sendMessageToPeer(peerId, message);
 	}
@@ -102,7 +86,7 @@ export class Gossip {
 
 		if (TTL < 1) return; // stop forwarding if TTL is 0
 		if (this.id === senderId) return; // avoid sending our own message again
-		const transmissionRate = VARS.GOSSIP_TRANSMISSION_RATE[topic] || VARS.GOSSIP_TRANSMISSION_RATE.default;
+		const transmissionRate = GOSSIP.TRANSMISSION_RATE[topic] || GOSSIP.TRANSMISSION_RATE.default;
 		for (const [peerId, conn] of Object.entries(this.peerStore.store.connected)) {
 			if (peerId === from) continue; // avoid sending back to sender
 			if (Math.random() > transmissionRate) continue; // apply gossip transmission rate

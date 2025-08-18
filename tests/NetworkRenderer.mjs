@@ -1,17 +1,20 @@
 class NetworkRendererElements {
 	modeSwitchBtn;
 	nodeCountElement;
+	neighborCountElement;
 	connectionCountElement;
 	fpsCountElement;
 
 	constructor(
 		modeSwitchBtn = document.getElementById('modeSwitchBtn'),
 		nodeCountElement = document.getElementById('nodeCount'),
+		neighborCountElement = document.getElementById('neighborCount'),
 		connectionCountElement = document.getElementById('connectionCount'),
 		fpsCountElement = document.getElementById('fpsCount'),
 	) {
 		this.modeSwitchBtn = modeSwitchBtn;
 		this.nodeCountElement = nodeCountElement;
+		this.neighborCountElement = neighborCountElement;
 		this.connectionCountElement = connectionCountElement;
 		this.fpsCountElement = fpsCountElement;
 	}
@@ -36,34 +39,24 @@ class NetworkRendererOptions {
 	 * 
 	 * @param {Object} repulsionOpts
 	 * @param {number} repulsionOpts.maxDistance
-	 * @param {number} repulsionOpts.publicMultiplier
-	 * @param {number} repulsionOpts.bothPublicMultiplier
 	 *
 	 * @param {Object} attractionOpts
 	 * @param {number} attractionOpts.minDistance
-	 * @param {number} attractionOpts.publicDistance
-	 * @param {number} attractionOpts.publicMultiplier
-	 * @param {number} attractionOpts.bothPublicMultiplier
 	 * */
 	constructor(
 		mode = '3d',
 		nodeRadius = 12,
 		nodeBorderRadius = 3,
-		attraction = .005, // .001
-		repulsion = 5000, // 5000
-		damping = .5, // .5
-		centerForce = .0002, // .0005
-		maxVelocity = .5, // .2
+		attraction = .0001, // .001
+		repulsion = 50000, // 5000
+		damping = 1, // .5
+		centerForce = .05, // .0005
+		maxVelocity = 1, // .2
 		repulsionOpts = {
-			maxDistance: 10_000,
-			publicMultiplier: 10, // .5
-			bothPublicMultiplier: 50, // 20
+			maxDistance: 400,
 		},
 		attractionOpts = {
-			minDistance: 20, // 50
-			publicDistance: 100,
-			publicMultiplier: 1_000, // 10
-			bothPublicMultiplier: .001
+			minDistance: 400, // 50
 		}
 	) {
 		this.mode = mode;
@@ -81,7 +74,7 @@ class NetworkRendererOptions {
 
 export class NetworkRenderer {
 	autoRotateEnabled = true;
-	autoRotateSpeed = .001;
+	autoRotateSpeed = .0005; // .001
 	autoRotateDelay = 3000; // delay before activating auto-rotation after mouse event
 	elements;
 	options;
@@ -129,6 +122,8 @@ export class NetworkRenderer {
 	connectionObjects = new Map();
 	positions = new Map();
 	velocities = new Map();
+	updateBatches = 10;
+	updateBatchMax = 50;
 
 	// State
 	currentPeerId = null;
@@ -165,7 +160,7 @@ export class NetworkRenderer {
         this.camera.position.set(0, 0, 500);
 
         // Renderer
-        this.renderer = new THREE.WebGLRenderer({ antialias: true });
+        this.renderer = new THREE.WebGLRenderer({ antialias: false, precision: "lowp" });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
         const container = document.getElementById(this.containerId);
         if (container) container.appendChild(this.renderer.domElement);
@@ -192,6 +187,178 @@ export class NetworkRenderer {
         this.isAnimating = true;
         this.#animate();
     }
+
+    // Public API methods
+    addOrUpdateNode(id, status = 'known', isPublic = false, isChosen = false, neighbours = []) {
+
+		const addMeshBorder = (nodeMesh) => {
+			const marginBetween = this.options.nodeBorderRadius * 2;
+			const borderGeometry = new THREE.RingGeometry(
+                this.options.nodeRadius + marginBetween,
+                this.options.nodeRadius + marginBetween + this.options.nodeBorderRadius,
+                16
+            );
+            const borderMaterial = new THREE.MeshBasicMaterial({ 
+                color: isChosen ? this.colors.chosenPeer : this.colors.publicNodeBorder,
+                side: THREE.DoubleSide,
+                transparent: true,
+                opacity: .33
+            });
+            const borderMesh = new THREE.Mesh(borderGeometry, borderMaterial);
+            borderMesh.position.copy(nodeMesh.position);
+            borderMesh.lookAt(this.camera.position);
+            this.scene.add(borderMesh);
+            nodeMesh.userData.border = borderMesh;
+		}
+
+        if (!this.nodes[id]) { // Create new node
+			this.nodes[id] = { status, isPublic, isChosen, neighbours };
+			this.velocities.set(id, { x: 0, y: 0, z: 0 });
+			this.positions.set(id, { // Random position
+				x: (Math.random() - 0.5) * 500,
+				y: (Math.random() - 0.5) * 500,
+				z: (Math.random() - 0.5) * 500
+			});
+
+			// Create visual representation
+			const geometry = new THREE.SphereGeometry(this.options.nodeRadius, 8, 6);
+			const material = new THREE.MeshBasicMaterial({ color: this.#getNodeColor(id) });
+			const nodeMesh = new THREE.Mesh(geometry, material);
+			const pos = this.positions.get(id);
+			nodeMesh.position.set(pos.x, pos.y, pos.z);
+			nodeMesh.userData = { id, type: 'node' };
+			
+			this.scene.add(nodeMesh);
+			this.nodeObjects.set(id, nodeMesh);
+			if (isPublic || isChosen) addMeshBorder(nodeMesh);
+        } else { // Update existing node
+			const nodeMesh = this.nodeObjects.get(id); // update color on status change
+			nodeMesh.material.color.setHex(this.#getNodeColor(id));
+
+			let needBorderUpdate = this.nodes[id].isPublic !== isPublic || this.nodes[id].isChosen !== isChosen;
+            this.nodes[id].status = status;
+            this.nodes[id].isPublic = isPublic;
+            this.nodes[id].isChosen = isChosen;
+			this.nodes[id].neighbours = neighbours;
+			if (needBorderUpdate)
+				if (!this.nodes[id].isPublic && !this.nodes[id].isChosen) {
+					if (nodeMesh.userData.border) {
+						this.scene.remove(nodeMesh.userData.border);
+						delete nodeMesh.userData.border;
+					}
+				} else addMeshBorder(nodeMesh);
+        }
+    }
+    removeNode(id) {
+        if (!this.nodes[id]) return;
+
+        // Remove from data structures
+        delete this.nodes[id];
+        this.positions.delete(id);
+        this.velocities.delete(id);
+
+        // Remove visual objects
+        const nodeObj = this.nodeObjects.get(id);
+        if (nodeObj) {
+            if (nodeObj.userData.border) {
+                this.scene.remove(nodeObj.userData.border);
+            }
+            this.scene.remove(nodeObj);
+            this.nodeObjects.delete(id);
+        }
+    }
+	digestConnectionsArray(conns = []) {
+		const existingConns = {};
+		for (const [fromId, toId] of conns) { // add new connections
+			const connStr = `${fromId}:${toId}`;
+       		const connStrRev = `${toId}:${fromId}`;
+			existingConns[connStr] = true; // store for control
+			existingConns[connStrRev] = true; // store for control
+        	if (this.connections[connStr] || this.connections[connStrRev]) continue;
+			this.#addConnection(fromId, toId);
+		}
+
+		const connectionsKeys = Object.keys(this.connections);
+		for (const connStr of connectionsKeys) // remove connections that are not in the array
+			if (!existingConns[connStr])
+				this.#removeConnection(connStr);
+	}
+	displayMessageRoute(relayerId, route = [], frameToIgnore = 30) {
+		const maxTraveledColorIndex = this.colors.traveledConnection.length - 1;
+		let traveledIndex = 0;
+		let isRelayerIdPassed = false;
+		for (let i = 1; i < route.length; i++) {
+			const connStr = `${route[i - 1]}:${route[i]}`;
+			this.ignoredConnectionsRepaint[connStr] = frameToIgnore;
+			const color = isRelayerIdPassed ? this.colors.toTravelConnection : this.colors.traveledConnection[traveledIndex];
+			this.#updateConnectionColor(route[i - 1], route[i], color, .5);
+			traveledIndex = Math.min(traveledIndex + 1, maxTraveledColorIndex);
+			if (route[i - 1] === relayerId) isRelayerIdPassed = true;
+		}
+	}
+	// THIS IS A VERY FIRST IMPLEMENTATION, NEEDS REFINEMENT
+	displayGossipMessage(relayerId, senderId, topic = 'peer_connected', TTL = 0, data, frameToIgnore = 10) {
+		this.ignoredConnectionsRepaint[`${relayerId}:${senderId}`] = frameToIgnore;
+		this.ignoredConnectionsRepaint[`${this.currentPeerId}:${relayerId}`] = frameToIgnore + 5;
+
+		const [ color1, color2, color3 ] = this.colors.gossipConnectionByTTL;
+		this.#updateConnectionColor(relayerId, senderId, color2, .33); // sender to relayer
+		this.#updateConnectionColor(relayerId, this.currentPeerId, color1, .5); // relayer to current
+	}
+    setCurrentPeer(peerId, clearNetworkOneChange = true) {
+		if (clearNetworkOneChange && peerId !== this.currentPeerId) this.clearNetwork();
+
+        // Reset previous current peer
+        if (this.currentPeerId && this.nodes[this.currentPeerId]) {
+            this.nodes[this.currentPeerId].status = 'known';
+            this.#updateNodeColor(this.currentPeerId);
+        }
+
+        if (peerId && this.nodes[peerId]) {
+            this.nodes[peerId].status = 'current';
+            this.#updateNodeColor(peerId);
+        }
+
+		this.currentPeerId = peerId;
+    }
+    updateNodeStatus(nodeId, status) {
+        if (!this.nodes[nodeId]) return;
+        this.nodes[nodeId].status = status;
+        this.#updateNodeColor(nodeId);
+    }
+	switchMode() {
+		this.options.mode = this.options.mode === '2d' ? '3d' : '2d';
+		// reset camera angle
+		this.camera.position.set(0, 0, 500);
+		this.camera.lookAt(0, 0, 0);
+		this.elements.modeSwitchBtn.textContent = this.options.mode === '2d' ? '2D' : '3D';
+	}
+    clearNetwork() {
+        // Clear data
+        this.nodes = {};
+        this.connections = {};
+        this.positions.clear();
+        this.velocities.clear();
+        this.currentPeerId = null;
+        this.hoveredNodeId = null;
+
+        // Clear visual objects
+        for (const [id, nodeObj] of this.nodeObjects) if (nodeObj.userData.border) this.scene.remove(nodeObj.userData.border);
+		for (const [id, nodeObj] of this.nodeObjects) this.scene.remove(nodeObj);
+        for (const [id, connObj] of this.connectionObjects) this.scene.remove(connObj);
+        
+        this.nodeObjects.clear();
+        this.connectionObjects.clear();
+        this.updateStats();
+    }
+	destroy() {
+        this.isAnimating = false;
+        this.scene.clear();
+        this.renderer.dispose();
+        if (this.renderer.domElement.parentNode) this.renderer.domElement.parentNode.removeChild(this.renderer.domElement);
+    }
+
+    // Internal methods
 	/** @param {string} axis @param {'3d'|'2d'|null} restrictToMode */
 	#autoRotate(axis = 'z', restrictToMode = null) {
 		if (!this.autoRotateEnabled || !this.isAnimating) return;
@@ -354,116 +521,14 @@ export class NetworkRenderer {
 	#hideTooltip(element = document.getElementById('tooltip')) {
 		element.style.display = 'none';
 	}
-
-    // Public API methods
-    addOrUpdateNode(id, status = 'known', isPublic = false, isChosen = false, neighbours = [], updateStats = true) {
-
-		const addMeshBorder = (nodeMesh) => {
-			const marginBetween = this.options.nodeBorderRadius * 2;
-			const borderGeometry = new THREE.RingGeometry(
-                this.options.nodeRadius + marginBetween,
-                this.options.nodeRadius + marginBetween + this.options.nodeBorderRadius,
-                16
-            );
-            const borderMaterial = new THREE.MeshBasicMaterial({ 
-                color: isChosen ? this.colors.chosenPeer : this.colors.publicNodeBorder,
-                side: THREE.DoubleSide,
-                transparent: true,
-                opacity: .33
-            });
-            const borderMesh = new THREE.Mesh(borderGeometry, borderMaterial);
-            borderMesh.position.copy(nodeMesh.position);
-            borderMesh.lookAt(this.camera.position);
-            this.scene.add(borderMesh);
-            nodeMesh.userData.border = borderMesh;
-		}
-
-        if (!this.nodes[id]) { // Create new node
-			this.nodes[id] = { status, isPublic, isChosen, neighbours };
-			this.velocities.set(id, { x: 0, y: 0, z: 0 });
-			this.positions.set(id, { // Random position
-				x: (Math.random() - 0.5) * 500,
-				y: (Math.random() - 0.5) * 500,
-				z: (Math.random() - 0.5) * 500
-			});
-
-			// Create visual representation
-			const geometry = new THREE.SphereGeometry(this.options.nodeRadius, 8, 6);
-			const material = new THREE.MeshBasicMaterial({ color: this.#getNodeColor(id) });
-			const nodeMesh = new THREE.Mesh(geometry, material);
-			const pos = this.positions.get(id);
-			nodeMesh.position.set(pos.x, pos.y, pos.z);
-			nodeMesh.userData = { id, type: 'node' };
-			
-			this.scene.add(nodeMesh);
-			this.nodeObjects.set(id, nodeMesh);
-			if (isPublic || isChosen) addMeshBorder(nodeMesh);
-        } else { // Update existing node
-			const nodeMesh = this.nodeObjects.get(id); // update color on status change
-			nodeMesh.material.color.setHex(this.#getNodeColor(id));
-
-			let needBorderUpdate = this.nodes[id].isPublic !== isPublic || this.nodes[id].isChosen !== isChosen;
-            this.nodes[id].status = status;
-            this.nodes[id].isPublic = isPublic;
-            this.nodes[id].isChosen = isChosen;
-			this.nodes[id].neighbours = neighbours;
-			if (needBorderUpdate)
-				if (!this.nodes[id].isPublic && !this.nodes[id].isChosen) {
-					if (nodeMesh.userData.border) {
-						this.scene.remove(nodeMesh.userData.border);
-						delete nodeMesh.userData.border;
-					}
-				} else addMeshBorder(nodeMesh);
-        }
-
-        if (updateStats) this.#updateStats();
-    }
-    removeNode(id) {
-        if (!this.nodes[id]) return;
-
-        // Remove from data structures
-        delete this.nodes[id];
-        this.positions.delete(id);
-        this.velocities.delete(id);
-
-        // Remove visual objects
-        const nodeObj = this.nodeObjects.get(id);
-        if (nodeObj) {
-            if (nodeObj.userData.border) {
-                this.scene.remove(nodeObj.userData.border);
-            }
-            this.scene.remove(nodeObj);
-            this.nodeObjects.delete(id);
-        }
-
-        // Remove connections
-        const connectionsToRemove = [];
-        for (const connStr of Object.keys(this.connections)) {
-            const [fromId, toId] = connStr.split(':');
-            if (fromId === id || toId === id) connectionsToRemove.push(connStr);
-        }
-        
-        for (const connStr of connectionsToRemove) this.removeConnection(connStr);
-
-        this.#updateStats();
-    }
-    addConnection(fromId, toId) {
+	#addConnection(fromId = 'peer_1', toId = 'peer_2') {
         if (!this.nodes[fromId] || !this.nodes[toId]) return;
-
-        const connStr = `${fromId}:${toId}`;
-        const connStrRev = `${toId}:${fromId}`;
-        
-        if (this.connections[connStr] || this.connections[connStrRev]) return;
-        
+		const connStr = `${fromId}:${toId}`;
         this.connections[connStr] = true;
-        
-        // Update neighbours
-        this.nodes[fromId].neighbours.push(toId);
-        this.nodes[toId].neighbours.push(fromId);
 
         // Create visual line
-        const fromPos = this.positions.get(fromId);
-        const toPos = this.positions.get(toId);
+		const fromPos = this.positions.get(fromId);
+		const toPos = this.positions.get(toId);
         if (fromPos && toPos) {
             const geometry = new THREE.BufferGeometry();
             const positions = new Float32Array([
@@ -483,10 +548,8 @@ export class NetworkRenderer {
             this.scene.add(line);
             this.connectionObjects.set(connStr, line);
         }
-
-        this.#updateStats();
     }
-    removeConnection(connStr) {
+    #removeConnection(connStr = 'id1:id2') {
         if (!this.connections[connStr]) return;
 
         const [fromId, toId] = connStr.split(':');
@@ -510,88 +573,7 @@ export class NetworkRenderer {
             this.scene.remove(connObj);
             this.connectionObjects.delete(connStr);
         }
-
-        this.#updateStats();
     }
-	displayMessageRoute(relayerId, route = [], frameToIgnore = 30) {
-		const maxTraveledColorIndex = this.colors.traveledConnection.length - 1;
-		let traveledIndex = 0;
-		let isRelayerIdPassed = false;
-		for (let i = 1; i < route.length; i++) {
-			const connStr = `${route[i - 1]}:${route[i]}`;
-			this.ignoredConnectionsRepaint[connStr] = frameToIgnore;
-			const color = isRelayerIdPassed ? this.colors.toTravelConnection : this.colors.traveledConnection[traveledIndex];
-			this.#updateConnectionColor(route[i - 1], route[i], color, .5);
-			traveledIndex = Math.min(traveledIndex + 1, maxTraveledColorIndex);
-			if (route[i - 1] === relayerId) isRelayerIdPassed = true;
-		}
-	}
-	// THIS IS A VERY FIRST IMPLEMENTATION, NEEDS REFINEMENT
-	displayGossipMessage(relayerId, senderId, topic = 'peer_connected', TTL = 0, data, frameToIgnore = 10) {
-		//const maxGossipColorIndex = this.colors.gossipConnectionByTTL.length - 1;
-		//let gossipIndex = Math.min(TTL, maxGossipColorIndex);
-		//const color = this.colors.gossipConnectionByTTL[gossipIndex];
-		this.ignoredConnectionsRepaint[`${relayerId}:${senderId}`] = frameToIgnore;
-		this.ignoredConnectionsRepaint[`${this.currentPeerId}:${relayerId}`] = frameToIgnore + 5;
-
-		const [ color1, color2, color3 ] = this.colors.gossipConnectionByTTL;
-		this.#updateConnectionColor(relayerId, senderId, color2, .33); // sender to relayer
-		this.#updateConnectionColor(relayerId, this.currentPeerId, color1, .5); // relayer to current
-	}
-    setCurrentPeer(peerId, clearNetworkOneChange = true) {
-		if (clearNetworkOneChange && peerId !== this.currentPeerId) this.clearNetwork();
-
-        // Reset previous current peer
-        if (this.currentPeerId && this.nodes[this.currentPeerId]) {
-            this.nodes[this.currentPeerId].status = 'known';
-            this.#updateNodeColor(this.currentPeerId);
-        }
-
-        if (peerId && this.nodes[peerId]) {
-            this.nodes[peerId].status = 'current';
-            this.#updateNodeColor(peerId);
-        }
-
-		this.currentPeerId = peerId;
-    }
-    updateNodeStatus(nodeId, status) {
-        if (!this.nodes[nodeId]) return;
-        this.nodes[nodeId].status = status;
-        this.#updateNodeColor(nodeId);
-    }
-	switchMode() {
-		this.options.mode = this.options.mode === '2d' ? '3d' : '2d';
-		// reset camera angle
-		this.camera.position.set(0, 0, 500);
-		this.camera.lookAt(0, 0, 0);
-		this.elements.modeSwitchBtn.textContent = this.options.mode === '2d' ? '2D' : '3D';
-	}
-    clearNetwork() {
-        // Clear data
-        this.nodes = {};
-        this.connections = {};
-        this.positions.clear();
-        this.velocities.clear();
-        this.currentPeerId = null;
-        this.hoveredNodeId = null;
-
-        // Clear visual objects
-        for (const [id, nodeObj] of this.nodeObjects) if (nodeObj.userData.border) this.scene.remove(nodeObj.userData.border);
-		for (const [id, nodeObj] of this.nodeObjects) this.scene.remove(nodeObj);
-        for (const [id, connObj] of this.connectionObjects) this.scene.remove(connObj);
-        
-        this.nodeObjects.clear();
-        this.connectionObjects.clear();
-        this.#updateStats();
-    }
-	destroy() {
-        this.isAnimating = false;
-        this.scene.clear();
-        this.renderer.dispose();
-        if (this.renderer.domElement.parentNode) this.renderer.domElement.parentNode.removeChild(this.renderer.domElement);
-    }
-
-    // Internal methods
     #getNodeColor(peerId) {
 		const { status, isPublic } = this.nodes[peerId];
         switch (status) {
@@ -629,16 +611,28 @@ export class NetworkRenderer {
 		return isToIgnore;
 	}
 	#updateNodes(nodeIds, lockCurrentNodePosition = true) {
+		const includedIds = {};
+		const batchSize = Math.floor(Math.min(nodeIds.length / 10, this.updateBatchMax));
+		let includedCount = 0;
+		while (includedCount < batchSize) {
+			const id = nodeIds[Math.floor(Math.random() * nodeIds.length)];
+			if (includedIds[id]) continue;
+			includedIds[id] = true;
+			includedCount++;
+		}
+
+		const batchIds = Object.keys(includedIds);
 		for (const id of nodeIds) {
             const pos = this.positions.get(id);
             const vel = this.velocities.get(id);
             const node = this.nodes[id];
-            if (!pos || !vel || !node) continue;
+			const nodeObj = this.nodeObjects.get(id);
+            if (!pos || !vel || !node || !nodeObj) continue;
 
             let fx = 0, fy = 0, fz = 0;
 
             // Repulsion between nodes
-            for (const otherId of nodeIds) {
+            for (const otherId of [...batchIds, ...node.neighbours]) {
                 if (id === otherId) continue;
                 
                 const otherPos = this.positions.get(otherId);
@@ -648,22 +642,17 @@ export class NetworkRenderer {
                 const dx = pos.x - otherPos.x;
                 const dy = pos.y - otherPos.y;
                 const dz = pos.z - otherPos.z;
-				const neighbourIsPublic = otherNode.isPublic;
                 const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
-                if (distance < this.options.repulsionOpts.maxDistance) {
-					let multiplier = 1;
-					if (neighbourIsPublic) multiplier = this.options.repulsionOpts.publicMultiplier;
-					if (node.isPublic && neighbourIsPublic) multiplier = this.options.repulsionOpts.bothPublicMultiplier;
-                    const force = this.options.repulsion * multiplier / (distance * distance + 1);
-                    fx += (dx / distance) * force;
-                    fy += (dy / distance) * force;
-                    fz += (dz / distance) * force;
-                }
+                if (distance > this.options.repulsionOpts.maxDistance) continue;
+
+				const force = this.options.repulsion * (distance * distance + 1);
+				fx += (dx / distance) * force;
+				fy += (dy / distance) * force;
+				fz += (dz / distance) * force;
             }
 
             // Attraction along connections
             for (const neighbourId of node.neighbours) {
-				const neighbourIsPublic = this.nodes[neighbourId]?.isPublic;
                 const neighbourPos = this.positions.get(neighbourId);
                 if (!neighbourPos) continue;
 
@@ -671,19 +660,12 @@ export class NetworkRenderer {
                 const dy = neighbourPos.y - pos.y;
                 const dz = neighbourPos.z - pos.z;
                 const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
-                
-				let multiplier = 1;
-				if (neighbourIsPublic) multiplier = this.options.attractionOpts.publicMultiplier;
-				if (node.isPublic && neighbourIsPublic) multiplier = this.options.attractionOpts.bothPublicMultiplier;
-                
-				let minDistance = this.options.attractionOpts.minDistance;
-				if (neighbourIsPublic) minDistance += this.options.attractionOpts.publicDistance;
-				if (distance > minDistance) {
-                    const force = distance * this.options.attraction * multiplier;
-                    fx += (dx / distance) * force;
-                    fy += (dy / distance) * force;
-                    fz += (dz / distance) * force;
-                }
+				if (distance < this.options.attractionOpts.minDistance) continue;
+				
+                const force = distance * this.options.attraction;
+                fx += (dx / distance) * force;
+                fy += (dy / distance) * force;
+                fz += (dz / distance) * force;
             }
 
             // Center force
@@ -704,20 +686,19 @@ export class NetworkRenderer {
                 vel.z = (vel.z / speed) * this.options.maxVelocity;
             }
 
-            // Update position
-            pos.x += vel.x;
-            pos.y += vel.y;
-            pos.z += vel.z;
-			if (lockCurrentNodePosition && this.currentPeerId === id) for (const key of ['x', 'y', 'z']) pos[key] = 0;
-
-            // Update visual object
-            const nodeObj = this.nodeObjects.get(id);
-            if (!nodeObj) return;
+			// Update position
+			pos.x += vel.x;
+			pos.y += vel.y;
+			pos.z += vel.z;
+			if (this.currentPeerId === id && lockCurrentNodePosition) for (const key of ['x', 'y', 'z']) pos[key] = 0;
+			
+			// Update visual object
 			nodeObj.position.set(pos.x, pos.y, this.options.mode === '3d' ? pos.z : 0);
-			if (nodeObj.userData.border) {
-				nodeObj.userData.border.position.copy(nodeObj.position);
-				nodeObj.userData.border.lookAt(this.camera.position);
-			}
+
+			// Update border position
+			if (!nodeObj.userData.border) continue;
+			nodeObj.userData.border.position.copy(nodeObj.position);
+			nodeObj.userData.border.lookAt(this.camera.position);
         }
 	}
     #updateConnections() {
@@ -768,9 +749,10 @@ export class NetworkRenderer {
         this.renderer.render(this.scene, this.camera);
 		requestAnimationFrame(() => this.#animate());
     }
-    #updateStats() {
+    updateStats(neighborsCount = 0) {
 	   this.elements.nodeCountElement.textContent = Object.keys(this.nodes).length;
 	   this.elements.connectionCountElement.textContent = Object.keys(this.connections).length;
+	   this.elements.neighborCountElement.textContent = neighborsCount;
     }
 }
 
