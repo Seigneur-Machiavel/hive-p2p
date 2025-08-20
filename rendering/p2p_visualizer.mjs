@@ -66,7 +66,6 @@ class SimulationInterface {
 }
 
 class NetworkVisualizer {
-	mockRunning = false;
 	autoSelectCurrentPeerCategory = ['standard', 'chosen', 'public']; // 'public' | 'standard' | 'chosen' | false
 	currentPeerId;
 	lastPeerInfo;
@@ -79,8 +78,6 @@ class NetworkVisualizer {
 		publicPeersCount: document.getElementById('publicPeersCount'),
 		peersCount: document.getElementById('peersCount'),
 		chosenPeerCount: document.getElementById('chosenPeerCount'),
-		startMock: document.getElementById('startMock'),
-		addMoreNodes: document.getElementById('addMoreNodes'),
 		startSimulation: document.getElementById('startSimulation'),
 	}
 
@@ -89,9 +86,9 @@ class NetworkVisualizer {
 			this.elements.peersList.style.display = 'block';
 			this.elements.simulationSettings.style.display = 'block';
 			this.simulationInterface = new SimulationInterface(
-				(settings) => { if (!this.mockRunning) this.#handleSettings(settings); }, // event: onSettings
-				(peersIds) => { if (!this.mockRunning) this.#updatePeersList(peersIds); }, // event: onPeersIds
-				(data) => { if (!this.mockRunning && data.peerId === this.currentPeerId) this.#updateNetworkFromPeerInfo(data.peerInfo); } // event: onPeerInfo
+				(settings) => this.#handleSettings(settings), // event: onSettings
+				(peersIds) => this.#updatePeersList(peersIds), // event: onPeersIds
+				(data) => { if (data.peerId === this.currentPeerId) this.#updateNetworkFromPeerInfo(data.peerInfo); } // event: onPeerInfo
 			);
 
 			this.simulationInterface.onPeerMessage = (remoteId, data) => {
@@ -104,14 +101,11 @@ class NetworkVisualizer {
 
 			this.networkRenderer.onNodeLeftClick = (nodeId) => this.simulationInterface.tryToConnectNode(this.currentPeerId,nodeId);
 			this.networkRenderer.onNodeRightClick = (nodeId) => this.#setSelectedPeer(nodeId);
-			this.elements.startMock.onclick = () => this.#generateMockNetwork();
-			this.elements.addMoreNodes.onclick = () => this.#addMoreNodes();
 			this.elements.startSimulation.onclick = () => {
 				this.mockRunning = false;
 				this.networkRenderer.clearNetwork();
 				this.simulationInterface.start(this.#getSimulatorSettings());
 			}
-			//setTimeout(() => this.#generateMockNetwork(), 100);
 		}
 
 		window.networkRenderer = this.networkRenderer; // Expose for debugging
@@ -215,84 +209,7 @@ class NetworkVisualizer {
 		for (const category of this.autoSelectCurrentPeerCategory)
 			for (const peerId of peersData[category] || []) return this.#setSelectedPeer(peerId);
 	}
-	// MOCK METHODS (DEPRECATING)
-	#generateMockNetwork() {
-		this.mockRunning = true;
-		this.networkRenderer.clearNetwork();
-		this.#generateMockPeers(this.#getSimulatorSettings());
-		this.#updatePeersListFromRendererNodes();
-	}
-	#addMoreNodes() {
-		const newNodeCount = 50;
-		for (let i = 0; i < newNodeCount; i++) {
-			const id = `node_${Date.now()}_${i}`;
-			this.networkRenderer.addOrUpdateNode(id, 'known', false, false);
-
-			// Add some random conns
-			const existingNodes = Object.keys(this.networkRenderer.nodes);
-			const nodesCount = existingNodes.length;
-			const connectionCount = Math.min(3, Math.floor(Math.random() * nodesCount));
-			for (let j = 0; j < connectionCount; j++) {
-				const targetId = existingNodes[Math.floor(Math.random() * nodesCount)];
-				if (targetId !== id) this.networkRenderer.addConnection(id, targetId);
-			}
-		}
-	}
-	#generateMockPeers(settings = { publicPeersCount: 2, peersCount: 5, chosenPeerCount: 1 }) {
-		const allPeers = [];
-
-		// Generate public peers
-		for (let i = 0; i < settings.publicPeersCount; i++) {
-			const id = `public_${i}`;
-			allPeers.push(id);
-			this.networkRenderer.addOrUpdateNode(id, 'known', true, false);
-		}
-
-		// Generate standard peers
-		for (let i = 0; i < settings.peersCount; i++) {
-			const id = `peer_${i}`;
-			allPeers.push(id);
-			this.networkRenderer.addOrUpdateNode(id, i < 3 ? 'connected' : 'known', false, false);
-		}
-
-		// Generate chosen peers
-		for (let i = 0; i < settings.chosenPeerCount; i++) {
-			const id = `chosen_${i}`;
-			allPeers.push(id);
-			this.networkRenderer.addOrUpdateNode(id, 'connecting', false, true);
-		}
-
-		// Set current peer
-		if (allPeers.length > 0) {
-			this.networkRenderer.currentPeerId = allPeers[0];
-			this.networkRenderer.nodes[this.networkRenderer.currentPeerId].status = 'current';
-			this.#setCurrentPeer(this.networkRenderer.currentPeerId);
-		}
-
-		// Generate random conns
-		for (let i = 0; i < allPeers.length; i++) {
-			const peerId = allPeers[i];
-			const connectionCount = Math.min(5, Math.floor(Math.random() * allPeers.length * 0.3));
-
-			for (let j = 0; j < connectionCount; j++) {
-				const targetPeer = allPeers[Math.floor(Math.random() * allPeers.length)];
-				if (targetPeer !== peerId) this.networkRenderer.addConnection(peerId, targetPeer);
-			}
-		}
-	}
-	#updatePeersListFromRendererNodes(element = this.elements.peersList) {
-		element.innerHTML = '<h3>Peers List</h3>';
-		const nodes = Object.entries(this.networkRenderer.nodes);
-		if (nodes.length === 0) element.display = 'none';
-
-		for (const [id, node] of Object.entries(this.networkRenderer.nodes)) {
-			const peerItem = document.createElement('div');
-			peerItem.dataset.peerId = id;
-			peerItem.textContent = id;
-			peerItem.onclick = () => this.#setCurrentPeer(id);
-			element.appendChild(peerItem);
-		}
-	}
 }
 
 const networkVisualizer = new NetworkVisualizer(true);
+window.networkVisualizer = networkVisualizer; // Expose for debugging
