@@ -10,6 +10,8 @@ class SimulationInterface {
 	onPeerInfo;
 	onPeerMessage;
 
+	responseReceivedByType = {};
+
 	/** @param {function} onSettings @param {function} onPeersIds @param {function} onPeerInfo */
 	constructor(onSettings, onPeersIds, onPeerInfo) {
 		if (!onSettings || !onPeersIds || !onPeerInfo) return console.error('SimulationInterface requires three callback functions: onSettings, onPeersIds, onPeerInfo');
@@ -28,6 +30,8 @@ class SimulationInterface {
 		this.#ws = new WebSocket(url);
 		this.#ws.onmessage = (event) => {
 			const msg = JSON.parse(event.data);
+			this.responseReceivedByType[msg.type] = true;
+
 			if (msg.type === 'simulationStarted' && this.currentPeerId) this.subscribeToPeerMessages(this.currentPeerId, true);
 			if (msg.type === 'settings') this.onSettings(msg.data);
 			if (msg.type === 'peersIds') this.onPeersIds(msg.data);
@@ -56,11 +60,14 @@ class SimulationInterface {
 		if (!fromId || !targetId) return;
 		this.#sendWsMessage({ type: 'tryToConnectNode', fromId, targetId });
 	}
-	#sendWsMessage(msg) {
-		if (this.#ws?.readyState === WebSocket.OPEN) this.#ws.send(JSON.stringify(msg));
-		else {
+	#sendWsMessage(msg, avoidSendingIfNotAnswered = false) {
+		if (this.#ws?.readyState === WebSocket.OPEN) {
+			if (avoidSendingIfNotAnswered && this.responseReceivedByType[msg.type] === false) return;
+			this.responseReceivedByType[msg.type] = false;
+			this.#ws.send(JSON.stringify(msg));
+		} else {
 			console.error(`WebSocket is not connected. ${this.#connectingWs ? 'Trying to connect...' : ''}`);
-			if (!this.#connectingWs) this.#setupWs();
+			setTimeout(() => { if (!this.#connectingWs) this.#setupWs(); }, 2000);
 		}
 	}
 }
@@ -96,7 +103,7 @@ class NetworkVisualizer {
 				const msg = JSON.parse(data);
 				if (msg.isFlexible) console.warn(`Received flexible message from ${remoteId} with route: ${msg.route}`);
 				if (msg.route) this.networkRenderer.displayMessageRoute(remoteId, msg.route);
-				else this.networkRenderer.displayGossipMessage(remoteId, msg.senderId, msg.topic, msg.TTL, msg.data);
+				else this.networkRenderer.displayGossipMessage(remoteId, msg.senderId, msg.topic, msg.data);
 			};
 
 			this.networkRenderer.onNodeLeftClick = (nodeId) => this.simulationInterface.tryToConnectNode(this.currentPeerId,nodeId);

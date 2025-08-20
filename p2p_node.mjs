@@ -92,6 +92,7 @@ export class NodeP2P {
 			let remoteId;
 			ws.on('message', (message) => {
 				try {
+					// TODO: move test in a dedicated file
 					const parsedMessage = JSON.parse(message);
 					if (parsedMessage.route.length !== 2) return console.error('Received message does not have a valid route');
 					if (parsedMessage.route[1] !== this.id) return console.error(`Received message is not for this node (expected: ${this.id}, got: ${parsedMessage.route[1]})`);

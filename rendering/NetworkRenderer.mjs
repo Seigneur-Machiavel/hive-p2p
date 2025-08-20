@@ -50,7 +50,7 @@ class NetworkRendererOptions {
 		attraction = .0001, // .001
 		repulsion = 50000, // 5000
 		damping = 1, // .5
-		centerForce = .0005, // .0005
+		centerForce = .00005, // .0005
 		maxVelocity = .2, // .2
 		repulsionOpts = {
 			maxDistance: 400,
@@ -70,6 +70,178 @@ class NetworkRendererOptions {
 		this.repulsionOpts = repulsionOpts;
 		this.attractionOpts = attractionOpts;
 	}
+}
+
+class SpatialGrid {
+    constructor(cellSize = 400) {
+        this.cellSize = cellSize;
+        this.grid = new Map(); // { "x:y:z": Set<id> }
+    }
+
+    getCellKey(x, y, z) {
+        return `${Math.floor(x / this.cellSize)}:${Math.floor(y / this.cellSize)}:${Math.floor(z / this.cellSize)}`;
+    }
+    addNode(id, x, y, z) {
+        const key = this.getCellKey(x, y, z);
+        if (!this.grid.has(key)) this.grid.set(key, new Set());
+        this.grid.get(key).add(id);
+    }
+    getNearbyNodes(x, y, z) {
+        const nearbyNodes = new Set();
+        const [cx, cy, cz] = this.getCellKey(x, y, z).split(':').map(Number);
+        for (let dx = -1; dx <= 1; dx++)
+            for (let dy = -1; dy <= 1; dy++)
+                for (let dz = -1; dz <= 1; dz++) {
+                    const key = `${cx + dx}:${cy + dy}:${cz + dz}`;
+                    if (this.grid.has(key)) this.grid.get(key).forEach(id => nearbyNodes.add(id));
+                }
+        
+        return Array.from(nearbyNodes);
+    }
+    clear() {
+        this.grid.clear();
+    }
+}
+
+class BarnesHutNode {
+    constructor(bounds, depth) {
+        this.bounds = bounds; // { min: {x,y,z}, max: {x,y,z}, center: {x,y,z} }
+        this.children = [];
+        this.node = null; // ID du nœud ou null si cellule interne
+        this.mass = 0;
+        this.centerOfMass = { x: 0, y: 0, z: 0 };
+        this.depth = depth;
+    }
+
+    insert(id, pos, mass = 1) {
+		if (!this.bounds.contains)
+			return console.error(`Bounds not defined for node ${id}: ${this.bounds}`);
+        if (!this.bounds.contains(pos))
+			return false;
+        if (this.node !== null && this.depth > 0) {
+            // Cellule interne : insérer dans les enfants
+            if (this.children.length === 0) {
+                this.subdivide();
+            }
+            for (const child of this.children) {
+                if (child.insert(id, pos, mass)) {
+                    this.updateCenterOfMass(id, pos, mass);
+                    return true;
+                }
+            }
+        }
+        if (this.node === null) {
+            // Cellule vide : occuper
+            this.node = id;
+            this.mass = mass;
+            this.centerOfMass = { ...pos };
+            return true;
+        } else {
+            // Cellule occupée : subdiviser
+            if (this.depth > 0) {
+                const existingPos = this.positions.get(this.node);
+                this.subdivide();
+                this.children.forEach(child => {
+                    child.insert(this.node, existingPos, mass);
+                    child.insert(id, pos, mass);
+                });
+                this.node = null;
+                this.updateCenterOfMass(id, pos, mass);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    subdivide() {
+        const { min, max } = this.bounds;
+        const cx = (min.x + max.x) / 2;
+        const cy = (min.y + max.y) / 2;
+        const cz = (min.z + max.z) / 2;
+        this.children = [
+            new BarnesHutNode({ min: { x: min.x, y: min.y, z: min.z }, max: { x: cx, y: cy, z: cz } }, this.depth - 1),
+            new BarnesHutNode({ min: { x: cx, y: min.y, z: min.z }, max: { x: max.x, y: cy, z: cz } }, this.depth - 1),
+            new BarnesHutNode({ min: { x: min.x, y: cy, z: min.z }, max: { x: cx, y: max.y, z: cz } }, this.depth - 1),
+            new BarnesHutNode({ min: { x: cx, y: cy, z: min.z }, max: { x: max.x, y: max.y, z: cz } }, this.depth - 1),
+            new BarnesHutNode({ min: { x: min.x, y: min.y, z: cz }, max: { x: cx, y: cy, z: max.z } }, this.depth - 1),
+            new BarnesHutNode({ min: { x: cx, y: min.y, z: cz }, max: { x: max.x, y: cy, z: max.z } }, this.depth - 1),
+            new BarnesHutNode({ min: { x: min.x, y: cy, z: cz }, max: { x: cx, y: max.y, z: max.z } }, this.depth - 1),
+            new BarnesHutNode({ min: { x: cx, y: cy, z: cz }, max: { x: max.x, y: max.y, z: max.z } }, this.depth - 1),
+        ];
+    }
+
+    updateCenterOfMass(id, pos, mass) {
+        this.mass += mass;
+        this.centerOfMass.x = (this.centerOfMass.x * (this.mass - mass) + pos.x * mass) / this.mass;
+        this.centerOfMass.y = (this.centerOfMass.y * (this.mass - mass) + pos.y * mass) / this.mass;
+        this.centerOfMass.z = (this.centerOfMass.z * (this.mass - mass) + pos.z * mass) / this.mass;
+    }
+
+    calculateForce(pos, theta = 0.5) {
+        if (this.node !== null) {
+            // Feuille : calculer la force avec le nœud
+            const dx = this.centerOfMass.x - pos.x;
+            const dy = this.centerOfMass.y - pos.y;
+            const dz = this.centerOfMass.z - pos.z;
+            const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            if (distance === 0) return { fx: 0, fy: 0, fz: 0 };
+            const force = this.mass / (distance * distance + 1);
+            return {
+                fx: (dx / distance) * force,
+                fy: (dy / distance) * force,
+                fz: (dz / distance) * force,
+            };
+        } else {
+            // Cellule interne : approximer si suffisamment loin
+            const dx = this.centerOfMass.x - pos.x;
+            const dy = this.centerOfMass.y - pos.y;
+            const dz = this.centerOfMass.z - pos.z;
+            const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            const size = Math.max(
+                this.bounds.max.x - this.bounds.min.x,
+                this.bounds.max.y - this.bounds.min.y,
+                this.bounds.max.z - this.bounds.min.z
+            );
+            if (size / distance < theta) {
+                // Approximer la force pour cette cellule
+                const force = this.mass / (distance * distance + 1);
+                return {
+                    fx: (dx / distance) * force,
+                    fy: (dy / distance) * force,
+                    fz: (dz / distance) * force,
+                };
+            } else {
+                // Sinon, calculer récursivement pour les enfants
+                let fx = 0, fy = 0, fz = 0;
+                for (const child of this.children) {
+                    const { fx: cfx, fy: cfy, fz: cfz } = child.calculateForce(pos, theta);
+                    fx += cfx;
+                    fy += cfy;
+                    fz += cfz;
+                }
+                return { fx, fy, fz };
+            }
+        }
+    }
+}
+class Bounds {
+    constructor(min, max) {
+        this.min = min;
+        this.max = max;
+        this.center = {
+            x: (min.x + max.x) / 2,
+            y: (min.y + max.y) / 2,
+            z: (min.z + max.z) / 2,
+        };
+    }
+
+    contains(pos) {
+        return (
+            pos.x >= this.min.x && pos.x <= this.max.x &&
+            pos.y >= this.min.y && pos.y <= this.max.y &&
+            pos.z >= this.min.z && pos.z <= this.max.z
+        );
+    }
 }
 
 export class NetworkRenderer {
@@ -100,11 +272,8 @@ export class NetworkRenderer {
 			0x035afc // lighter blue
 		],
 		toTravelConnection: 0x03b5fc, // even lighter blue for the remaining distance
-		gossipConnectionByTTL: [
-			0xf542f5, // fuchsia
-			0xc24cc2, // dark fuchsia
-			0x8f468f // light purple
-		]
+		gossipIncomingColor: 0xf542f5, // fuchsia
+		gossipOutgoingColor: 0xc24cc2, // dark fuchsia
 	};
 
 	// Internal state
@@ -236,10 +405,7 @@ export class NetworkRenderer {
 			nodeMesh.material.color.setHex(this.#getNodeColor(id));
 
 			let needBorderUpdate = this.nodes[id].isPublic !== isPublic || this.nodes[id].isChosen !== isChosen;
-            this.nodes[id].status = status;
-            this.nodes[id].isPublic = isPublic;
-            this.nodes[id].isChosen = isChosen;
-			this.nodes[id].neighbours = neighbours;
+			this.nodes[id] = { status, isPublic, isChosen, neighbours };
 			if (needBorderUpdate)
 				if (!this.nodes[id].isPublic && !this.nodes[id].isChosen) {
 					if (nodeMesh.userData.border) {
@@ -253,19 +419,21 @@ export class NetworkRenderer {
         if (!this.nodes[id]) return;
 
         // Remove from data structures
-        delete this.nodes[id];
-        this.positions.delete(id);
-        this.velocities.delete(id);
-
-        // Remove visual objects
-        const nodeObj = this.nodeObjects.get(id);
-        if (nodeObj) {
-            if (nodeObj.userData.border) {
-                this.scene.remove(nodeObj.userData.border);
-            }
-            this.scene.remove(nodeObj);
-            this.nodeObjects.delete(id);
-        }
+		const nodeObj = this.nodeObjects.get(id);
+		if (nodeObj) {
+			if (nodeObj.userData.border) {
+				this.scene.remove(nodeObj.userData.border);
+				nodeObj.userData.border.geometry.dispose();
+				nodeObj.userData.border.material.dispose();
+			}
+			this.scene.remove(nodeObj);
+			nodeObj.geometry.dispose();
+			nodeObj.material.dispose();
+			this.nodeObjects.delete(id);
+		}
+		delete this.nodes[id];
+		this.positions.delete(id);
+		this.velocities.delete(id);
     }
 	digestConnectionsArray(conns = []) {
 		const existingConns = {};
@@ -297,13 +465,12 @@ export class NetworkRenderer {
 		}
 	}
 	// THIS IS A VERY FIRST IMPLEMENTATION, NEEDS REFINEMENT
-	displayGossipMessage(relayerId, senderId, topic = 'peer_connected', TTL = 0, data, frameToIgnore = 10) {
+	displayGossipMessage(relayerId, senderId, topic = 'peer_connected', data, frameToIgnore = 10) {
 		this.ignoredConnectionsRepaint[`${relayerId}:${senderId}`] = frameToIgnore;
 		this.ignoredConnectionsRepaint[`${this.currentPeerId}:${relayerId}`] = frameToIgnore + 5;
 
-		const [ color1, color2, color3 ] = this.colors.gossipConnectionByTTL;
-		this.#updateConnectionColor(relayerId, senderId, color2, .33); // sender to relayer
-		this.#updateConnectionColor(relayerId, this.currentPeerId, color1, .5); // relayer to current
+		this.#updateConnectionColor(relayerId, senderId, this.colors.gossipOutgoingColor, .33); // sender to relayer
+		this.#updateConnectionColor(relayerId, this.currentPeerId, this.colors.gossipIncomingColor, .5); // relayer to current
 	}
     setCurrentPeer(peerId, clearNetworkOneChange = true) {
 		if (clearNetworkOneChange && peerId !== this.currentPeerId) this.clearNetwork();
@@ -398,7 +565,7 @@ export class NetworkRenderer {
 			zoomSpeed2D = initZoomSpeed2D;
 			lastZoomDirection = null;
 			if (mouseDownGrabCursorTimeout) clearTimeout(mouseDownGrabCursorTimeout);
-			domElement.style.cursor = 'default';
+			setTimeout(() => domElement.style.cursor = 'default', 20);
         });
 
         domElement.addEventListener('mousemove', (e) => {
@@ -471,9 +638,14 @@ export class NetworkRenderer {
 
 		this.elements.modeSwitchBtn.addEventListener('click', () => this.switchMode());
 		domElement.addEventListener('click', () => this.onNodeLeftClick?.(this.hoveredNodeId));
-        domElement.addEventListener('contextmenu', (e) => { e.preventDefault(); this.onNodeRightClick?.(this.hoveredNodeId) });
+        domElement.addEventListener('contextmenu', (e) => {
+			e.preventDefault();
+			if (domElement.style.cursor === 'grabbing') return;
+			this.onNodeRightClick?.(this.hoveredNodeId)
+		});
     }
     #handleMouseMove(event) {
+		if (this.renderer.domElement.style.cursor === 'grabbing') return;
         this.mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
         this.mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
 
@@ -610,19 +782,187 @@ export class NetworkRenderer {
 		}
 		return isToIgnore;
 	}
-	#updateNodes(nodeIds, lockCurrentNodePosition = true) {
-		const includedIds = {};
-		const batchSize = Math.floor(Math.min(nodeIds.length / 10, this.updateBatchMax));
-		let includedCount = 0;
-		while (includedCount < batchSize) {
-			const id = nodeIds[Math.floor(Math.random() * nodeIds.length)];
-			if (includedIds[id]) continue;
-			includedIds[id] = true;
-			includedCount++;
+	#updateNodesV2(lockCurrentNodePosition = true) {
+		// Construire le Barnes-Hut Tree
+		const min = { x: -Infinity, y: -Infinity, z: -Infinity };
+		const max = { x: Infinity, y: Infinity, z: Infinity };
+		for (const [id, pos] of this.positions) {
+			min.x = Math.min(min.x, pos.x);
+			min.y = Math.min(min.y, pos.y);
+			min.z = Math.min(min.z, pos.z);
+			max.x = Math.max(max.x, pos.x);
+			max.y = Math.max(max.y, pos.y);
+			max.z = Math.max(max.z, pos.z);
+		}
+		// Ajouter une marge
+		const margin = Math.max(max.x - min.x, max.y - min.y, max.z - min.z) * 0.1;
+		min.x -= margin; min.y -= margin; min.z -= margin;
+		max.x += margin; max.y += margin; max.z += margin;
+		const bounds = new Bounds(min, max);
+		const root = new BarnesHutNode(bounds, 8);
+		for (const [id, pos] of this.positions) {
+			root.insert(id, pos, 1);
 		}
 
-		const batchIds = Object.keys(includedIds);
-		for (const id of nodeIds) {
+		for (const [id, pos] of this.positions) {
+			const vel = this.velocities.get(id);
+			const node = this.nodes[id];
+			if (!vel || !node) continue;
+
+			let fx = 0, fy = 0, fz = 0;
+
+			// Répulsion avec Barnes-Hut
+			const { fx: rfx, fy: rfy, fz: rfz } = root.calculateForce(pos);
+			fx += rfx;
+			fy += rfy;
+			fz += rfz;
+
+			// Attraction avec les voisins
+			for (const neighbourId of node.neighbours) {
+				const neighbourPos = this.positions.get(neighbourId);
+				if (!neighbourPos) continue;
+				const dx = neighbourPos.x - pos.x;
+				const dy = neighbourPos.y - pos.y;
+				const dz = neighbourPos.z - pos.z;
+				const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+				if (distance < this.options.attractionOpts.minDistance) continue;
+				const force = distance * this.options.attraction;
+				fx += (dx / distance) * force;
+				fy += (dy / distance) * force;
+				fz += (dz / distance) * force;
+			}
+
+			// Force centrale
+			fx += -pos.x * this.options.centerForce;
+			fy += -pos.y * this.options.centerForce;
+			fz += -pos.z * this.options.centerForce;
+
+			// Mise à jour de la vélocité
+			vel.x = (vel.x + fx) * this.options.damping;
+			vel.y = (vel.y + fy) * this.options.damping;
+			vel.z = (vel.z + fz) * this.options.damping;
+
+			// Limite de vélocité
+			const speed = Math.sqrt(vel.x * vel.x + vel.y * vel.y + vel.z * vel.z);
+			if (speed > this.options.maxVelocity) {
+				const ratio = this.options.maxVelocity / speed;
+				vel.x *= ratio;
+				vel.y *= ratio;
+				vel.z *= ratio;
+			}
+
+			// Mise à jour de la position
+			pos.x += vel.x;
+			pos.y += vel.y;
+			pos.z += vel.z;
+			//if (this.currentPeerId === id && lockCurrentNodePosition) for (const key of ['x', 'y', 'z']) pos[key] = 0;
+
+			// Mise à jour visuelle
+			const nodeObj = this.nodeObjects.get(id);
+			if (nodeObj) {
+				nodeObj.position.set(pos.x, pos.y, this.options.mode === '3d' ? pos.z : 0);
+				if (nodeObj.userData.border) {
+					nodeObj.userData.border.position.copy(nodeObj.position);
+					nodeObj.userData.border.lookAt(this.camera.position);
+				}
+			}
+		}
+	}
+	#updateNodesV1(lockCurrentNodePosition = true) {
+		// Initialiser le grid
+		const grid = new SpatialGrid();
+		for (const [id, pos] of this.positions) grid.addNode(id, pos.x, pos.y, pos.z);
+
+		for (const [id, pos] of this.positions) {
+			const vel = this.velocities.get(id);
+			const node = this.nodes[id];
+			if (!vel || !node) continue;
+
+			let fx = 0, fy = 0, fz = 0;
+
+			// Répulsion avec les nœuds proches (grid)
+			const nearbyIds = grid.getNearbyNodes(pos.x, pos.y, pos.z);
+			for (const otherId of nearbyIds) {
+				if (id === otherId) continue;
+				const otherPos = this.positions.get(otherId);
+				if (!otherPos) continue;
+				const dx = pos.x - otherPos.x;
+				const dy = pos.y - otherPos.y;
+				const dz = pos.z - otherPos.z;
+				const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+				if (distance > this.options.repulsionOpts.maxDistance) continue;
+				const force = this.options.repulsion / (distance * distance + 1);
+				fx += (dx / distance) * force;
+				fy += (dy / distance) * force;
+				fz += (dz / distance) * force;
+			}
+
+			// Attraction avec les voisins
+			for (const neighbourId of node.neighbours) {
+				const neighbourPos = this.positions.get(neighbourId);
+				if (!neighbourPos) continue;
+				const dx = neighbourPos.x - pos.x;
+				const dy = neighbourPos.y - pos.y;
+				const dz = neighbourPos.z - pos.z;
+				const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+				if (distance < this.options.attractionOpts.minDistance) continue;
+				const force = distance * this.options.attraction;
+				fx += (dx / distance) * force;
+				fy += (dy / distance) * force;
+				fz += (dz / distance) * force;
+			}
+
+			// Force centrale
+			fx += -pos.x * this.options.centerForce;
+			fy += -pos.y * this.options.centerForce;
+			fz += -pos.z * this.options.centerForce;
+
+			// Mise à jour de la vélocité
+			vel.x = (vel.x + fx) * this.options.damping;
+			vel.y = (vel.y + fy) * this.options.damping;
+			vel.z = (vel.z + fz) * this.options.damping;
+
+			// Limite de vélocité
+			const speed = Math.sqrt(vel.x * vel.x + vel.y * vel.y + vel.z * vel.z);
+			if (speed > this.options.maxVelocity) {
+				const ratio = this.options.maxVelocity / speed;
+				vel.x *= ratio;
+				vel.y *= ratio;
+				vel.z *= ratio;
+			}
+
+			// Mise à jour de la position
+			pos.x += vel.x;
+			pos.y += vel.y;
+			pos.z += vel.z;
+			if (this.currentPeerId === id && lockCurrentNodePosition) for (const key of ['x', 'y', 'z']) pos[key] = 0;
+
+			// Mise à jour visuelle
+			const nodeObj = this.nodeObjects.get(id);
+			if (!nodeObj) return;
+			nodeObj.position.set(pos.x, pos.y, this.options.mode === '3d' ? pos.z : 0);
+
+			if (!nodeObj.userData.border) return;
+			nodeObj.userData.border.position.copy(nodeObj.position);
+			nodeObj.userData.border.lookAt(this.camera.position);
+		}
+	}
+	#updateNodes(nodeIds = [], lockCurrentNodePosition = true, simplyCalculation = true) {
+		const getReducedBatch = () => {
+			const includedIds = {};
+			const batchSize = Math.floor(Math.min(nodeIds.length / 10, this.updateBatchMax));
+			let includedCount = 0;
+			while (includedCount < batchSize) {
+				const id = nodeIds[Math.floor(Math.random() * nodeIds.length)];
+				if (includedIds[id]) continue;
+				includedIds[id] = true;
+				includedCount++;
+			}
+			return Object.keys(includedIds);
+		}
+
+		const batchIds = simplyCalculation ? getReducedBatch() : nodeIds;
+		for (const id of batchIds) {
             const pos = this.positions.get(id);
             const vel = this.velocities.get(id);
             const node = this.nodes[id];

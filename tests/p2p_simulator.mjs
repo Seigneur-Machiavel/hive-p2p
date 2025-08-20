@@ -108,6 +108,15 @@ if (sVARS.randomMessagePerSecond) setInterval(sendRandomMessage, 1000 / Math.min
 const app = express();
 const __dirname = path.resolve();
 const parentPath = path.join(__dirname, '../P2P');
+app.use('/rendering/p2p_visualizer.mjs', (req, res, next) => {
+    res.set({
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0'
+    });
+    next();
+});
+
 app.use(express.static(parentPath));
 const server = app.listen(3000, () => console.log('Server listening on http://localhost:3000'));
 app.get('/', (req, res) => res.sendFile('rendering/p2p_visualizer.html', { root: '.' }));
@@ -158,15 +167,37 @@ class SubscriptionsManager {
 	}
 };
 
+class MessageQueue {
+	typesInTheQueue = [];
+	queue = [];
+
+	push(message, avoidMultipleMessageWithSameType = true) {
+		const typeAlreadyInQueue = this.typesInTheQueue.includes(message.type);
+		if (avoidMultipleMessageWithSameType && typeAlreadyInQueue) return;
+		if (!typeAlreadyInQueue) this.typesInTheQueue.push(message.type);
+		this.queue.push(message);
+	}
+	getNextMessage() {
+		const msg = this.queue.pop();
+		this.typesInTheQueue = this.typesInTheQueue.filter(type => type !== msg.type);
+		return msg;
+	}
+	reset() {
+		this.typesInTheQueue = [];
+		this.queue = [];
+	}
+}
+
 /** @type {WebSocket} */
 let clientWs;
-let msgQueue = [];
+const msgQueue = new MessageQueue();
 let sManager = new SubscriptionsManager();
-new WebSocketServer({ server }).on('connection', (ws) => {
+const wss = new WebSocketServer({ server });
+wss.on('connection', (ws) => {
 	if (clientWs) clientWs.close();
 	clientWs = ws;
 	ws.on('message', async (message) => msgQueue.push(JSON.parse(message)));
-	ws.on('close', () => { sManager.destroy(); msgQueue = []; });
+	ws.on('close', () => { sManager.destroy(); msgQueue.reset(); });
 	ws.send(JSON.stringify({ type: 'settings', data: sVARS }));
 	const zeroPeers = peers.public.length + peers.standard.length + peers.chosen.length === 0;
 	if (!zeroPeers) ws.send(JSON.stringify({ type: 'peersIds', data: peersIdsObj() }));
@@ -212,6 +243,7 @@ const onMessage = async (data, minLogTime = 5) => {
 }
 
 while (true) {
-	if (msgQueue.length > 0) await onMessage(msgQueue.pop());
+	const nextMsg = msgQueue.getNextMessage();
+	if (nextMsg) await onMessage(nextMsg);
 	await new Promise(resolve => setTimeout(resolve, 10)); // prevent blocking the event loop
 }
