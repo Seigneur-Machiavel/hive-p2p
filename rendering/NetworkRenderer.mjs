@@ -50,8 +50,8 @@ class NetworkRendererOptions {
 		attraction = .0001, // .001
 		repulsion = 50000, // 5000
 		damping = 1, // .5
-		centerForce = .05, // .0005
-		maxVelocity = 1, // .2
+		centerForce = .0005, // .0005
+		maxVelocity = .2, // .2
 		repulsionOpts = {
 			maxDistance: 400,
 		},
@@ -157,7 +157,7 @@ export class NetworkRenderer {
 
         // Camera
         this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 10000);
-        this.camera.position.set(0, 0, 500);
+        this.camera.position.set(0, 0, 1200);
 
         // Renderer
         this.renderer = new THREE.WebGLRenderer({ antialias: false, precision: "lowp" });
@@ -466,7 +466,7 @@ export class NetworkRenderer {
             const zoomSpeed = 0.1;
             const forward = new THREE.Vector3();
             this.camera.getWorldDirection(forward);
-            this.camera.position.add(forward.multiplyScalar(e.deltaY * zoomSpeed));
+            this.camera.position.add(forward.multiplyScalar(e.deltaY * -zoomSpeed));
         });
 
 		this.elements.modeSwitchBtn.addEventListener('click', () => this.switchMode());

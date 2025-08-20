@@ -8,6 +8,7 @@ export const NODE = {
 	ENHANCE_CONNECTION_RATE: .05, // default: .05 (5%)
 	MAX_BOOTSTRAPS_IN_CONNS: 10,
 	MAX_BOOTSTRAPS_OUT_CONNS: 2,
+	MIN_CONNECTION_TIME_TO_DISPATCH_EVENT: 2_500,
 	TARGET_NEIGHBORS_COUNT: 12, // default: 12
 	MAX_SHARED_NEIGHBORS_COUNT: 5
 }
@@ -21,7 +22,7 @@ export const GOSSIP = {
 		default: 10,
 	},
 	TRANSMISSION_RATE: {
-		default: .5, // 50%
+		default: 1, // .51 === 50%
 		peer_connected: (10 / 12) * .25, // we can reduce this, but lowering the map quality
 		peer_disconnected: (10 / 12) * .25
 	},

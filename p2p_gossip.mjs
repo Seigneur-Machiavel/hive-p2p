@@ -2,7 +2,7 @@ import { GOSSIP } from './utils/p2p_params.mjs';
 import { xxHash32 } from './utils/xxhash32.mjs';
 
 /**
- * @typedef {import('./peer.mjs').PeerStore} PeerStore
+ * @typedef {import('./p2p_peerStore.mjs').PeerStore} PeerStore
  */
 
 export class GossipMessage {
@@ -79,6 +79,7 @@ export class Gossip {
 	}
 	/** @param {string} from @param {GossipMessage} message @param {string | Uint8Array} serializedMessage @param {number} [verbose] */
 	handleGossipMessage(from, message, serializedMessage, verbose = 0) {
+		if (this.peerStore.isBanned(from)) return; // ignore messages from banned peers
 		//if (this.bloomFilter.addMessage(serializedMessage) === false) return; // already processed this message
 		const { senderId, topic, data, TTL } = message;
 		if (this.bloomFilter.addMessage(senderId, topic, data, TTL) === false) return; // already processed this message

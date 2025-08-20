@@ -7,7 +7,7 @@ import { shuffleArray } from '../utils/p2p_common_functions.mjs';
 let initInterval = null;
 const sVARS = { // SIMULATION VARIABLES
 	startTime: Date.now(),
-	transport: 'Test', // 'SimplePeer' or 'Test'
+	useTestTransport: true,
 	autoStart: true,
 	publicPeersCount: 2,
 	peersCount: 5,
@@ -15,7 +15,7 @@ const sVARS = { // SIMULATION VARIABLES
 	delayBetweenInit: 2, // 0 = faster for simulating big networks but > 0 = should be more realistic
 	randomMessagePerSecond: 10, // 20 = 1 message every 50ms, 0 = disabled ( max: 500 )
 };
-if (sVARS.transport === 'Test') {
+if (sVARS.useTestTransport) {
 	sVARS.publicPeersCount = 100; // stable: 3, medium: 100, strong: 400
 	sVARS.peersCount = 800; // stable: 25, medium: 800, strong: 1000
 	sVARS.chosenPeerCount = 100; // stable: 5, medium: 100, strong: 1000
@@ -51,7 +51,7 @@ async function initPeers() {
 
 	function addPeer(type = 'public', i = 0, bootstraps = [], init = false, setPublic = false) {
 		const id = `${type === 'standard' ? 'peer' : type}_${i}`;
-		const peer = NodeP2P.createNode(id, bootstraps, sVARS.transport, init);
+		const peer = NodeP2P.createNode(id, bootstraps, sVARS.useTestTransport, init);
 		peers.all[id] = peer;
 		peers[type].push(peer);
 		if (setPublic) publicPeersCards.push(peer.setAsPublic(`localhost`, 8080 + i, 10_000));
@@ -110,7 +110,7 @@ const __dirname = path.resolve();
 const parentPath = path.join(__dirname, '../P2P');
 app.use(express.static(parentPath));
 const server = app.listen(3000, () => console.log('Server listening on http://localhost:3000'));
-app.get('/', (req, res) => res.sendFile('tests/p2p_visualizer.html', { root: '.' }));
+app.get('/', (req, res) => res.sendFile('rendering/p2p_visualizer.html', { root: '.' }));
 
 class SubscriptionsManager {
 	totalMsg = 0;

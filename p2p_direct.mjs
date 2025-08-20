@@ -1,7 +1,9 @@
 import { MESSAGER } from "./utils/p2p_params.mjs";
 
 /**
- * @typedef {import('./peer.mjs').PeerStore} PeerStore
+ * @typedef {import('./p2p_peerStore.mjs').PeerStore} PeerStore
+ * @typedef {import('./p2p_peerStore.mjs').KnownPeer} KnownPeer
+ * @typedef {import('./p2p_peerStore.mjs').PeerConnection} PeerConnection
  * 
  * @typedef {Object} RouteInfo
  * @property {string[]} path - Array of peer IDs forming the route [from, ..., remoteId]
@@ -14,7 +16,14 @@ import { MESSAGER } from "./utils/p2p_params.mjs";
  * @property {number} nodesExplored - Number of nodes visited during search
  */
 
-export class RouteBuilder { // CAN BE IMPROVED
+
+/** Simple prototype of a path finder searching to sort the possible routes form peerA to peerB
+ * This logic can be improved a lot, especially in terms of efficiency and flexibility.
+ * I chose a BFS approach for its simplicity and completeness. */
+export class RouteBuilder {
+	selfId;
+	/** @type {Record<string, KnownPeer>} */ knownPeers;
+	/** @type {Record<string, PeerConnection>} */ connectedPeers;
 	constructor(selfId = 'toto', knownPeers = {}, connectedPeers = {}) {
 		this.selfId = selfId;
 		this.knownPeers = knownPeers;
@@ -50,7 +59,7 @@ export class RouteBuilder { // CAN BE IMPROVED
 				// If we reached destination record this route or Continue exploring from this neighbor
 				const newPath = [...path, neighbor];
 				if (neighbor === remoteId) foundRoutes.push(newPath);
-				else queue.push({ node: neighbor, path: newPath, depth: depth + 1 }); 
+				else queue.push({ node: neighbor, path: newPath, depth: depth + 1 });
 			}
 		}
 
@@ -86,15 +95,14 @@ export class DirectMessage {
 	}
 }
 
-export class Messager {
+export class DirectMessager {
 	id;
 	peerStore;
 	maxHops = MESSAGER.MAX_HOPS;
 	maxRoutes = MESSAGER.MAX_ROUTES;
 	maxNodes = MESSAGER.MAX_NODES;
 
-	/** @type {Record<string, Function[]>} */
-	callbacks = {
+	/** @type {Record<string, Function[]>} */ callbacks = {
 		'signal': [],
 		'message': []
 	};
