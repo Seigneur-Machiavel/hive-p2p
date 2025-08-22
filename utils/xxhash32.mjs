@@ -3,7 +3,6 @@ const PRIME32_2 = 2246822519;
 const PRIME32_3 = 3266489917;
 const PRIME32_4 = 668265263;
 const PRIME32_5 = 374761393;
-// test
 let encoder;
 /** @param input - byte array or string @param seed - optional seed (32-bit unsigned); */
 export function xxHash32(input, seed = 0) {

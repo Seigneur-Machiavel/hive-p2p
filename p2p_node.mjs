@@ -94,9 +94,9 @@ export class NodeP2P {
 				try {
 					// TODO: move test in a dedicated file
 					const parsedMessage = JSON.parse(message);
-					if (parsedMessage.route.length !== 2) return console.error('Received message does not have a valid route');
-					if (parsedMessage.route[1] !== this.id) return console.error(`Received message is not for this node (expected: ${this.id}, got: ${parsedMessage.route[1]})`);
-					if (parsedMessage.type !== 'signal') return console.error(`Received message is not a signal (type: ${parsedMessage.type})`);
+					if (parsedMessage.route.length !== 2) return (this.verbose) ? console.info('Received message does not have a valid route') : null;
+					if (parsedMessage.route[1] !== this.id) return (this.verbose) ? console.info(`Received message is not for this node (expected: ${this.id}, got: ${parsedMessage.route[1]})`) : null;
+					if (parsedMessage.type !== 'signal') return (this.verbose) ? console.info(`Received message is not a signal (type: ${parsedMessage.type})`) : null;
 					if (!remoteId) remoteId = parsedMessage.route[0];
 					// if kicked, simply ignore but don't announce/close, we can't be sure of the remoteId!
 					if (this.peerStore.isKicked(remoteId)) return;

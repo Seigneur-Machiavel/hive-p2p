@@ -262,7 +262,7 @@ export class NetworkRenderer {
 		knownPeer: 0x7d7d7d,
 		publicNode: 0xffffff,
 		publicNodeBorder: 0xffffff,
-		connectedPublicNode: 0x4CAF50,
+		twitchUser: 0xf216e4,
 
 		connection: 0x666666, // gray
 		currentPeerConnection: 0x4CAF50, // green
@@ -747,10 +747,12 @@ export class NetworkRenderer {
         }
     }
     #getNodeColor(peerId) {
+		const isTwitchUser = peerId.startsWith('u_');
+		if (isTwitchUser) return this.colors.twitchUser;
 		const { status, isPublic } = this.nodes[peerId];
         switch (status) {
             case 'current': return this.colors.currentPeer;
-            case 'connected': return isPublic ? this.colors.connectedPublicNode : this.colors.connectedPeerNeighbour;
+            case 'connected': return this.colors.connectedPeerNeighbour;
             case 'connecting': return this.colors.connectingPeerNeighbour;
             default: return isPublic ? this.colors.publicNode : this.colors.knownPeer;
         }

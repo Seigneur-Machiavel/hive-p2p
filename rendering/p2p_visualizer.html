@@ -27,7 +27,7 @@
 		<button id="startSimulation" style="width: 100%;">Start</button>
     </div>
     <div id="tooltip"></div>
-    <div id="info">
+    <div class="info"> <!-- SIMULATION INFO/STATS-->
 		<button id="modeSwitchBtn">2D</button>
         <div>FPS: <span id="fpsCount">0</span></div>
         <div>Nodes: <span id="nodeCount">0</span></div>
@@ -41,5 +41,19 @@ Left-Handle = pan
 Right-Handle = rotate
 Wheel = zoom</pre></div>
     </div>
+
+	<div class="info right"> <!-- LEGEND -->
+		<div style="font-weight: bold;">Peers:</div>
+		<div style="color: #929292">● <span>Discovered</span></div>
+		<div style="color: #ffffff">● <span>Public Node</span></div>
+		<div style="color: #4CAF50">● <span>Connected (current)</span></div>
+		<div style="color: #f216e4">● <span>Twitch OGs</span></div>
+		
+		<div style="padding-top: 10px; font-weight: bold;">Connections:</div>
+		<div style="color: #929292">- <span>Connection</span></div>
+		<div style="color: #4CAF50">- <span>Connection (current)</span></div>
+		<div style="color: #035afc">- <span>Direct message</span></div>
+		<div style="color: #f542f5">- <span>Gossip message</span></div>
+	</div>
 </body>
 </html>
