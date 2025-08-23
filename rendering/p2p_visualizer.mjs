@@ -142,7 +142,7 @@ class NetworkVisualizer {
 		};
 	}
 	// LIVE METHODS
-	#updateNetworkFromPeerInfo(peerInfo) { // TODO : implement connections
+	#updateNetworkFromPeerInfo(peerInfo) {
 		if (!peerInfo) return;
 		this.lastPeerInfo = peerInfo;
 

@@ -47,16 +47,16 @@ class NetworkRendererOptions {
 		mode = '3d',
 		nodeRadius = 12,
 		nodeBorderRadius = 3,
-		attraction = .0001, // .001
+		attraction = .001, // .0001
 		repulsion = 50000, // 5000
 		damping = 1, // .5
 		centerForce = .00005, // .0005
-		maxVelocity = .2, // .2
+		maxVelocity = .5, // .2
 		repulsionOpts = {
 			maxDistance: 400,
 		},
 		attractionOpts = {
-			minDistance: 400, // 50
+			minDistance: 100, // 50
 		}
 	) {
 		this.mode = mode;
@@ -72,179 +72,9 @@ class NetworkRendererOptions {
 	}
 }
 
-class SpatialGrid {
-    constructor(cellSize = 400) {
-        this.cellSize = cellSize;
-        this.grid = new Map(); // { "x:y:z": Set<id> }
-    }
-
-    getCellKey(x, y, z) {
-        return `${Math.floor(x / this.cellSize)}:${Math.floor(y / this.cellSize)}:${Math.floor(z / this.cellSize)}`;
-    }
-    addNode(id, x, y, z) {
-        const key = this.getCellKey(x, y, z);
-        if (!this.grid.has(key)) this.grid.set(key, new Set());
-        this.grid.get(key).add(id);
-    }
-    getNearbyNodes(x, y, z) {
-        const nearbyNodes = new Set();
-        const [cx, cy, cz] = this.getCellKey(x, y, z).split(':').map(Number);
-        for (let dx = -1; dx <= 1; dx++)
-            for (let dy = -1; dy <= 1; dy++)
-                for (let dz = -1; dz <= 1; dz++) {
-                    const key = `${cx + dx}:${cy + dy}:${cz + dz}`;
-                    if (this.grid.has(key)) this.grid.get(key).forEach(id => nearbyNodes.add(id));
-                }
-        
-        return Array.from(nearbyNodes);
-    }
-    clear() {
-        this.grid.clear();
-    }
-}
-
-class BarnesHutNode {
-    constructor(bounds, depth) {
-        this.bounds = bounds; // { min: {x,y,z}, max: {x,y,z}, center: {x,y,z} }
-        this.children = [];
-        this.node = null; // ID du nœud ou null si cellule interne
-        this.mass = 0;
-        this.centerOfMass = { x: 0, y: 0, z: 0 };
-        this.depth = depth;
-    }
-
-    insert(id, pos, mass = 1) {
-		if (!this.bounds.contains)
-			return console.error(`Bounds not defined for node ${id}: ${this.bounds}`);
-        if (!this.bounds.contains(pos))
-			return false;
-        if (this.node !== null && this.depth > 0) {
-            // Cellule interne : insérer dans les enfants
-            if (this.children.length === 0) {
-                this.subdivide();
-            }
-            for (const child of this.children) {
-                if (child.insert(id, pos, mass)) {
-                    this.updateCenterOfMass(id, pos, mass);
-                    return true;
-                }
-            }
-        }
-        if (this.node === null) {
-            // Cellule vide : occuper
-            this.node = id;
-            this.mass = mass;
-            this.centerOfMass = { ...pos };
-            return true;
-        } else {
-            // Cellule occupée : subdiviser
-            if (this.depth > 0) {
-                const existingPos = this.positions.get(this.node);
-                this.subdivide();
-                this.children.forEach(child => {
-                    child.insert(this.node, existingPos, mass);
-                    child.insert(id, pos, mass);
-                });
-                this.node = null;
-                this.updateCenterOfMass(id, pos, mass);
-                return true;
-            }
-        }
-        return false;
-    }
-
-    subdivide() {
-        const { min, max } = this.bounds;
-        const cx = (min.x + max.x) / 2;
-        const cy = (min.y + max.y) / 2;
-        const cz = (min.z + max.z) / 2;
-        this.children = [
-            new BarnesHutNode({ min: { x: min.x, y: min.y, z: min.z }, max: { x: cx, y: cy, z: cz } }, this.depth - 1),
-            new BarnesHutNode({ min: { x: cx, y: min.y, z: min.z }, max: { x: max.x, y: cy, z: cz } }, this.depth - 1),
-            new BarnesHutNode({ min: { x: min.x, y: cy, z: min.z }, max: { x: cx, y: max.y, z: cz } }, this.depth - 1),
-            new BarnesHutNode({ min: { x: cx, y: cy, z: min.z }, max: { x: max.x, y: max.y, z: cz } }, this.depth - 1),
-            new BarnesHutNode({ min: { x: min.x, y: min.y, z: cz }, max: { x: cx, y: cy, z: max.z } }, this.depth - 1),
-            new BarnesHutNode({ min: { x: cx, y: min.y, z: cz }, max: { x: max.x, y: cy, z: max.z } }, this.depth - 1),
-            new BarnesHutNode({ min: { x: min.x, y: cy, z: cz }, max: { x: cx, y: max.y, z: max.z } }, this.depth - 1),
-            new BarnesHutNode({ min: { x: cx, y: cy, z: cz }, max: { x: max.x, y: max.y, z: max.z } }, this.depth - 1),
-        ];
-    }
-
-    updateCenterOfMass(id, pos, mass) {
-        this.mass += mass;
-        this.centerOfMass.x = (this.centerOfMass.x * (this.mass - mass) + pos.x * mass) / this.mass;
-        this.centerOfMass.y = (this.centerOfMass.y * (this.mass - mass) + pos.y * mass) / this.mass;
-        this.centerOfMass.z = (this.centerOfMass.z * (this.mass - mass) + pos.z * mass) / this.mass;
-    }
-
-    calculateForce(pos, theta = 0.5) {
-        if (this.node !== null) {
-            // Feuille : calculer la force avec le nœud
-            const dx = this.centerOfMass.x - pos.x;
-            const dy = this.centerOfMass.y - pos.y;
-            const dz = this.centerOfMass.z - pos.z;
-            const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
-            if (distance === 0) return { fx: 0, fy: 0, fz: 0 };
-            const force = this.mass / (distance * distance + 1);
-            return {
-                fx: (dx / distance) * force,
-                fy: (dy / distance) * force,
-                fz: (dz / distance) * force,
-            };
-        } else {
-            // Cellule interne : approximer si suffisamment loin
-            const dx = this.centerOfMass.x - pos.x;
-            const dy = this.centerOfMass.y - pos.y;
-            const dz = this.centerOfMass.z - pos.z;
-            const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
-            const size = Math.max(
-                this.bounds.max.x - this.bounds.min.x,
-                this.bounds.max.y - this.bounds.min.y,
-                this.bounds.max.z - this.bounds.min.z
-            );
-            if (size / distance < theta) {
-                // Approximer la force pour cette cellule
-                const force = this.mass / (distance * distance + 1);
-                return {
-                    fx: (dx / distance) * force,
-                    fy: (dy / distance) * force,
-                    fz: (dz / distance) * force,
-                };
-            } else {
-                // Sinon, calculer récursivement pour les enfants
-                let fx = 0, fy = 0, fz = 0;
-                for (const child of this.children) {
-                    const { fx: cfx, fy: cfy, fz: cfz } = child.calculateForce(pos, theta);
-                    fx += cfx;
-                    fy += cfy;
-                    fz += cfz;
-                }
-                return { fx, fy, fz };
-            }
-        }
-    }
-}
-class Bounds {
-    constructor(min, max) {
-        this.min = min;
-        this.max = max;
-        this.center = {
-            x: (min.x + max.x) / 2,
-            y: (min.y + max.y) / 2,
-            z: (min.z + max.z) / 2,
-        };
-    }
-
-    contains(pos) {
-        return (
-            pos.x >= this.min.x && pos.x <= this.max.x &&
-            pos.y >= this.min.y && pos.y <= this.max.y &&
-            pos.z >= this.min.z && pos.z <= this.max.z
-        );
-    }
-}
-
 export class NetworkRenderer {
+	maxVisibleConnections = 500; // to avoid performance issues
+	visibleConnectionsCount = 0;
 	autoRotateEnabled = true;
 	autoRotateSpeed = .0005; // .001
 	autoRotateDelay = 3000; // delay before activating auto-rotation after mouse event
@@ -284,11 +114,13 @@ export class NetworkRenderer {
 	mouse = new THREE.Vector2();
 
 	// Data structures
+	instancedMesh = null;
 	nodes = {};
 	connections = {};
 	ignoredConnectionsRepaint = {};
-	nodeObjects = new Map();
 	connectionObjects = new Map();
+	tempConnections = [];
+
 	positions = new Map();
 	velocities = new Map();
 	updateBatches = 10;
@@ -344,13 +176,22 @@ export class NetworkRenderer {
 			this.renderer.setSize(window.innerWidth, window.innerHeight);
 		});
         this.renderer.domElement.addEventListener('mouseleave', () => {
-			if (this.hoveredNodeId) {
-				this.#updateNodeColor(this.hoveredNodeId);
-				this.hoveredNodeId = null;
-			}
+			if (this.hoveredNodeId) this.hoveredNodeId = null;
 			this.renderer.domElement.style.cursor = 'default';
 			this.#hideTooltip();
 		});
+
+		// PREPARE MESH INSTANCE
+		this.nodeCount = 0;
+		this.nodeIndexMap = new Map(); // id → instanceIndex
+		this.indexNodeMap = new Map(); // instanceIndex → id
+		this.nodeBorders = new Map(); // id → borderMesh
+		const geometry = new THREE.SphereGeometry(this.options.nodeRadius, 8, 6);
+		const material = new THREE.MeshBasicMaterial();
+		this.instancedMesh = new THREE.InstancedMesh(geometry, material, 50000);
+		this.instancedMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(50000 * 3), 3);
+		this.instancedMesh.count = 0;
+		this.scene.add(this.instancedMesh);
 
 		if (this.isAnimating) return;
         this.isAnimating = true;
@@ -358,29 +199,28 @@ export class NetworkRenderer {
     }
 
     // Public API methods
-    addOrUpdateNode(id, status = 'known', isPublic = false, isChosen = false, neighbours = []) {
-
-		const addMeshBorder = (nodeMesh) => {
-			const marginBetween = this.options.nodeBorderRadius * 2;
-			const borderGeometry = new THREE.RingGeometry(
-                this.options.nodeRadius + marginBetween,
-                this.options.nodeRadius + marginBetween + this.options.nodeBorderRadius,
-                16
-            );
-            const borderMaterial = new THREE.MeshBasicMaterial({ 
-                color: isChosen ? this.colors.chosenPeer : this.colors.publicNodeBorder,
-                side: THREE.DoubleSide,
-                transparent: true,
-                opacity: .33
-            });
-            const borderMesh = new THREE.Mesh(borderGeometry, borderMaterial);
-            borderMesh.position.copy(nodeMesh.position);
-            borderMesh.lookAt(this.camera.position);
-            this.scene.add(borderMesh);
-            nodeMesh.userData.border = borderMesh;
-		}
-
-        if (!this.nodes[id]) { // Create new node
+    #createMeshBorder = (nodeMesh, isChosen) => {
+		const marginBetween = this.options.nodeBorderRadius * 2;
+		const borderGeometry = new THREE.RingGeometry(
+			this.options.nodeRadius + marginBetween,
+			this.options.nodeRadius + marginBetween + this.options.nodeBorderRadius,
+			16
+		);
+		const borderMaterial = new THREE.MeshBasicMaterial({ 
+			color: isChosen ? this.colors.chosenPeer : this.colors.publicNodeBorder,
+			side: THREE.DoubleSide,
+			transparent: true,
+			opacity: .33
+		});
+		const borderMesh = new THREE.Mesh(borderGeometry, borderMaterial);
+		borderMesh.position.copy(nodeMesh.position);
+		borderMesh.lookAt(this.camera.position);
+		this.scene.add(borderMesh);
+		//nodeMesh.userData.border = borderMesh;
+		return borderMesh;
+	}
+	addOrUpdateNode(id, status = 'known', isPublic = false, isChosen = false, neighbours = []) {
+		if (!this.nodes[id]) { // Create new node
 			this.nodes[id] = { status, isPublic, isChosen, neighbours };
 			this.velocities.set(id, { x: 0, y: 0, z: 0 });
 			this.positions.set(id, { // Random position
@@ -389,52 +229,103 @@ export class NetworkRenderer {
 				z: (Math.random() - 0.5) * 500
 			});
 
-			// Create visual representation
-			const geometry = new THREE.SphereGeometry(this.options.nodeRadius, 8, 6);
-			const material = new THREE.MeshBasicMaterial({ color: this.#getNodeColor(id) });
-			const nodeMesh = new THREE.Mesh(geometry, material);
-			const pos = this.positions.get(id);
-			nodeMesh.position.set(pos.x, pos.y, pos.z);
-			nodeMesh.userData = { id, type: 'node' };
+			// Get next available index for this node
+			const instanceIndex = this.nodeCount++; // Tu auras besoin d'un compteur this.nodeCount = 0
+			this.nodeIndexMap.set(id, instanceIndex); // Map node id → instance index
+			this.indexNodeMap.set(instanceIndex, id); // Map instance index → node id
 			
-			this.scene.add(nodeMesh);
-			this.nodeObjects.set(id, nodeMesh);
-			if (isPublic || isChosen) addMeshBorder(nodeMesh);
-        } else { // Update existing node
-			const nodeMesh = this.nodeObjects.get(id); // update color on status change
-			nodeMesh.material.color.setHex(this.#getNodeColor(id));
+			// Set position in instanced mesh
+			const pos = this.positions.get(id);
+			const matrix = new THREE.Matrix4();
+			matrix.setPosition(pos.x, pos.y, pos.z);
+			this.instancedMesh.setMatrixAt(instanceIndex, matrix);
+			
+			// Set color
+			const color = new THREE.Color(this.#getNodeColor(id));
+			this.instancedMesh.setColorAt(instanceIndex, color);
 
-			let needBorderUpdate = this.nodes[id].isPublic !== isPublic || this.nodes[id].isChosen !== isChosen;
-			this.nodes[id] = { status, isPublic, isChosen, neighbours };
-			if (needBorderUpdate)
-				if (!this.nodes[id].isPublic && !this.nodes[id].isChosen) {
-					if (nodeMesh.userData.border) {
-						this.scene.remove(nodeMesh.userData.border);
-						delete nodeMesh.userData.border;
-					}
-				} else addMeshBorder(nodeMesh);
-        }
-    }
-    removeNode(id) {
-        if (!this.nodes[id]) return;
-
-        // Remove from data structures
-		const nodeObj = this.nodeObjects.get(id);
-		if (nodeObj) {
-			if (nodeObj.userData.border) {
-				this.scene.remove(nodeObj.userData.border);
-				nodeObj.userData.border.geometry.dispose();
-				nodeObj.userData.border.material.dispose();
+			// Handle borders (séparément, comme avant)
+			if (isPublic || isChosen) {
+				// Tu devras créer un mesh temporaire pour le border ou adapter ta logique
+				const borderMesh = this.#createMeshBorder({ position: pos }, isChosen);
+				this.nodeBorders.set(id, borderMesh); // Nouvelle Map pour stocker les borders
 			}
-			this.scene.remove(nodeObj);
-			nodeObj.geometry.dispose();
-			nodeObj.material.dispose();
-			this.nodeObjects.delete(id);
+			
+			return;
 		}
+
+		// Update existing node
+		const instanceIndex = this.nodeIndexMap.get(id);
+		const newColor = new THREE.Color(this.#getNodeColor(id));
+		this.instancedMesh.setColorAt(instanceIndex, newColor);
+
+		let needBorderUpdate = this.nodes[id].isPublic !== isPublic || this.nodes[id].isChosen !== isChosen;
+		this.nodes[id] = { status, isPublic, isChosen, neighbours };
+		this.instancedMesh.instanceMatrix.needsUpdate = true;
+		if (!needBorderUpdate) return;
+		
+		// Handle border updates
+		const existingBorder = this.nodeBorders.get(id);
+		if (isPublic || isChosen) {
+			if (existingBorder) this.scene.remove(existingBorder);
+			const pos = this.positions.get(id);
+			const newBorder = this.#createMeshBorder({ position: pos }, isChosen);
+			this.nodeBorders.set(id, newBorder);
+			return;
+		}
+
+		if (!existingBorder) return;
+		this.scene.remove(existingBorder);
+		this.nodeBorders.delete(id);
+	}
+	removeNode(id) {
+		if (!this.nodes[id]) return;
+
+		const instanceIndex = this.nodeIndexMap.get(id);
+		if (instanceIndex !== undefined) {
+			const lastIndex = this.nodeCount - 1;
+			
+			if (instanceIndex !== lastIndex) {
+				// Récupérer l'ID du dernier nœud
+				const lastNodeId = this.indexNodeMap.get(lastIndex);
+				if (lastNodeId) {
+					// Copier les données du dernier nœud vers l'index à supprimer
+					const lastMatrix = new THREE.Matrix4();
+					const lastColor = new THREE.Color();
+					
+					this.instancedMesh.getMatrixAt(lastIndex, lastMatrix);
+					this.instancedMesh.getColorAt(lastIndex, lastColor);
+					
+					this.instancedMesh.setMatrixAt(instanceIndex, lastMatrix);
+					this.instancedMesh.setColorAt(instanceIndex, lastColor);
+					
+					// Mettre à jour les mappings pour le nœud déplacé
+					this.nodeIndexMap.set(lastNodeId, instanceIndex);
+					this.indexNodeMap.set(instanceIndex, lastNodeId);
+				}
+			}
+			
+			// Nettoyer les mappings pour le nœud supprimé
+			this.nodeIndexMap.delete(id);
+			this.indexNodeMap.delete(lastIndex);
+			this.nodeCount--;
+			this.instancedMesh.count = this.nodeCount;
+		}
+
+		// Gérer les borders
+		const border = this.nodeBorders.get(id);
+		if (border) {
+			this.scene.remove(border);
+			border.geometry.dispose();
+			border.material.dispose();
+			this.nodeBorders.delete(id);
+		}
+
+		// Nettoyer les structures de données
 		delete this.nodes[id];
 		this.positions.delete(id);
 		this.velocities.delete(id);
-    }
+	}
 	digestConnectionsArray(conns = []) {
 		const existingConns = {};
 		for (const [fromId, toId] of conns) { // add new connections
@@ -469,29 +360,21 @@ export class NetworkRenderer {
 		this.ignoredConnectionsRepaint[`${relayerId}:${senderId}`] = frameToIgnore;
 		this.ignoredConnectionsRepaint[`${this.currentPeerId}:${relayerId}`] = frameToIgnore + 5;
 
-		this.#updateConnectionColor(relayerId, senderId, this.colors.gossipOutgoingColor, .33); // sender to relayer
-		this.#updateConnectionColor(relayerId, this.currentPeerId, this.colors.gossipIncomingColor, .5); // relayer to current
+		this.#updateConnectionColor(relayerId, senderId, this.colors.gossipOutgoingColor, .4); // sender to relayer
+		this.#updateConnectionColor(relayerId, this.currentPeerId, this.colors.gossipIncomingColor, .8); // relayer to current
 	}
     setCurrentPeer(peerId, clearNetworkOneChange = true) {
 		if (clearNetworkOneChange && peerId !== this.currentPeerId) this.clearNetwork();
 
         // Reset previous current peer
-        if (this.currentPeerId && this.nodes[this.currentPeerId]) {
-            this.nodes[this.currentPeerId].status = 'known';
-            this.#updateNodeColor(this.currentPeerId);
-        }
-
-        if (peerId && this.nodes[peerId]) {
-            this.nodes[peerId].status = 'current';
-            this.#updateNodeColor(peerId);
-        }
+        if (this.currentPeerId && this.nodes[this.currentPeerId]) this.nodes[this.currentPeerId].status = 'known';
+        if (peerId && this.nodes[peerId]) this.nodes[peerId].status = 'current';
 
 		this.currentPeerId = peerId;
     }
     updateNodeStatus(nodeId, status) {
         if (!this.nodes[nodeId]) return;
         this.nodes[nodeId].status = status;
-        this.#updateNodeColor(nodeId);
     }
 	switchMode() {
 		this.options.mode = this.options.mode === '2d' ? '3d' : '2d';
@@ -500,24 +383,38 @@ export class NetworkRenderer {
 		this.camera.lookAt(0, 0, 0);
 		this.elements.modeSwitchBtn.textContent = this.options.mode === '2d' ? '2D' : '3D';
 	}
-    clearNetwork() {
-        // Clear data
-        this.nodes = {};
-        this.connections = {};
-        this.positions.clear();
-        this.velocities.clear();
-        this.currentPeerId = null;
-        this.hoveredNodeId = null;
+	clearNetwork() {
+		// Clear data
+		this.nodes = {};
+		this.connections = {};
+		this.positions.clear();
+		this.velocities.clear();
+		this.currentPeerId = null;
+		this.hoveredNodeId = null;
 
-        // Clear visual objects
-        for (const [id, nodeObj] of this.nodeObjects) if (nodeObj.userData.border) this.scene.remove(nodeObj.userData.border);
-		for (const [id, nodeObj] of this.nodeObjects) this.scene.remove(nodeObj);
-        for (const [id, connObj] of this.connectionObjects) this.scene.remove(connObj);
-        
-        this.nodeObjects.clear();
-        this.connectionObjects.clear();
-        this.updateStats();
-    }
+		// Clear InstancedMesh nodes - Reset count to 0
+		this.nodeCount = 0;
+		this.instancedMesh.count = 0;
+		this.nodeIndexMap.clear();
+		this.indexNodeMap.clear();
+		
+		// Clear borders
+		for (const [id, border] of this.nodeBorders) {
+			this.scene.remove(border);
+			border.geometry.dispose();
+			border.material.dispose();
+		}
+		this.nodeBorders.clear();
+		
+		// Clear connections (unchanged)
+		for (const [id, connObj] of this.connectionObjects) {
+			this.scene.remove(connObj);
+			connObj.geometry.dispose();
+			connObj.material.dispose();
+		}
+		this.connectionObjects.clear();
+		this.updateStats();
+	}
 	destroy() {
         this.isAnimating = false;
         this.scene.clear();
@@ -644,35 +541,58 @@ export class NetworkRenderer {
 			this.onNodeRightClick?.(this.hoveredNodeId)
 		});
     }
-    #handleMouseMove(event) {
+	#handleMouseMove(event) {
 		if (this.renderer.domElement.style.cursor === 'grabbing') return;
-        this.mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-        this.mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+		this.mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+		this.mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
 
-        this.raycaster.setFromCamera(this.mouse, this.camera);
-        const intersects = this.raycaster.intersectObjects(this.scene.children);
+		this.raycaster.setFromCamera(this.mouse, this.camera);
+		const intersects = this.raycaster.intersectObjects(this.scene.children);
 
-        let foundNode = null;
-        for (const intersect of intersects)
-            if (intersect.object.userData.type === 'node') { foundNode = intersect.object.userData.id; break; }
+		let foundNode = null;
+		for (const intersect of intersects) {
+			if (intersect.object !== this.instancedMesh || intersect.instanceId === undefined) continue;
+			foundNode = this.indexNodeMap.get(intersect.instanceId);
+			if (foundNode) break;
+		}
 
-        if (foundNode === this.hoveredNodeId) return;
-		if (this.hoveredNodeId && this.nodeObjects.has(this.hoveredNodeId)) this.#updateNodeColor(this.hoveredNodeId);
+		if (foundNode === this.hoveredNodeId) return; // No change in hovered node
+
+		// Reset previous hovered node
+		if (this.hoveredNodeId) {
+			const prevInstanceIndex = this.nodeIndexMap.get(this.hoveredNodeId);
+			if (prevInstanceIndex !== undefined) {
+				const originalColor = new THREE.Color(this.#getNodeColor(this.hoveredNodeId));
+				this.instancedMesh.setColorAt(prevInstanceIndex, originalColor);
+			}
+		}
 
 		this.hoveredNodeId = foundNode;
-
+		this.#updateHoveredNodeInfo(event.clientX, event.clientY);
+	}
+	#updateHoveredNodeInfo(clientX, clientY) {
 		if (!this.hoveredNodeId) {
 			this.renderer.domElement.style.cursor = 'default';
 			this.#hideTooltip();
-		} else {
-			const nodeObj = this.nodeObjects.get(this.hoveredNodeId);
-			if (nodeObj) {
-				nodeObj.material.color.setHex(this.colors.hoveredPeer);
-				this.#showTooltip(event.clientX, event.clientY, this.hoveredNodeId);
-				this.renderer.domElement.style.cursor = 'pointer';
-			}
+			for (const connStr of this.tempConnections) this.#removeConnectionLine(connStr);
+			return;
 		}
-    }
+
+		this.#showTooltip(clientX, clientY, this.hoveredNodeId);
+		if (this.hoveredNodeId === this.currentPeerId) return;
+
+		// Set hover color
+		const instanceIndex = this.nodeIndexMap.get(this.hoveredNodeId);
+		if (instanceIndex === undefined) return;
+		
+		const hoverColor = new THREE.Color(this.colors.hoveredPeer);
+		this.instancedMesh.setColorAt(instanceIndex, hoverColor);
+		this.renderer.domElement.style.cursor = 'pointer';
+
+		const hoveredNode = this.nodes[this.hoveredNodeId];
+		const hoveredNeighbours = hoveredNode ? hoveredNode.neighbours : [];
+		for (const toId of hoveredNeighbours) this.#addConnectionLine(this.hoveredNodeId, toId, true);
+	}
 	#showTooltip(x, y, nodeId, element = document.getElementById('tooltip')) {
 		const node = this.nodes[nodeId];
 		if (!node) return;
@@ -693,40 +613,23 @@ export class NetworkRenderer {
 	#hideTooltip(element = document.getElementById('tooltip')) {
 		element.style.display = 'none';
 	}
-	#addConnection(fromId = 'peer_1', toId = 'peer_2') {
+	#addConnection(fromId = 'peer_1', toId = 'peer_2', displayNeighboursDegree = 2) {
         if (!this.nodes[fromId] || !this.nodes[toId]) return;
 		const connStr = `${fromId}:${toId}`;
         this.connections[connStr] = true;
 
-        // Create visual line
-		const fromPos = this.positions.get(fromId);
-		const toPos = this.positions.get(toId);
-        if (fromPos && toPos) {
-            const geometry = new THREE.BufferGeometry();
-            const positions = new Float32Array([
-                fromPos.x, fromPos.y, fromPos.z,
-                toPos.x, toPos.y, toPos.z
-            ]);
-            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-            
-            const material = new THREE.LineBasicMaterial({
-				color: this.colors.connection,
-				transparent: true,
-                opacity: .1,
-			});
-            const line = new THREE.Line(geometry, material);
-            line.userData = { fromId, toId, type: 'connection' };
-            
-            this.scene.add(line);
-            this.connectionObjects.set(connStr, line);
-        }
+		const isOneOfThePeer = fromId === this.currentPeerId || toId === this.currentPeerId;
+		const isOneOfTheNeighbours = this.nodes[this.currentPeerId]?.neighbours?.includes(fromId) || this.nodes[this.currentPeerId]?.neighbours?.includes(toId);
+		if (!displayNeighboursDegree) return;
+		if (displayNeighboursDegree === 1 && !isOneOfThePeer) return;
+		if (displayNeighboursDegree === 2 && !isOneOfTheNeighbours) return;
+
+		this.#addConnectionLine(fromId, toId);
     }
-    #removeConnection(connStr = 'id1:id2') {
+	#removeConnection(connStr = 'id1:id2') {
         if (!this.connections[connStr]) return;
 
         const [fromId, toId] = connStr.split(':');
-        
-        // Remove from data
         delete this.connections[connStr];
         
         // Update neighbours
@@ -739,13 +642,40 @@ export class NetworkRenderer {
             if (index > -1) this.nodes[toId].neighbours.splice(index, 1);
         }
 
-        // Remove visual
-        const connObj = this.connectionObjects.get(connStr);
-        if (connObj) {
-            this.scene.remove(connObj);
-            this.connectionObjects.delete(connStr);
-        }
+        this.#removeConnectionLine(connStr);
     }
+	#addConnectionLine(fromId = 'peer_1', toId = 'peer_2', isTemporary = false) {
+		const connStr = `${fromId}:${toId}`;
+		const fromPos = this.positions.get(fromId);
+		const toPos = this.positions.get(toId);
+		if (!fromPos || !toPos) return;
+		if (this.connectionObjects.has(connStr)) return; // already exists
+		if (isTemporary) this.tempConnections.push(connStr);
+
+		const geometry = new THREE.BufferGeometry();
+		const positions = new Float32Array([
+			fromPos.x, fromPos.y, fromPos.z,
+			toPos.x, toPos.y, toPos.z
+		]);
+		geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+		
+		const material = new THREE.LineBasicMaterial({
+			color: this.colors.connection,
+			transparent: true,
+			opacity: 1,
+		});
+		const line = new THREE.Line(geometry, material);
+		line.userData = { fromId, toId, type: 'connection' };
+		
+		this.scene.add(line);
+		this.connectionObjects.set(connStr, line);
+	}
+	#removeConnectionLine(connStr = 'id1:id2') {
+		const connObj = this.connectionObjects.get(connStr);
+		if (!connObj) return;
+		this.scene.remove(connObj);
+		this.connectionObjects.delete(connStr);
+	}
     #getNodeColor(peerId) {
 		const isTwitchUser = peerId.startsWith('u_');
 		if (isTwitchUser) return this.colors.twitchUser;
@@ -756,11 +686,6 @@ export class NetworkRenderer {
             case 'connecting': return this.colors.connectingPeerNeighbour;
             default: return isPublic ? this.colors.publicNode : this.colors.knownPeer;
         }
-    }
-    #updateNodeColor(nodeId) {
-        const nodeMesh = this.nodeObjects.get(nodeId);
-        if (nodeMesh && this.nodes[nodeId])
-            nodeMesh.material.color.setHex(this.#getNodeColor(nodeId));
     }
 	#updateConnectionColor(peerId1, peerId2, colorHex, opacity = 1) {
 		const connStr = `${peerId1}:${peerId2}`;
@@ -784,192 +709,26 @@ export class NetworkRenderer {
 		}
 		return isToIgnore;
 	}
-	#updateNodesV2(lockCurrentNodePosition = true) {
-		// Construire le Barnes-Hut Tree
-		const min = { x: -Infinity, y: -Infinity, z: -Infinity };
-		const max = { x: Infinity, y: Infinity, z: Infinity };
-		for (const [id, pos] of this.positions) {
-			min.x = Math.min(min.x, pos.x);
-			min.y = Math.min(min.y, pos.y);
-			min.z = Math.min(min.z, pos.z);
-			max.x = Math.max(max.x, pos.x);
-			max.y = Math.max(max.y, pos.y);
-			max.z = Math.max(max.z, pos.z);
+	#getReducedBatch = (nodeIds) => {
+		const includedIds = {};
+		const batchSize = Math.floor(Math.min(nodeIds.length / 10, this.updateBatchMax));
+		let includedCount = 0;
+		while (includedCount < batchSize) {
+			const id = nodeIds[Math.floor(Math.random() * nodeIds.length)];
+			if (includedIds[id]) continue;
+			includedIds[id] = true;
+			includedCount++;
 		}
-		// Ajouter une marge
-		const margin = Math.max(max.x - min.x, max.y - min.y, max.z - min.z) * 0.1;
-		min.x -= margin; min.y -= margin; min.z -= margin;
-		max.x += margin; max.y += margin; max.z += margin;
-		const bounds = new Bounds(min, max);
-		const root = new BarnesHutNode(bounds, 8);
-		for (const [id, pos] of this.positions) {
-			root.insert(id, pos, 1);
-		}
-
-		for (const [id, pos] of this.positions) {
-			const vel = this.velocities.get(id);
-			const node = this.nodes[id];
-			if (!vel || !node) continue;
-
-			let fx = 0, fy = 0, fz = 0;
-
-			// Répulsion avec Barnes-Hut
-			const { fx: rfx, fy: rfy, fz: rfz } = root.calculateForce(pos);
-			fx += rfx;
-			fy += rfy;
-			fz += rfz;
-
-			// Attraction avec les voisins
-			for (const neighbourId of node.neighbours) {
-				const neighbourPos = this.positions.get(neighbourId);
-				if (!neighbourPos) continue;
-				const dx = neighbourPos.x - pos.x;
-				const dy = neighbourPos.y - pos.y;
-				const dz = neighbourPos.z - pos.z;
-				const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
-				if (distance < this.options.attractionOpts.minDistance) continue;
-				const force = distance * this.options.attraction;
-				fx += (dx / distance) * force;
-				fy += (dy / distance) * force;
-				fz += (dz / distance) * force;
-			}
-
-			// Force centrale
-			fx += -pos.x * this.options.centerForce;
-			fy += -pos.y * this.options.centerForce;
-			fz += -pos.z * this.options.centerForce;
-
-			// Mise à jour de la vélocité
-			vel.x = (vel.x + fx) * this.options.damping;
-			vel.y = (vel.y + fy) * this.options.damping;
-			vel.z = (vel.z + fz) * this.options.damping;
-
-			// Limite de vélocité
-			const speed = Math.sqrt(vel.x * vel.x + vel.y * vel.y + vel.z * vel.z);
-			if (speed > this.options.maxVelocity) {
-				const ratio = this.options.maxVelocity / speed;
-				vel.x *= ratio;
-				vel.y *= ratio;
-				vel.z *= ratio;
-			}
-
-			// Mise à jour de la position
-			pos.x += vel.x;
-			pos.y += vel.y;
-			pos.z += vel.z;
-			//if (this.currentPeerId === id && lockCurrentNodePosition) for (const key of ['x', 'y', 'z']) pos[key] = 0;
-
-			// Mise à jour visuelle
-			const nodeObj = this.nodeObjects.get(id);
-			if (nodeObj) {
-				nodeObj.position.set(pos.x, pos.y, this.options.mode === '3d' ? pos.z : 0);
-				if (nodeObj.userData.border) {
-					nodeObj.userData.border.position.copy(nodeObj.position);
-					nodeObj.userData.border.lookAt(this.camera.position);
-				}
-			}
-		}
-	}
-	#updateNodesV1(lockCurrentNodePosition = true) {
-		// Initialiser le grid
-		const grid = new SpatialGrid();
-		for (const [id, pos] of this.positions) grid.addNode(id, pos.x, pos.y, pos.z);
-
-		for (const [id, pos] of this.positions) {
-			const vel = this.velocities.get(id);
-			const node = this.nodes[id];
-			if (!vel || !node) continue;
-
-			let fx = 0, fy = 0, fz = 0;
-
-			// Répulsion avec les nœuds proches (grid)
-			const nearbyIds = grid.getNearbyNodes(pos.x, pos.y, pos.z);
-			for (const otherId of nearbyIds) {
-				if (id === otherId) continue;
-				const otherPos = this.positions.get(otherId);
-				if (!otherPos) continue;
-				const dx = pos.x - otherPos.x;
-				const dy = pos.y - otherPos.y;
-				const dz = pos.z - otherPos.z;
-				const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
-				if (distance > this.options.repulsionOpts.maxDistance) continue;
-				const force = this.options.repulsion / (distance * distance + 1);
-				fx += (dx / distance) * force;
-				fy += (dy / distance) * force;
-				fz += (dz / distance) * force;
-			}
-
-			// Attraction avec les voisins
-			for (const neighbourId of node.neighbours) {
-				const neighbourPos = this.positions.get(neighbourId);
-				if (!neighbourPos) continue;
-				const dx = neighbourPos.x - pos.x;
-				const dy = neighbourPos.y - pos.y;
-				const dz = neighbourPos.z - pos.z;
-				const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
-				if (distance < this.options.attractionOpts.minDistance) continue;
-				const force = distance * this.options.attraction;
-				fx += (dx / distance) * force;
-				fy += (dy / distance) * force;
-				fz += (dz / distance) * force;
-			}
-
-			// Force centrale
-			fx += -pos.x * this.options.centerForce;
-			fy += -pos.y * this.options.centerForce;
-			fz += -pos.z * this.options.centerForce;
-
-			// Mise à jour de la vélocité
-			vel.x = (vel.x + fx) * this.options.damping;
-			vel.y = (vel.y + fy) * this.options.damping;
-			vel.z = (vel.z + fz) * this.options.damping;
-
-			// Limite de vélocité
-			const speed = Math.sqrt(vel.x * vel.x + vel.y * vel.y + vel.z * vel.z);
-			if (speed > this.options.maxVelocity) {
-				const ratio = this.options.maxVelocity / speed;
-				vel.x *= ratio;
-				vel.y *= ratio;
-				vel.z *= ratio;
-			}
-
-			// Mise à jour de la position
-			pos.x += vel.x;
-			pos.y += vel.y;
-			pos.z += vel.z;
-			if (this.currentPeerId === id && lockCurrentNodePosition) for (const key of ['x', 'y', 'z']) pos[key] = 0;
-
-			// Mise à jour visuelle
-			const nodeObj = this.nodeObjects.get(id);
-			if (!nodeObj) return;
-			nodeObj.position.set(pos.x, pos.y, this.options.mode === '3d' ? pos.z : 0);
-
-			if (!nodeObj.userData.border) return;
-			nodeObj.userData.border.position.copy(nodeObj.position);
-			nodeObj.userData.border.lookAt(this.camera.position);
-		}
+		return Object.keys(includedIds);
 	}
 	#updateNodes(nodeIds = [], lockCurrentNodePosition = true, simplyCalculation = true) {
-		const getReducedBatch = () => {
-			const includedIds = {};
-			const batchSize = Math.floor(Math.min(nodeIds.length / 10, this.updateBatchMax));
-			let includedCount = 0;
-			while (includedCount < batchSize) {
-				const id = nodeIds[Math.floor(Math.random() * nodeIds.length)];
-				if (includedIds[id]) continue;
-				includedIds[id] = true;
-				includedCount++;
-			}
-			return Object.keys(includedIds);
-		}
-
-		const batchIds = simplyCalculation ? getReducedBatch() : nodeIds;
+		const batchIds = simplyCalculation ? this.#getReducedBatch(nodeIds) : nodeIds;
 		for (const id of batchIds) {
             const pos = this.positions.get(id);
             const vel = this.velocities.get(id);
             const node = this.nodes[id];
-			const nodeObj = this.nodeObjects.get(id);
-            if (!pos || !vel || !node || !nodeObj) continue;
+			const instanceIndex = this.nodeIndexMap.get(id);
+			if (!pos || !vel || !node || instanceIndex === undefined) continue;
 
             let fx = 0, fy = 0, fz = 0;
 
@@ -1035,12 +794,16 @@ export class NetworkRenderer {
 			if (this.currentPeerId === id && lockCurrentNodePosition) for (const key of ['x', 'y', 'z']) pos[key] = 0;
 			
 			// Update visual object
-			nodeObj.position.set(pos.x, pos.y, this.options.mode === '3d' ? pos.z : 0);
+			const matrix = new THREE.Matrix4();
+			const visualZ = this.options.mode === '3d' ? pos.z : 0;
+			matrix.setPosition(pos.x, pos.y, visualZ);
+			this.instancedMesh.setMatrixAt(instanceIndex, matrix);
 
 			// Update border position
-			if (!nodeObj.userData.border) continue;
-			nodeObj.userData.border.position.copy(nodeObj.position);
-			nodeObj.userData.border.lookAt(this.camera.position);
+			const border = this.nodeBorders.get(id);
+			if (!border) continue;
+			border.position.set(pos.x, pos.y, visualZ);
+			border.lookAt(this.camera.position);
         }
 	}
     #updateConnections() {
@@ -1067,7 +830,7 @@ export class NetworkRenderer {
                 if (isCurrentPeer) color = this.colors.currentPeerConnection;
                 if (isHoveredPeer) color = this.colors.hoveredPeer;
                 line.material.color.setHex(color);
-				line.material.opacity = color === this.colors.connection ? .1 : .33;
+				line.material.opacity = color === this.colors.connection ? .33 : .5;
             }
         }
     }
@@ -1076,6 +839,8 @@ export class NetworkRenderer {
         
 		this.#autoRotate();
         this.#updateNodes(Object.keys(this.nodes));
+		this.instancedMesh.instanceMatrix.needsUpdate = true;
+		this.instancedMesh.instanceColor.needsUpdate = true;
         this.#updateConnections();
 
         // Update FPS
@@ -1090,7 +855,7 @@ export class NetworkRenderer {
 
         this.renderer.render(this.scene, this.camera);
 		requestAnimationFrame(() => this.#animate());
-    }
+	}
     updateStats(neighborsCount = 0) {
 	   this.elements.nodeCountElement.textContent = Object.keys(this.nodes).length;
 	   this.elements.connectionCountElement.textContent = Object.keys(this.connections).length;

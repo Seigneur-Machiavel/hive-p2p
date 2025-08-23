@@ -20,9 +20,9 @@ const sVARS = { // SIMULATION VARIABLES
 	randomMessagePerSecond: 10, // 20 = 1 message every 50ms, 0 = disabled ( max: 500 )
 };
 if (sVARS.useTestTransport) {
-	sVARS.publicPeersCount = 10; // 100; // stable: 3, medium: 100, strong: 400
-	sVARS.peersCount = 50; // stable: 25, medium: 800, strong: 1000
-	sVARS.chosenPeerCount = 5; // stable: 5, medium: 100, strong: 1000
+	sVARS.publicPeersCount = 100; // 100; // stable: 3, medium: 100, strong: 400
+	sVARS.peersCount = 800; // stable: 25, medium: 800, strong: 1000
+	sVARS.chosenPeerCount = 100; // stable: 5, medium: 100, strong: 1000
 }
 
 const peers = {
@@ -155,9 +155,7 @@ wss.on('connection', (ws) => {
 	if (!zeroPeers) ws.send(JSON.stringify({ type: 'peersIds', data: peersIdsObj() }));
 });
 
-const onMessage = async (data, minLogTime = 5) => {
-	const startTime = Date.now();
-
+const onMessage = async (data) => {
 	switch (data.type) {
 		case 'start':
 			sVARS.startTime = Date.now();
@@ -202,7 +200,7 @@ class TwitchChatCommandInterpreter {
 	/** @type {Record<string, NodeP2P>} */ userNodes = {};
 
 	constructor() {
-		this.ioSocket = io('http://localhost:14599');
+		this.ioSocket = io('http://localhost:14598');
 		this.ioSocket.on('started', () => console.log('Socket.io connection established'));
 		this.ioSocket.on('cmd-message', (data) => this.handleCmdMessage(data));
 	}
