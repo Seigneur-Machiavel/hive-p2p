@@ -48,10 +48,10 @@ class NetworkRendererOptions {
 		nodeRadius = 12,
 		nodeBorderRadius = 3,
 		attraction = .001, // .0001
-		repulsion = 50000, // 5000
+		repulsion = 5_000_000, // 50000
 		damping = 1, // .5
 		centerForce = .00005, // .0005
-		maxVelocity = .5, // .2
+		maxVelocity = 1, // .2
 		repulsionOpts = {
 			maxDistance: 400,
 		},
@@ -73,6 +73,8 @@ class NetworkRendererOptions {
 }
 
 export class NetworkRenderer {
+	FPS = 60;
+	targetMaxFPS = 60;
 	maxVisibleConnections = 500; // to avoid performance issues
 	visibleConnectionsCount = 0;
 	autoRotateEnabled = true;
@@ -140,6 +142,7 @@ export class NetworkRenderer {
 	 * @param {NetworkRendererOptions} options
 	 * @param {NetworkRendererElements} rendererElements */
     constructor(containerId, options, rendererElements) {
+		this.#resetFrameTiming();
         this.containerId = containerId;
 
 		this.elements = new NetworkRendererElements();
@@ -834,27 +837,46 @@ export class NetworkRenderer {
             }
         }
     }
-    #animate() {
-        if (!this.isAnimating) return;
-        
+	#performUpdates() {
 		this.#autoRotate();
-        this.#updateNodes(Object.keys(this.nodes));
+		this.#updateNodes(Object.keys(this.nodes));
 		this.instancedMesh.instanceMatrix.needsUpdate = true;
 		this.instancedMesh.instanceColor.needsUpdate = true;
-        this.#updateConnections();
+		this.#updateConnections();
+	}
+	#animate() {
+		if (!this.isAnimating) return;
+		const currentTime = performance.now();
+		this.#updateFPS(currentTime);
+		this.#performUpdates();
+		this.renderer.render(this.scene, this.camera);
+		this.#scheduleNextFrameStrict(currentTime);
+	}
+	#updateFPS(currentTime) {
+		this.frameCount++;
+		if (!this.frameTimes) { this.frameTimes = []; this.lastFrameTime = currentTime; }
+		
+		const deltaTime = currentTime - this.lastFrameTime;
+		this.lastFrameTime = currentTime;
+		this.frameTimes.push(deltaTime);
+		if (this.frameTimes.length > 30) this.frameTimes.shift();
 
-        // Update FPS
-        this.frameCount++;
-        const currentTime = Date.now();
-        if (currentTime - this.lastTime >= 1000) {
-            const fps = Math.round(this.frameCount * 1000 / (currentTime - this.lastTime));
-			this.elements.fpsCountElement.textContent = fps;
-            this.frameCount = 0;
-            this.lastTime = currentTime;
-        }
-
-        this.renderer.render(this.scene, this.camera);
-		requestAnimationFrame(() => this.#animate());
+		const avgDelta = this.frameTimes.reduce((sum, dt) => sum + dt, 0) / this.frameTimes.length;
+		this.FPS = Math.round(1000 / avgDelta);
+		if (this.frameCount % 30 === 0) this.elements.fpsCountElement.textContent = this.FPS;
+	}
+	#scheduleNextFrameStrict(currentTime) {
+		const targetFrameTime = 1000 / this.targetMaxFPS;
+		if (!this.nextFrameTime) this.nextFrameTime = currentTime + targetFrameTime;
+		while (this.nextFrameTime <= currentTime) this.nextFrameTime += targetFrameTime;
+		setTimeout(() => requestAnimationFrame(() => this.#animate()), this.nextFrameTime - currentTime);
+	}
+	#resetFrameTiming() {
+		this.frameTimes = [];
+		this.lastFrameTime = null;
+		this.lastScheduledTime = null;
+		this.nextFrameTime = null;
+		this.frameCount = 0;
 	}
     updateStats(neighborsCount = 0) {
 	   this.elements.nodeCountElement.textContent = Object.keys(this.nodes).length;

@@ -16,13 +16,13 @@ const sVARS = { // SIMULATION VARIABLES
 	publicPeersCount: 2,
 	peersCount: 5,
 	chosenPeerCount: 1,
-	delayBetweenInit: 2, // 0 = faster for simulating big networks but > 0 = should be more realistic
+	delayBetweenInit: 5, // 0 = faster for simulating big networks but > 0 = should be more realistic
 	randomMessagePerSecond: 10, // 20 = 1 message every 50ms, 0 = disabled ( max: 500 )
 };
 if (sVARS.useTestTransport) {
-	sVARS.publicPeersCount = 100; // 100; // stable: 3, medium: 100, strong: 400
-	sVARS.peersCount = 800; // stable: 25, medium: 800, strong: 1000
-	sVARS.chosenPeerCount = 100; // stable: 5, medium: 100, strong: 1000
+	sVARS.publicPeersCount = 100; // 100; // stable: 3, medium: 100, strong: 600
+	sVARS.peersCount = 800; // stable: 25, medium: 800, strong: 4000
+	sVARS.chosenPeerCount = 100; // stable: 5, medium: 100, strong: 400
 }
 
 const peers = {
@@ -81,7 +81,11 @@ async function initPeers() {
 	if (d === 0) return; // already initialized
 
 	const toInit = shuffleArray([...peers.chosen, ...peers.standard])
-	initInterval = setInterval(() => toInit.pop()?.init() || clearInterval(initInterval), d);
+	initInterval = setInterval(() => {
+		if (toInit.pop()?.init()) return;
+		clearInterval(initInterval);
+		console.log('°°° ALL PEERS INITIALIZED °°°');
+	}, d);
 }
 if (sVARS.autoStart) initPeers();
 

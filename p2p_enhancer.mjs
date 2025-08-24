@@ -97,7 +97,6 @@ export class NetworkEnhancer {
 	#tryConnectMoreNodes() {
 		const { isEnough, missingCount } = this.#isConnectedToEnoughPeers();
 		if (isEnough) return;
-
 		
 		/** @type {string[]} */ const knowPeerIds = shuffleArray(Object.keys(this.peerStore.store.known))
 		/** @type {string[]} */ const targets = [];

@@ -20,7 +20,7 @@ class SimulationInterface {
 		this.onPeerInfo = onPeerInfo;
 		this.#setupWs();
 		window.addEventListener('beforeunload', () => this.#ws ? this.#ws.close() : null);
-		setInterval(() => { if (this.currentPeerId) this.getPeerInfo(this.currentPeerId) }, 1000);
+		setInterval(() => { if (this.currentPeerId) this.getPeerInfo(this.currentPeerId) }, 2000);
 		setInterval(() => { this.getPeerIds() }, 5000);
 	}
 
