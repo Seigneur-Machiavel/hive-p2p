@@ -3,7 +3,7 @@ export const NODE = {
 	PUBLIC_AUTO_BAN_DELAY: { min: 10_000, max: 20_000 },
 	PUBLIC_AUTO_BAN_DURATION: 60_000,
 
-	CONNECTION_UPGRADE_TIMEOUT: 10_000, // default: 5_000 (5 seconds)
+	CONNECTION_UPGRADE_TIMEOUT: 5_000, // default: 5_000 (5 seconds)
 	ENHANCE_CONNECTION_DELAY: 2_500, // default: 10_000 (10 seconds)
 	ENHANCE_CONNECTION_RATE: .05, // default: .05 (5%)
 	MAX_BOOTSTRAPS_IN_CONNS: 10, // default: 10

@@ -20,9 +20,9 @@ const sVARS = { // SIMULATION VARIABLES
 	randomMessagePerSecond: 10, // 20 = 1 message every 50ms, 0 = disabled ( max: 500 )
 };
 if (sVARS.useTestTransport) {
-	sVARS.publicPeersCount = 100; // 100; // stable: 3, medium: 100, strong: 600
-	sVARS.peersCount = 800; // stable: 25, medium: 800, strong: 4000
-	sVARS.chosenPeerCount = 100; // stable: 5, medium: 100, strong: 400
+	sVARS.publicPeersCount = 200; // 100; // stable: 3, medium: 100, strong: 600
+	sVARS.peersCount = 1600; // stable: 25, medium: 800, strong: 4000
+	sVARS.chosenPeerCount = 200; // stable: 5, medium: 100, strong: 400
 }
 
 const peers = {

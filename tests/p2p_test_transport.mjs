@@ -72,16 +72,34 @@ class Sandbox {
 	OFFERS_EMITTERS = {}; // key: signalId, value: id
 	PENDING_ANSWERS = {}; // key: id, value: signalData
 	ANSWER_EMITTERS = {}; // key: signalId, value: id
+	cleanupInterval = setInterval(() => this.#cleanupExpiredSignals(), 2000);
 
+	#cleanupExpiredSignals() {
+		const now = Date.now();
+		const timeout = Sandbox.SIGNAL_TIMEOUT;
+		for (const [id, entry] of Object.entries(this.PENDING_OFFERS)) {
+			if (now - entry.timestamp > timeout) {
+				delete this.PENDING_OFFERS[id];
+				delete this.OFFERS_EMITTERS[entry.signalData.id];
+			}
+		}
+		
+		for (const [id, entry] of Object.entries(this.PENDING_ANSWERS)) {
+			if (now - entry.timestamp > timeout) {
+				delete this.PENDING_ANSWERS[id];
+				delete this.ANSWER_EMITTERS[entry.signalData.id];
+			}
+		}
+	}
 	#addSignalOffer(id, signalData) {
 		this.PENDING_OFFERS[id] = signalData;
 		this.OFFERS_EMITTERS[signalData.id] = id;
-		setTimeout(() => this.#destroySignal(id, signalData.id), Sandbox.SIGNAL_TIMEOUT);
+		//setTimeout(() => this.#destroySignal(id, signalData.id), Sandbox.SIGNAL_TIMEOUT);
 	}
 	#addSignalAnswer(id, signalData) {
 		this.PENDING_ANSWERS[id] = signalData;
 		this.ANSWER_EMITTERS[signalData.id] = id;
-		setTimeout(() => this.#destroySignal(id, signalData.id), Sandbox.SIGNAL_TIMEOUT);
+		//setTimeout(() => this.#destroySignal(id, signalData.id), Sandbox.SIGNAL_TIMEOUT);
 	}
 	buildSDP(id, type = 'offer') {
 		const SDP = {
