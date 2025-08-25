@@ -16,6 +16,7 @@ export class NetworkEnhancer {
 	peerStore;
 	/** @type {NodeJS.Timeout | null} public nodes connexions interval */ intervalA = null;
 	/** @type {NodeJS.Timeout | null} standard nodes connexions interval */ intervalB = null;
+	/** @type {NodeJS.Timeout | null} optimized nodes connexions interval */ optimizedInterval = null;
 
 	/** @type {Array<bootstrapInfo>} */ bootstraps = [];
 	/** @type {Record<string, string>} */ bootstrapsIds = {};
@@ -36,12 +37,20 @@ export class NetworkEnhancer {
 	init() {
 		this.#tryConnectNextBootstrap(); // first shot ASAP
 		const ecd = NODE.ENHANCE_CONNECTION_DELAY;
-		this.intervalA = setInterval(() => this.#tryConnectNextBootstrap(), ecd);
-		setTimeout(() => this.intervalB = setInterval(() => this.#tryConnectMoreNodes(), ecd), 1000);
+		//this.intervalA = setInterval(() => this.#tryConnectNextBootstrap(), ecd);
+		//setTimeout(() => this.intervalB = setInterval(() => this.#tryConnectMoreNodes(), ecd), 1000);
+
+		let phase = 0;
+		this.optimizedInterval = setInterval(() => {
+			phase = phase ? 0 : 1;
+			if (phase) this.#tryConnectNextBootstrap();
+			else this.#tryConnectMoreNodes();
+		}, ecd);
 	}
 	destroy() {
 		if (this.intervalA) clearInterval(this.intervalA);
 		if (this.intervalB) clearInterval(this.intervalB);
+		if (this.optimizedInterval) clearInterval(this.optimizedInterval);
 	}
 	/** @param {string} senderId @param {object} data @param {WebSocket} [tempTransportInstance] optional WebSocket */
 	handleIncomingSignal(senderId, data, tempTransportInstance) {

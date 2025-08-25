@@ -261,6 +261,32 @@ class TestTransportOptions {
 	wrtc;
 }
 
+class TransportPool {
+	constructor(maxSize = 100) {
+		this.maxSize = maxSize;
+		this.available = [];
+		this.inUse = new Map();
+	}
+
+	get() {
+		if (this.available.length > 0) {
+			const transport = this.available.pop();
+			transport.reset();
+			return transport;
+		}
+		return new TestTransport();
+	}
+	release(transport) {
+		if (this.available.length >= this.maxSize) transport.destroy();
+		else {
+			transport.cleanup();
+			this.available.push(transport);
+		}
+	}
+}
+
+const TRANSPORT_POOL = new TransportPool();
+
 export class TestTransport { // SimplePeer like
 	id = 0;
 	remoteId = null;
@@ -277,18 +303,46 @@ export class TestTransport { // SimplePeer like
 		this.trickle = opts.trickle;
 		this.wrtc = opts.wrtc;
 
+		this.#initCallbacks();
 		if (!this.initiator) return; // standby
 		const SDP = SANDBOX.buildSDP(this.id, 'offer'); // emit signal event 'offer'
 		setTimeout(() => this.callbacks.signal.forEach(cb => cb(SDP)), this.signalCreationDelay);
 	}
 
-	callbacks = {
-		connect: [],
-		close: [],
-		data: [],
-		signal: [],
-		error: []
-	};
+	#initCallbacks() {
+		this.callbacks = { connect: [], close: [], data: [], signal: [], error: [] };
+	}
+	reset() {
+		this.clearTimeouts();
+		this.remoteId = null;
+		this.closing = false;
+		this.#initCallbacks();
+	}
+	clearTimeouts() {
+		if (this.signalTimeout) {
+			clearTimeout(this.signalTimeout);
+			this.signalTimeout = null;
+		}
+	}
+	cleanup() {
+		this.clearTimeouts();
+		this.callbacks = {};
+	}
+	destroy(errorMsg = null) {
+		if (this.closing) return;
+		this.closing = true;
+		this.clearTimeouts();
+		if (!errorMsg) this.callbacks.close?.forEach(cb => cb());
+		else this.dispatchError(errorMsg);
+		SANDBOX.destroyTransport(this.id);
+		setTimeout(() => TRANSPORT_POOL.release(this), 1000);
+	}
+	static create(opts) {
+		const transport = TRANSPORT_POOL.get();
+		transport.constructor.call(transport, opts);
+		return transport;
+	}
+
 	on(event, callbacks) {
 		if (this.callbacks[event]) this.callbacks[event].push(callbacks);
 	}

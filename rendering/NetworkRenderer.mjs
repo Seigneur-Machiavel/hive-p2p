@@ -51,7 +51,7 @@ class NetworkRendererOptions {
 		repulsion = 5_000_000, // 50000
 		damping = 1, // .5
 		centerForce = .00005, // .0005
-		maxVelocity = 1, // .2
+		maxVelocity = .5, // .2
 		repulsionOpts = {
 			maxDistance: 400,
 		},
@@ -69,6 +69,59 @@ class NetworkRendererOptions {
 		this.maxVelocity = maxVelocity;
 		this.repulsionOpts = repulsionOpts;
 		this.attractionOpts = attractionOpts;
+	}
+}
+
+class Node {
+	id;
+	status;
+	isPublic;
+	isChosen;
+	neighbours;
+	velocity = { x: 0, y: 0, z: 0 };
+	position = {
+		x: (Math.random() - 0.5) * 500,
+		y: (Math.random() - 0.5) * 500,
+		z: (Math.random() - 0.5) * 500
+	};
+
+	/** Constructor for a Node
+	 * @param {string} id @param {'unknown' | 'known' | 'connecting' | 'connected' | 'current'} status
+	 * @param {boolean} isPublic @param {boolean} isChosen @param {Array<string>} neighbours */
+	constructor(id, status, isPublic, isChosen, neighbours) {
+		this.id = id;
+		this.status = status;
+		this.isPublic = isPublic;
+		this.isChosen = isChosen;
+		this.neighbours = neighbours;
+	}
+
+	addNeighbour(peerId) {
+		if (!this.neighbours.includes(peerId)) this.neighbours.push(peerId);
+	}
+	removeNeighbour(peerId) {
+		this.neighbours = this.neighbours.filter(id => id !== peerId);
+	}
+}
+class NodesWrapper {
+	/** @type {Record<string, Node>} */ nodes = {};
+
+	/** @param {Node} node */
+	add(node) { this.nodes[node.id] = node; }
+	get(id = 'toto') { return this.nodes[id]; }
+	remove(id = 'toto') { delete this.nodes[id]; }
+}
+class Connections {
+	nodesWrapper;
+	physics = {};
+	graphics = {};
+	temporary = {};
+	hovered = {};
+	ignoredRepaint = {};
+
+	/** @param {NodesWrapper} nodesWrapper */
+	constructor(nodesWrapper) {
+		this.nodesWrapper = nodesWrapper;
 	}
 }
 
@@ -90,20 +143,22 @@ export class NetworkRenderer {
 		chosenPeer: 0xFF69B4,
 		hoveredPeer: 0xFF4500,
 		connectedPeerNeighbour: 0x4CAF50,
-		connectingPeerNeighbour: 0xc1e6c1,
+		connectingPeerNeighbour: 0x03b5fc,
 		knownPeer: 0x7d7d7d,
 		publicNode: 0xffffff,
 		publicNodeBorder: 0xffffff,
 		twitchUser: 0xf216e4,
-
+		// CONNECTIONS
 		connection: 0x666666, // gray
 		currentPeerConnection: 0x4CAF50, // green
+		// DIRECT MESSAGES
 		traveledConnection: [
 			0x2803fc, // blue
 			0x0328fc, // light blue
 			0x035afc // lighter blue
 		],
 		toTravelConnection: 0x03b5fc, // even lighter blue for the remaining distance
+		// GOSSIP MESSAGES
 		gossipIncomingColor: 0xf542f5, // fuchsia
 		gossipOutgoingColor: 0xc24cc2, // dark fuchsia
 	};
@@ -117,14 +172,15 @@ export class NetworkRenderer {
 
 	// Data structures
 	instancedMesh = null;
-	nodes = {};
-	connections = {};
-	ignoredConnectionsRepaint = {};
-	connectionObjects = new Map();
-	tempConnections = [];
+	/** @type {Record<string, Node>} */ nodes = {};
+	connections;
 
-	positions = new Map();
-	velocities = new Map();
+	physicConnections = {}; // keyPairs
+	connectionLines = {}; // keyPairs
+	tempConnections = {}; // keyPairs
+	hoveredConnections = {}; // keyPairs
+	ignoredConnectionsRepaint = {}; // keyPairs
+
 	updateBatches = 10;
 	updateBatchMax = 50;
 
@@ -142,6 +198,10 @@ export class NetworkRenderer {
 	 * @param {NetworkRendererOptions} options
 	 * @param {NetworkRendererElements} rendererElements */
     constructor(containerId, options, rendererElements) {
+		const nodesWrapper = new NodesWrapper(this.nodes);
+		//nodesWrapper.add(new Node('toto', 'current', true, true, []));
+		this.connections = new Connections(nodesWrapper);
+		//nodesWrapper.add(new Node('toto2', 'public', true, true, []));
 		this.#resetFrameTiming();
         this.containerId = containerId;
 
@@ -186,9 +246,9 @@ export class NetworkRenderer {
 
 		// PREPARE MESH INSTANCE
 		this.nodeCount = 0;
-		this.nodeIndexMap = new Map(); // id → instanceIndex
-		this.indexNodeMap = new Map(); // instanceIndex → id
-		this.nodeBorders = new Map(); // id → borderMesh
+		this.nodeIndexMap = {}; // id → instanceIndex
+		this.indexNodeMap = {}; // instanceIndex → id
+		this.nodeBorders = {}; // id → borderMesh
 		const geometry = new THREE.SphereGeometry(this.options.nodeRadius, 8, 6);
 		const material = new THREE.MeshBasicMaterial();
 		this.instancedMesh = new THREE.InstancedMesh(geometry, material, 50000);
@@ -224,21 +284,16 @@ export class NetworkRenderer {
 	}
 	addOrUpdateNode(id, status = 'known', isPublic = false, isChosen = false, neighbours = []) {
 		if (!this.nodes[id]) { // Create new node
-			this.nodes[id] = { status, isPublic, isChosen, neighbours };
-			this.velocities.set(id, { x: 0, y: 0, z: 0 });
-			this.positions.set(id, { // Random position
-				x: (Math.random() - 0.5) * 500,
-				y: (Math.random() - 0.5) * 500,
-				z: (Math.random() - 0.5) * 500
-			});
+			this.nodes[id] = new Node(id, status, isPublic, isChosen, neighbours);
 
 			// Get next available index for this node
 			const instanceIndex = this.nodeCount++; // Tu auras besoin d'un compteur this.nodeCount = 0
-			this.nodeIndexMap.set(id, instanceIndex); // Map node id → instance index
-			this.indexNodeMap.set(instanceIndex, id); // Map instance index → node id
-			
+			this.instancedMesh.count = this.nodeCount;
+			this.nodeIndexMap[id] = instanceIndex; // Map node id → instance index
+			this.indexNodeMap[instanceIndex] = id; // Map instance index → node id
+
 			// Set position in instanced mesh
-			const pos = this.positions.get(id);
+			const pos = this.nodes[id].position;
 			const matrix = new THREE.Matrix4();
 			matrix.setPosition(pos.x, pos.y, pos.z);
 			this.instancedMesh.setMatrixAt(instanceIndex, matrix);
@@ -251,46 +306,50 @@ export class NetworkRenderer {
 			if (isPublic || isChosen) {
 				// Tu devras créer un mesh temporaire pour le border ou adapter ta logique
 				const borderMesh = this.#createMeshBorder({ position: pos }, isChosen);
-				this.nodeBorders.set(id, borderMesh); // Nouvelle Map pour stocker les borders
+				this.nodeBorders[id] = borderMesh; // Nouvelle Map pour stocker les borders
 			}
 			
 			return;
 		}
 
 		// Update existing node
-		const instanceIndex = this.nodeIndexMap.get(id);
+		const instanceIndex = this.nodeIndexMap[id];
 		const newColor = new THREE.Color(this.#getNodeColor(id));
 		this.instancedMesh.setColorAt(instanceIndex, newColor);
+		this.instancedMesh.instanceColor.needsUpdate = true;
 
 		let needBorderUpdate = this.nodes[id].isPublic !== isPublic || this.nodes[id].isChosen !== isChosen;
-		this.nodes[id] = { status, isPublic, isChosen, neighbours };
+		this.nodes[id].status = status;
+		this.nodes[id].isPublic = isPublic;
+		this.nodes[id].isChosen = isChosen;
+		this.nodes[id].neighbours = neighbours;
 		this.instancedMesh.instanceMatrix.needsUpdate = true;
 		if (!needBorderUpdate) return;
 		
 		// Handle border updates
-		const existingBorder = this.nodeBorders.get(id);
+		const existingBorder = this.nodeBorders[id];
 		if (isPublic || isChosen) {
 			if (existingBorder) this.scene.remove(existingBorder);
-			const pos = this.positions.get(id);
+			const pos = this.nodes[id].position;
 			const newBorder = this.#createMeshBorder({ position: pos }, isChosen);
-			this.nodeBorders.set(id, newBorder);
+			this.nodeBorders[id] = newBorder;
 			return;
 		}
 
 		if (!existingBorder) return;
 		this.scene.remove(existingBorder);
-		this.nodeBorders.delete(id);
+		delete this.nodeBorders[id];
 	}
 	removeNode(id) {
 		if (!this.nodes[id]) return;
 
-		const instanceIndex = this.nodeIndexMap.get(id);
+		const instanceIndex = this.nodeIndexMap[id];
 		if (instanceIndex !== undefined) {
 			const lastIndex = this.nodeCount - 1;
 			
 			if (instanceIndex !== lastIndex) {
 				// Récupérer l'ID du dernier nœud
-				const lastNodeId = this.indexNodeMap.get(lastIndex);
+				const lastNodeId = this.indexNodeMap[lastIndex];
 				if (lastNodeId) {
 					// Copier les données du dernier nœud vers l'index à supprimer
 					const lastMatrix = new THREE.Matrix4();
@@ -301,51 +360,58 @@ export class NetworkRenderer {
 					
 					this.instancedMesh.setMatrixAt(instanceIndex, lastMatrix);
 					this.instancedMesh.setColorAt(instanceIndex, lastColor);
+					this.instancedMesh.instanceMatrix.needsUpdate = true;
+					this.instancedMesh.instanceColor.needsUpdate = true;
 					
 					// Mettre à jour les mappings pour le nœud déplacé
-					this.nodeIndexMap.set(lastNodeId, instanceIndex);
-					this.indexNodeMap.set(instanceIndex, lastNodeId);
+					this.nodeIndexMap[lastNodeId] = instanceIndex;
+					this.indexNodeMap[instanceIndex] = lastNodeId;
 				}
 			}
 			
 			// Nettoyer les mappings pour le nœud supprimé
-			this.nodeIndexMap.delete(id);
-			this.indexNodeMap.delete(lastIndex);
+			delete this.nodeIndexMap[id];
+			delete this.indexNodeMap[lastIndex];
 			this.nodeCount--;
 			this.instancedMesh.count = this.nodeCount;
 		}
 
 		// Gérer les borders
-		const border = this.nodeBorders.get(id);
+		const border = this.nodeBorders[id];
 		if (border) {
 			this.scene.remove(border);
 			border.geometry.dispose();
 			border.material.dispose();
-			this.nodeBorders.delete(id);
+			delete this.nodeBorders[id];
 		}
 
 		// Nettoyer les structures de données
 		delete this.nodes[id];
-		this.positions.delete(id);
-		this.velocities.delete(id);
 	}
-	digestConnectionsArray(conns = []) {
+	digestConnectionsArray(conns = [], displayNeighboursDegree = 1) {
 		const existingConns = {};
-		for (const [fromId, toId] of conns) { // add new connections
+		for (const [fromId, toId] of conns) { // add new physicConnections
 			const connStr = `${fromId}:${toId}`;
        		const connStrRev = `${toId}:${fromId}`;
 			existingConns[connStr] = true; // store for control
 			existingConns[connStrRev] = true; // store for control
-        	if (this.connections[connStr] || this.connections[connStrRev]) continue;
-			this.#addConnection(fromId, toId);
+        	if (this.physicConnections[connStr] || this.physicConnections[connStrRev]) continue;
+			this.physicConnections[connStr] = true;
+
+			const isOneOfThePeer = fromId === this.currentPeerId || toId === this.currentPeerId;
+			const isOneOfTheNeighbours = this.nodes[this.currentPeerId]?.neighbours?.includes(fromId) || this.nodes[this.currentPeerId]?.neighbours?.includes(toId);
+			if (!displayNeighboursDegree) return;
+			if (displayNeighboursDegree === 1 && !isOneOfThePeer) return;
+			if (displayNeighboursDegree === 2 && !isOneOfTheNeighbours) return;
+
+			this.#addConnectionLine(fromId, toId);
 		}
 
-		const connectionsKeys = Object.keys(this.connections);
-		for (const connStr of connectionsKeys) // remove connections that are not in the array
-			if (!existingConns[connStr])
-				this.#removeConnection(connStr);
+		const connectionsKeys = Object.keys(this.physicConnections);
+		for (const connStr of connectionsKeys) // remove physicConnections that are not in the array
+			if (!existingConns[connStr]) this.#removeConnection(connStr);
 	}
-	displayMessageRoute(relayerId, route = [], frameToIgnore = 30) {
+	displayDirectMessageRoute(relayerId, route = [], frameToIgnore = 30) {
 		const maxTraveledColorIndex = this.colors.traveledConnection.length - 1;
 		let traveledIndex = 0;
 		let isRelayerIdPassed = false;
@@ -353,13 +419,20 @@ export class NetworkRenderer {
 			const connStr = `${route[i - 1]}:${route[i]}`;
 			this.ignoredConnectionsRepaint[connStr] = frameToIgnore;
 			const color = isRelayerIdPassed ? this.colors.toTravelConnection : this.colors.traveledConnection[traveledIndex];
-			this.#updateConnectionColor(route[i - 1], route[i], color, .5);
+
+			const lineExist = this.connectionLines[connStr];
+			if (!lineExist) this.#addConnectionLine(route[i - 1], route[i]);
+			else this.#updateConnectionColor(route[i - 1], route[i], color, .5);
+
+			// if we just created a new conn line, we remove it a short time after
+			if(!lineExist) setTimeout(() => this.#removeConnectionLine(connStr), 500);
+
 			traveledIndex = Math.min(traveledIndex + 1, maxTraveledColorIndex);
 			if (route[i - 1] === relayerId) isRelayerIdPassed = true;
 		}
 	}
 	// THIS IS A VERY FIRST IMPLEMENTATION, NEEDS REFINEMENT
-	displayGossipMessage(relayerId, senderId, topic = 'peer_connected', data, frameToIgnore = 10) {
+	displayGossipMessageRoute(relayerId, senderId, topic = 'peer_connected', data, frameToIgnore = 10) {
 		this.ignoredConnectionsRepaint[`${relayerId}:${senderId}`] = frameToIgnore;
 		this.ignoredConnectionsRepaint[`${this.currentPeerId}:${relayerId}`] = frameToIgnore + 5;
 
@@ -372,12 +445,7 @@ export class NetworkRenderer {
         // Reset previous current peer
         if (this.currentPeerId && this.nodes[this.currentPeerId]) this.nodes[this.currentPeerId].status = 'known';
         if (peerId && this.nodes[peerId]) this.nodes[peerId].status = 'current';
-
 		this.currentPeerId = peerId;
-    }
-    updateNodeStatus(nodeId, status) {
-        if (!this.nodes[nodeId]) return;
-        this.nodes[nodeId].status = status;
     }
 	switchMode() {
 		this.options.mode = this.options.mode === '2d' ? '3d' : '2d';
@@ -389,33 +457,34 @@ export class NetworkRenderer {
 	clearNetwork() {
 		// Clear data
 		this.nodes = {};
-		this.connections = {};
-		this.positions.clear();
-		this.velocities.clear();
+		this.physicConnections = {};
+		this.tempConnections = {};
+		this.hoveredConnections = {};
 		this.currentPeerId = null;
 		this.hoveredNodeId = null;
+		this.visibleConnectionsCount = 0;
 
 		// Clear InstancedMesh nodes - Reset count to 0
 		this.nodeCount = 0;
 		this.instancedMesh.count = 0;
-		this.nodeIndexMap.clear();
-		this.indexNodeMap.clear();
-		
+		this.nodeIndexMap = {};
+		this.indexNodeMap = {};
+
 		// Clear borders
-		for (const [id, border] of this.nodeBorders) {
+		for (const [id, border] of Object.entries(this.nodeBorders)) {
 			this.scene.remove(border);
 			border.geometry.dispose();
 			border.material.dispose();
 		}
-		this.nodeBorders.clear();
+		this.nodeBorders = {};
 		
-		// Clear connections (unchanged)
-		for (const [id, connObj] of this.connectionObjects) {
+		// Clear connectionLines (unchanged)
+		for (const [id, connObj] of Object.entries(this.connectionLines)) {
 			this.scene.remove(connObj);
 			connObj.geometry.dispose();
 			connObj.material.dispose();
 		}
-		this.connectionObjects.clear();
+		this.connectionLines = {};
 		this.updateStats();
 	}
 	destroy() {
@@ -555,7 +624,7 @@ export class NetworkRenderer {
 		let foundNode = null;
 		for (const intersect of intersects) {
 			if (intersect.object !== this.instancedMesh || intersect.instanceId === undefined) continue;
-			foundNode = this.indexNodeMap.get(intersect.instanceId);
+			foundNode = this.indexNodeMap[intersect.instanceId];
 			if (foundNode) break;
 		}
 
@@ -563,10 +632,11 @@ export class NetworkRenderer {
 
 		// Reset previous hovered node
 		if (this.hoveredNodeId) {
-			const prevInstanceIndex = this.nodeIndexMap.get(this.hoveredNodeId);
+			const prevInstanceIndex = this.nodeIndexMap[this.hoveredNodeId];
 			if (prevInstanceIndex !== undefined) {
 				const originalColor = new THREE.Color(this.#getNodeColor(this.hoveredNodeId));
 				this.instancedMesh.setColorAt(prevInstanceIndex, originalColor);
+				this.instancedMesh.instanceColor.needsUpdate = true;
 			}
 		}
 
@@ -577,7 +647,8 @@ export class NetworkRenderer {
 		if (!this.hoveredNodeId) {
 			this.renderer.domElement.style.cursor = 'default';
 			this.#hideTooltip();
-			for (const connStr of this.tempConnections) this.#removeConnectionLine(connStr);
+			for (const connStr of Object.keys(this.hoveredConnections)) this.#removeConnectionLine(connStr);
+			this.hoveredConnections = {};
 			return;
 		}
 
@@ -585,16 +656,20 @@ export class NetworkRenderer {
 		if (this.hoveredNodeId === this.currentPeerId) return;
 
 		// Set hover color
-		const instanceIndex = this.nodeIndexMap.get(this.hoveredNodeId);
+		const instanceIndex = this.nodeIndexMap[this.hoveredNodeId];
 		if (instanceIndex === undefined) return;
 		
 		const hoverColor = new THREE.Color(this.colors.hoveredPeer);
 		this.instancedMesh.setColorAt(instanceIndex, hoverColor);
+		this.instancedMesh.instanceColor.needsUpdate = true;
 		this.renderer.domElement.style.cursor = 'pointer';
 
 		const hoveredNode = this.nodes[this.hoveredNodeId];
 		const hoveredNeighbours = hoveredNode ? hoveredNode.neighbours : [];
-		for (const toId of hoveredNeighbours) this.#addConnectionLine(this.hoveredNodeId, toId, true);
+		for (const toId of hoveredNeighbours)  {
+			this.#addConnectionLine(this.hoveredNodeId, toId);
+			this.hoveredConnections[`${this.hoveredNodeId}:${toId}`] = true;
+		}
 	}
 	#showTooltip(x, y, nodeId, element = document.getElementById('tooltip')) {
 		const node = this.nodes[nodeId];
@@ -603,7 +678,7 @@ export class NetworkRenderer {
 		const json = {
 			Peer: nodeId,
 			Type: node.status,
-			Neighbours: node.neighbours.length > 0 ? node.neighbours.slice(0, 5) : 'None',
+			Neighbours: node.neighbours.length > 0 ? node.neighbours : 'None',
 			IsPublic: node.isPublic,
 			IsChosen: node.isChosen
 		};
@@ -616,73 +691,54 @@ export class NetworkRenderer {
 	#hideTooltip(element = document.getElementById('tooltip')) {
 		element.style.display = 'none';
 	}
-	#addConnection(fromId = 'peer_1', toId = 'peer_2', displayNeighboursDegree = 2) {
-        if (!this.nodes[fromId] || !this.nodes[toId]) return;
-		const connStr = `${fromId}:${toId}`;
-        this.connections[connStr] = true;
-
-		const isOneOfThePeer = fromId === this.currentPeerId || toId === this.currentPeerId;
-		const isOneOfTheNeighbours = this.nodes[this.currentPeerId]?.neighbours?.includes(fromId) || this.nodes[this.currentPeerId]?.neighbours?.includes(toId);
-		if (!displayNeighboursDegree) return;
-		if (displayNeighboursDegree === 1 && !isOneOfThePeer) return;
-		if (displayNeighboursDegree === 2 && !isOneOfTheNeighbours) return;
-
-		this.#addConnectionLine(fromId, toId);
-    }
 	#removeConnection(connStr = 'id1:id2') {
-        if (!this.connections[connStr]) return;
-
+        if (!this.physicConnections[connStr]) return;
+		// remove physic connection
         const [fromId, toId] = connStr.split(':');
-        delete this.connections[connStr];
+        delete this.physicConnections[connStr];
         
         // Update neighbours
-        if (this.nodes[fromId]) {
-            const index = this.nodes[fromId].neighbours.indexOf(toId);
-            if (index > -1) this.nodes[fromId].neighbours.splice(index, 1);
-        }
-        if (this.nodes[toId]) {
-            const index = this.nodes[toId].neighbours.indexOf(fromId);
-            if (index > -1) this.nodes[toId].neighbours.splice(index, 1);
-        }
+		this.nodes[fromId]?.removeNeighbour(toId);
+		this.nodes[toId]?.removeNeighbour(fromId);
 
         this.#removeConnectionLine(connStr);
     }
-	#addConnectionLine(fromId = 'peer_1', toId = 'peer_2', isTemporary = false) {
+	#addConnectionLine(fromId = 'peer_1', toId = 'peer_2') {
 		const connStr = `${fromId}:${toId}`;
-		const fromPos = this.positions.get(fromId);
-		const toPos = this.positions.get(toId);
+		const fromPos = this.nodes[fromId]?.position;
+		const toPos = this.nodes[toId]?.position;
 		if (!fromPos || !toPos) return;
-		if (this.connectionObjects.has(connStr)) return; // already exists
-		if (isTemporary) this.tempConnections.push(connStr);
+		if (this.connectionLines[connStr]) return; // already exists
 
 		const geometry = new THREE.BufferGeometry();
-		const positions = new Float32Array([
+		const p = new Float32Array([
 			fromPos.x, fromPos.y, fromPos.z,
 			toPos.x, toPos.y, toPos.z
 		]);
-		geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+		geometry.setAttribute('position', new THREE.BufferAttribute(p, 3));
 		
 		const material = new THREE.LineBasicMaterial({
 			color: this.colors.connection,
 			transparent: true,
-			opacity: 1,
+			opacity: .5,
 		});
 		const line = new THREE.Line(geometry, material);
 		line.userData = { fromId, toId, type: 'connection' };
 		
 		this.scene.add(line);
-		this.connectionObjects.set(connStr, line);
+		this.connectionLines[connStr] = line;
 	}
 	#removeConnectionLine(connStr = 'id1:id2') {
-		const connObj = this.connectionObjects.get(connStr);
+		const connObj = this.connectionLines[connStr];
 		if (!connObj) return;
 		this.scene.remove(connObj);
-		this.connectionObjects.delete(connStr);
+		delete this.connectionLines[connStr];
+		delete this.tempConnections[connStr];
 	}
     #getNodeColor(peerId) {
-		const isTwitchUser = peerId.startsWith('u_');
-		if (isTwitchUser) return this.colors.twitchUser;
 		const { status, isPublic } = this.nodes[peerId];
+		const isTwitchUser = peerId.startsWith('u_');
+		if (status !== 'current' && isTwitchUser) return this.colors.twitchUser;
         switch (status) {
             case 'current': return this.colors.currentPeer;
             case 'connected': return this.colors.connectedPeerNeighbour;
@@ -693,44 +749,29 @@ export class NetworkRenderer {
 	#updateConnectionColor(peerId1, peerId2, colorHex, opacity = 1) {
 		const connStr = `${peerId1}:${peerId2}`;
 		const revConnStr = `${peerId2}:${peerId1}`;
-		const connMesh1 = this.connectionObjects.get(connStr)
-		const connMesh2 = this.connectionObjects.get(revConnStr);
+		const connMesh1 = this.connectionLines[connStr];
+		const connMesh2 = this.connectionLines[revConnStr];
 		if (!connMesh1 && !connMesh2) return;
 		if (connMesh1) { connMesh1.material.color.setHex(colorHex); connMesh1.material.opacity = opacity; }
 		if (connMesh2) { connMesh2.material.color.setHex(colorHex); connMesh2.material.opacity = opacity; }
 	}
-	#isIgnoredConnectionRepaint(connStr) {
-		const revConnStr = `${connStr.split(':')[1]}:${connStr.split(':')[0]}`;
-		const isToIgnore = this.ignoredConnectionsRepaint[revConnStr] || this.ignoredConnectionsRepaint[connStr];
-		if (isToIgnore && this.ignoredConnectionsRepaint[connStr]) {
-			this.ignoredConnectionsRepaint[connStr]--;
-			if (this.ignoredConnectionsRepaint[connStr] <= 0) delete this.ignoredConnectionsRepaint[connStr];
-		}
-		if (isToIgnore && this.ignoredConnectionsRepaint[revConnStr]) {
-			this.ignoredConnectionsRepaint[revConnStr]--;
-			if (this.ignoredConnectionsRepaint[revConnStr] <= 0) delete this.ignoredConnectionsRepaint[revConnStr];
-		}
-		return isToIgnore;
-	}
 	#getReducedBatch = (nodeIds) => {
-		const includedIds = {};
-		const batchSize = Math.floor(Math.min(nodeIds.length / 10, this.updateBatchMax));
-		let includedCount = 0;
-		while (includedCount < batchSize) {
-			const id = nodeIds[Math.floor(Math.random() * nodeIds.length)];
-			if (includedIds[id]) continue;
-			includedIds[id] = true;
-			includedCount++;
+		const batchSize = Math.floor(Math.min(nodeIds.length, this.updateBatchMax));
+		if (batchSize >= nodeIds.length) return nodeIds;
+
+		const result = [...nodeIds];
+		for (let i = 0; i < batchSize; i++) {
+			const j = i + Math.floor(Math.random() * (result.length - i));
+			[result[i], result[j]] = [result[j], result[i]];
 		}
-		return Object.keys(includedIds);
+		return result.slice(0, batchSize);
 	}
-	#updateNodes(nodeIds = [], lockCurrentNodePosition = true, simplyCalculation = true) {
+	#updateNodesPositions(nodeIds = [], lockCurrentNodePosition = true, simplyCalculation = true) {
 		const batchIds = simplyCalculation ? this.#getReducedBatch(nodeIds) : nodeIds;
 		for (const id of batchIds) {
-            const pos = this.positions.get(id);
-            const vel = this.velocities.get(id);
+			const [pos, vel] = [this.nodes[id]?.position, this.nodes[id]?.velocity];
             const node = this.nodes[id];
-			const instanceIndex = this.nodeIndexMap.get(id);
+			const instanceIndex = this.nodeIndexMap[id];
 			if (!pos || !vel || !node || instanceIndex === undefined) continue;
 
             let fx = 0, fy = 0, fz = 0;
@@ -738,9 +779,9 @@ export class NetworkRenderer {
             // Repulsion between nodes
             for (const otherId of [...batchIds, ...node.neighbours]) {
                 if (id === otherId) continue;
-                
-                const otherPos = this.positions.get(otherId);
+
                 const otherNode = this.nodes[otherId];
+                const otherPos = otherNode?.position;
                 if (!otherPos || !otherNode) continue;
 
                 const dx = pos.x - otherPos.x;
@@ -755,9 +796,9 @@ export class NetworkRenderer {
 				fz += (dz / distance) * force;
             }
 
-            // Attraction along connections
+            // Attraction along physicConnections
             for (const neighbourId of node.neighbours) {
-                const neighbourPos = this.positions.get(neighbourId);
+				const neighbourPos = this.nodes[neighbourId]?.position;
                 if (!neighbourPos) continue;
 
                 const dx = neighbourPos.x - pos.x;
@@ -803,18 +844,31 @@ export class NetworkRenderer {
 			this.instancedMesh.setMatrixAt(instanceIndex, matrix);
 
 			// Update border position
-			const border = this.nodeBorders.get(id);
+			const border = this.nodeBorders[id];
 			if (!border) continue;
 			border.position.set(pos.x, pos.y, visualZ);
 			border.lookAt(this.camera.position);
         }
 	}
+	#isIgnoredConnectionRepaint(connStr) {
+		const revConnStr = `${connStr.split(':')[1]}:${connStr.split(':')[0]}`;
+		const isToIgnore = this.ignoredConnectionsRepaint[revConnStr] || this.ignoredConnectionsRepaint[connStr];
+		if (isToIgnore && this.ignoredConnectionsRepaint[connStr]) {
+			this.ignoredConnectionsRepaint[connStr]--;
+			if (this.ignoredConnectionsRepaint[connStr] <= 0) delete this.ignoredConnectionsRepaint[connStr];
+		}
+		if (isToIgnore && this.ignoredConnectionsRepaint[revConnStr]) {
+			this.ignoredConnectionsRepaint[revConnStr]--;
+			if (this.ignoredConnectionsRepaint[revConnStr] <= 0) delete this.ignoredConnectionsRepaint[revConnStr];
+		}
+		return isToIgnore;
+	}
     #updateConnections() {
-        for (const [connStr, line] of this.connectionObjects) {
+        for (const [connStr, line] of Object.entries(this.connectionLines)) {
             const [fromId, toId] = connStr.split(':');
-            const fromPos = this.positions.get(fromId);
-            const toPos = this.positions.get(toId);
-            
+            const fromPos = this.nodes[fromId]?.position;
+            const toPos = this.nodes[toId]?.position;
+
             if (fromPos && toPos && line.geometry) {
                 const positionAttribute = line.geometry.attributes.position;
                 positionAttribute.array[0] = fromPos.x;
@@ -837,18 +891,16 @@ export class NetworkRenderer {
             }
         }
     }
-	#performUpdates() {
-		this.#autoRotate();
-		this.#updateNodes(Object.keys(this.nodes));
-		this.instancedMesh.instanceMatrix.needsUpdate = true;
-		this.instancedMesh.instanceColor.needsUpdate = true;
-		this.#updateConnections();
-	}
 	#animate() {
 		if (!this.isAnimating) return;
 		const currentTime = performance.now();
 		this.#updateFPS(currentTime);
-		this.#performUpdates();
+		this.#autoRotate();
+
+		this.instancedMesh.instanceMatrix.needsUpdate = true;
+		this.instancedMesh.instanceColor.needsUpdate = true;
+		this.#updateNodesPositions(Object.keys(this.nodes));
+		this.#updateConnections();
 		this.renderer.render(this.scene, this.camera);
 		this.#scheduleNextFrameStrict(currentTime);
 	}
@@ -880,7 +932,7 @@ export class NetworkRenderer {
 	}
     updateStats(neighborsCount = 0) {
 	   this.elements.nodeCountElement.textContent = Object.keys(this.nodes).length;
-	   this.elements.connectionCountElement.textContent = Object.keys(this.connections).length;
+	   this.elements.connectionCountElement.textContent = Object.keys(this.physicConnections).length;
 	   this.elements.neighborCountElement.textContent = neighborsCount;
     }
 }

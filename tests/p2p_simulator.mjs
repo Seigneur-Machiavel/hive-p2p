@@ -20,9 +20,9 @@ const sVARS = { // SIMULATION VARIABLES
 	randomMessagePerSecond: 10, // 20 = 1 message every 50ms, 0 = disabled ( max: 500 )
 };
 if (sVARS.useTestTransport) {
-	sVARS.publicPeersCount = 200; // 100; // stable: 3, medium: 100, strong: 600
-	sVARS.peersCount = 1600; // stable: 25, medium: 800, strong: 4000
-	sVARS.chosenPeerCount = 200; // stable: 5, medium: 100, strong: 400
+	sVARS.publicPeersCount = 3; // 100; // stable: 3, medium: 100, strong: 200
+	sVARS.peersCount = 25; // stable: 25, medium: 800, strong: 1600
+	sVARS.chosenPeerCount = 5; // stable: 5, medium: 100, strong: 200
 }
 
 const peers = {
@@ -80,12 +80,14 @@ async function initPeers() {
 	console.log(`Peers created: { P: ${peers.public.length}, S: ${peers.standard.length}, C: ${peers.chosen.length} }`);
 	if (d === 0) return; // already initialized
 
+	/** @type {Array<NodeP2P>} */
 	const toInit = shuffleArray([...peers.chosen, ...peers.standard])
-	initInterval = setInterval(() => {
+	/*initInterval = setInterval(() => {
 		if (toInit.pop()?.init()) return;
 		clearInterval(initInterval);
 		console.log('°°° ALL PEERS INITIALIZED °°°');
-	}, d);
+	}, d);*/
+	for (const peer of toInit) peer.init();
 }
 if (sVARS.autoStart) initPeers();
 

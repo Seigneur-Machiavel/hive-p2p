@@ -20,7 +20,7 @@ class SimulationInterface {
 		this.onPeerInfo = onPeerInfo;
 		this.#setupWs();
 		window.addEventListener('beforeunload', () => this.#ws ? this.#ws.close() : null);
-		setInterval(() => { if (this.currentPeerId) this.getPeerInfo(this.currentPeerId) }, 2000);
+		setInterval(() => { if (this.currentPeerId) this.getPeerInfo(this.currentPeerId) }, 1000);
 		setInterval(() => { this.getPeerIds() }, 5000);
 	}
 
@@ -102,8 +102,8 @@ class NetworkVisualizer {
 				//console.log(`Received message ${data} from ${remoteId}`);
 				const msg = JSON.parse(data);
 				if (msg.isFlexible) console.warn(`Received flexible message from ${remoteId} with route: ${msg.route}`);
-				if (msg.route) this.networkRenderer.displayMessageRoute(remoteId, msg.route);
-				else this.networkRenderer.displayGossipMessage(remoteId, msg.senderId, msg.topic, msg.data);
+				if (msg.route) this.networkRenderer.displayDirectMessageRoute(remoteId, msg.route);
+				else this.networkRenderer.displayGossipMessageRoute(remoteId, msg.senderId, msg.topic, msg.data);
 			};
 
 			this.networkRenderer.onNodeLeftClick = (nodeId) => this.simulationInterface.tryToConnectNode(this.currentPeerId,nodeId);
@@ -155,7 +155,6 @@ class NetworkVisualizer {
 		}
 
 		const getNeighbours = (peerId) => {
-			if (peerId === peerInfo.id) return peerInfo.store.connected;
 			const knownPeer = peerInfo.store.known[peerId];
 			return knownPeer ? Object.keys(knownPeer.neighbours || {}) : [];
 		}
@@ -169,13 +168,14 @@ class NetworkVisualizer {
 		
 		for (const id of peerInfo.store.connecting) digestPeerUpdate(id, 'connecting', getNeighbours(id));
 		for (const id of peerInfo.store.connected) digestPeerUpdate(id, 'connected', getNeighbours(id));
-		
+
+	
 		const nodes = this.networkRenderer.nodes;
 		for (const id of Object.keys(nodes)) // filter absent nodes
-			if (!newlyUpdated[id] && id !== this.currentPeerId) this.networkRenderer.removeNode(id);
+		if (!newlyUpdated[id] && id !== this.currentPeerId) this.networkRenderer.removeNode(id);
 
 		// ensure current peer is updated
-		if (peerInfo.id === this.currentPeerId) digestPeerUpdate(peerInfo.id, 'current', peerInfo.store.connected);
+		if (peerInfo.id === this.currentPeerId) digestPeerUpdate(peerInfo.id, 'current', getNeighbours(peerInfo.id));
 
 		// Create connections
 		const connections = [];
