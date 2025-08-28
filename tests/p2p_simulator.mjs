@@ -193,7 +193,7 @@ const onMessage = async (data) => {
 	}
 }
 
-(async () => {
+(async () => { // Message processing loop
 	while (true) {
 		const nextMsg = msgQueue.getNextMessage();
 		if (nextMsg) await onMessage(nextMsg);
@@ -218,7 +218,7 @@ class TwitchChatCommandInterpreter {
 		const command = splitted[0].trim().toLowerCase();
 		const args = splitted.slice(1).map(arg => arg.trim());
 		const targetNodeId = args[0] ? args[0].startsWith('u_') ? args[0] : `u_${args[0]}` : null;
-		if (command === '!createnode') this.#createUserNode(user);
+		if (user === 'bot' && command === '!addfollower') this.#createUserNode(args[0]);
 		if (command === '!connectto' && targetNodeId) this.userNodes[user]?.tryConnectToPeer(targetNodeId);
 	}
 	#createUserNode(user) {
