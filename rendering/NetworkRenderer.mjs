@@ -1,7 +1,6 @@
 import { FpsStabilizer } from './p2p-renderer-utils.mjs';
 import { NetworkRendererElements, NetworkRendererOptions } from './p2p-renderer-options.mjs';
 
-
 class Node {
 	id;
 	status;
@@ -33,31 +32,104 @@ class Node {
 	}
 }
 class NodesStore {
-	/** @type {Record<string, Node>} */ nodes = {};
+	/** @type {Record<string, Node>} */ store = {};
 
 	/** @param {Node} node */
-	add(node) { this.nodes[node.id] = node; }
-	get(id = 'toto') { return this.nodes[id]; }
-	has(id = 'toto') { return !!this.nodes[id]; }
-	remove(id = 'toto') { delete this.nodes[id]; }
-	getNodesIds() { return Object.keys(this.nodes); }
+	add(node) { this.store[node.id] = node; }
+	get(id = 'toto') { return this.store[id]; }
+	has(id = 'toto') { return !!this.store[id]; }
+	remove(id = 'toto') { delete this.store[id]; }
+	getNodesIds() { return Object.keys(this.store); }
 }
-class Connections { // DEPRECATED
+class ConnectionsStore {
+	/** @type {Record<string, any>} key: id1:id2, value: "true" | THREE.line */
+	store = {};
 	nodesStore;
-	physics = {};
-	graphics = {};
-	temporary = {};
-	hovered = {};
-	ignoredRepaint = {};
+	scene;
 
 	/** @param {NodesStore} nodesStore */
-	constructor(nodesStore) {
+	constructor(nodesStore, scene) {
 		this.nodesStore = nodesStore;
+		this.scene = scene;
 	}
-}
 
-class Connection {
-	
+	#getBothKeys(fromId = 'toto', toId = 'tutu') {
+		return [`${fromId}:${toId}`, `${toId}:${fromId}`];
+	}
+	set(fromId = 'toto', toId = 'tutu') {
+		const [ key1, key2 ] = this.#getBothKeys(fromId, toId);
+		if (this.store[key1] || this.store[key2]) return { success: false, key1, key2 }; // already set
+		this.store[key1] = true;
+		this.store[key2] = true;
+		return { success: true, key1, key2 };
+	}
+	unset(fromId = 'toto', toId = 'tutu') {
+		const [ key1, key2 ] = this.#getBothKeys(fromId, toId);
+		if (!this.store[key1] && !this.store[key2]) return { success: false, key1, key2 };
+		this.#disposeLineObject(this.store[key1]);
+		this.#disposeLineObject(this.store[key2]);
+		this.nodesStore.get(fromId)?.removeNeighbour(toId);
+		this.nodesStore.get(toId)?.removeNeighbour(fromId);
+		delete this.store[key1];
+		delete this.store[key2];
+		return { success: true, key1, key2 };
+	}
+	assignLine(fromId = 'peer_1', toId = 'peer_2', color = 0x666666, opacity = .4) {
+		const [ key1, key2 ] = this.#getBothKeys(fromId, toId);
+		// skip missing connections or already assigned line
+		if (this.store[key1] !== true || this.store[key2] !== true)
+			return this.updateLineColor(fromId, toId, color, opacity);
+
+		const fromPos = this.nodesStore.get(fromId)?.position;
+		const toPos = this.nodesStore.get(toId)?.position;
+		if (!fromPos || !toPos) return false; // skip if missing position
+
+		const geometry = new THREE.BufferGeometry();
+		const p = new Float32Array([fromPos.x, fromPos.y, fromPos.z, toPos.x, toPos.y, toPos.z]);
+		geometry.setAttribute('position', new THREE.BufferAttribute(p, 3));
+
+		const material = new THREE.LineBasicMaterial({ color, transparent: true, opacity });
+		const line = new THREE.Line(geometry, material);
+		line.userData = { fromId, toId, type: 'connection' };
+		this.scene.add(line);
+		this.store[key1] = line;
+		this.store[key2] = line;
+		return 'created';
+	}
+	#updateMeshColor(mesh, colorHex, opacity) {
+		mesh.material.color.setHex(colorHex);
+		mesh.material.opacity = opacity;
+		mesh.material.needsUpdate = true;
+	}
+	updateLineColor(fromId, toId, colorHex, opacity = .4) {
+		const [ key1, key2 ] = this.#getBothKeys(fromId, toId);
+		const mesh1 = this.store[key1];
+		const mesh2 = this.store[key2];
+		if (!mesh1 && !mesh2) return false;
+		if (mesh1 !== true) this.#updateMeshColor(mesh1, colorHex, opacity);
+		if (mesh2 !== true) this.#updateMeshColor(mesh2, colorHex, opacity);
+		return 'updated';
+	}
+	#disposeLineObject(line) {
+		if (!line || line === true) return;
+		this.scene.remove(line);
+		line.geometry.dispose();
+		line.material.dispose();
+	}
+	unassignLine(fromId = 'toto', toId = 'tutu') {
+		const [ key1, key2 ] = this.#getBothKeys(fromId, toId);
+		if (!this.store[key1] && !this.store[key2]) return;
+		this.#disposeLineObject(this.store[key1]);
+		this.#disposeLineObject(this.store[key2]);
+		this.store[key1] = true;
+		this.store[key2] = true;
+	}
+	getConnectionsList() {
+		return Object.keys(this.store);
+	}
+	destroy() {
+		for (const line of Object.values(this.store)) this.#disposeLineObject(line);
+	}
 }
 
 export class NetworkRenderer {
@@ -106,11 +178,9 @@ export class NetworkRenderer {
 
 	// Data structures
 	instancedMesh = null;
-	nodesStore = new NodesStore();
-	connections;
+	/** @type {NodesStore} */ nodesStore;
+	/** @type {ConnectionsStore} */ connectionsStore;
 
-	physicConnections = {}; // keyPairs
-	connectionLines = {}; // keyPairs
 	hoveredConnections = {}; // keyPairs
 	ignoredConnectionsRepaint = {}; // keyPairs
 
@@ -127,9 +197,7 @@ export class NetworkRenderer {
 	 * @param {NetworkRendererOptions} options
 	 * @param {NetworkRendererElements} rendererElements */
     constructor(containerId, options, rendererElements) {
-		this.connections = new Connections(this.nodesStore);
         this.containerId = containerId;
-
 		this.elements = new NetworkRendererElements();
 		for (const key in rendererElements) if (key in this.elements) this.elements[key] = rendererElements[key];
 
@@ -144,12 +212,17 @@ export class NetworkRenderer {
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(this.colors.background);
 
+		// Stores (nodes + connections)
+		this.nodesStore = new NodesStore();
+		this.connectionsStore = new ConnectionsStore(this.nodesStore, this.scene);
+
         // Camera
         this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 10000);
         this.camera.position.set(0, 0, 1200);
 
         // Renderer
-        this.renderer = new THREE.WebGLRenderer({ antialias: false, precision: "lowp" });
+		const { antialias, precision } = this.options;
+        this.renderer = new THREE.WebGLRenderer({ antialias, precision });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
         const container = document.getElementById(this.containerId);
         if (container) container.appendChild(this.renderer.domElement);
@@ -315,12 +388,10 @@ export class NetworkRenderer {
 	digestConnectionsArray(conns = [], displayNeighboursDegree = 1) {
 		const existingConns = {};
 		for (const [fromId, toId] of conns) { // add new physicConnections
-			const connStr = `${fromId}:${toId}`;
-       		const connStrRev = `${toId}:${fromId}`;
-			existingConns[connStr] = true; // store for control
-			existingConns[connStrRev] = true; // store for control
-        	if (this.physicConnections[connStr] || this.physicConnections[connStrRev]) continue;
-			this.physicConnections[connStr] = true;
+			const { success, key1, key2 } = this.connectionsStore.set(fromId, toId);
+			existingConns[key1] = true; // store for control
+			existingConns[key2] = true; // store for control
+			if (!success) continue; // already exists
 
 			const isOneOfThePeer = fromId === this.currentPeerId || toId === this.currentPeerId;
 			const currentPeerNode = this.nodesStore.get(this.currentPeerId);
@@ -329,12 +400,12 @@ export class NetworkRenderer {
 			if (displayNeighboursDegree === 1 && !isOneOfThePeer) return;
 			if (displayNeighboursDegree === 2 && !isOneOfTheNeighbours) return;
 
-			this.#addConnectionLine(fromId, toId);
+			this.connectionsStore.assignLine(fromId, toId);
 		}
 
-		const connectionsKeys = Object.keys(this.physicConnections);
-		for (const connStr of connectionsKeys) // remove physicConnections that are not in the array
-			if (!existingConns[connStr]) this.#removeConnection(connStr);
+		const connKeys = this.connectionsStore.getConnectionsList();
+		for (const connStr of connKeys) // remove physicConnections that are not in the array
+			if (!existingConns[connStr]) this.connectionsStore.unset(connStr.split(':'));
 	}
 	displayDirectMessageRoute(relayerId, route = [], frameToIgnore = 30) {
 		const maxTraveledColorIndex = this.colors.traveledConnection.length - 1;
@@ -344,13 +415,9 @@ export class NetworkRenderer {
 			const connStr = `${route[i - 1]}:${route[i]}`;
 			this.ignoredConnectionsRepaint[connStr] = frameToIgnore;
 			const color = isRelayerIdPassed ? this.colors.toTravelConnection : this.colors.traveledConnection[traveledIndex];
-
-			const lineExist = this.connectionLines[connStr];
-			if (!lineExist) this.#addConnectionLine(route[i - 1], route[i]);
-			else this.#updateConnectionColor(route[i - 1], route[i], color, .5);
-
+			const result = this.connectionsStore.assignLine(route[i - 1], route[i], color, .5);
 			// if we just created a new conn line, we remove it a short time after
-			if(!lineExist) setTimeout(() => this.#removeConnectionLine(connStr), 500);
+			if (result === 'created') setTimeout(() => this.connectionsStore.unassignLine(connStr.split(':')), 500);
 
 			traveledIndex = Math.min(traveledIndex + 1, maxTraveledColorIndex);
 			if (route[i - 1] === relayerId) isRelayerIdPassed = true;
@@ -361,8 +428,15 @@ export class NetworkRenderer {
 		this.ignoredConnectionsRepaint[`${relayerId}:${senderId}`] = frameToIgnore;
 		this.ignoredConnectionsRepaint[`${this.currentPeerId}:${relayerId}`] = frameToIgnore + 5;
 
-		this.#updateConnectionColor(relayerId, senderId, this.colors.gossipOutgoingColor, .4); // sender to relayer
-		this.#updateConnectionColor(relayerId, this.currentPeerId, this.colors.gossipIncomingColor, .8); // relayer to current
+		// WE PREFER COLORING EXISTING LINES, NOT CREATING THEM
+		this.connectionsStore.updateLineColor(senderId, relayerId, this.colors.gossipOutgoingColor, .4);
+		this.connectionsStore.updateLineColor(relayerId, this.currentPeerId, this.colors.gossipIncomingColor, .8);
+
+		// IF WE WANT TO CREATE LINES
+		/*const outResult = this.connectionsStore.assignLine(senderId, relayerId, this.colors.gossipOutgoingColor, .4);
+		const inResult = this.connectionsStore.assignLine(relayerId, this.currentPeerId, this.colors.gossipIncomingColor, .8);
+		if (outResult === 'created') setTimeout(() => this.connectionsStore.unassignLine([senderId, relayerId]), 500);
+		if (inResult === 'created') setTimeout(() => this.connectionsStore.unassignLine([relayerId, this.currentPeerId]), 500);*/
 	}
     setCurrentPeer(peerId, clearNetworkOneChange = true) {
 		if (clearNetworkOneChange && peerId !== this.currentPeerId) this.clearNetwork();
@@ -382,8 +456,8 @@ export class NetworkRenderer {
 	clearNetwork() {
 		// Clear data
 		this.nodesStore = new NodesStore(this.nodes);
-		this.connections = new Connections(this.nodesStore);
-		this.physicConnections = {};
+		this.connectionsStore.destroy();
+		this.connectionsStore = new ConnectionsStore(this.nodesStore, this.scene);
 		this.hoveredConnections = {};
 		this.ignoredConnectionsRepaint = {};
 		this.currentPeerId = null;
@@ -403,14 +477,6 @@ export class NetworkRenderer {
 			border.material.dispose();
 		}
 		this.nodeBorders = {};
-		
-		// Clear connectionLines (unchanged)
-		for (const [id, connObj] of Object.entries(this.connectionLines)) {
-			this.scene.remove(connObj);
-			connObj.geometry.dispose();
-			connObj.material.dispose();
-		}
-		this.connectionLines = {};
 		this.updateStats();
 	}
 	destroy() {
@@ -573,7 +639,8 @@ export class NetworkRenderer {
 		if (!this.hoveredNodeId) {
 			this.renderer.domElement.style.cursor = 'default';
 			this.#hideTooltip();
-			for (const connStr of Object.keys(this.hoveredConnections)) this.#removeConnectionLine(connStr);
+			for (const connStr of Object.keys(this.hoveredConnections))
+				this.connectionsStore.unassignLine(connStr.split(':'));
 			this.hoveredConnections = {};
 			return;
 		}
@@ -593,7 +660,7 @@ export class NetworkRenderer {
 		const hoveredNode = this.nodesStore.get(this.hoveredNodeId);
 		const hoveredNeighbours = hoveredNode ? hoveredNode.neighbours : [];
 		for (const toId of hoveredNeighbours)  {
-			this.#addConnectionLine(this.hoveredNodeId, toId);
+			this.connectionsStore.assignLine(toId, this.currentPeerId);
 			this.hoveredConnections[`${this.hoveredNodeId}:${toId}`] = true;
 		}
 	}
@@ -617,49 +684,6 @@ export class NetworkRenderer {
 	#hideTooltip(element = document.getElementById('tooltip')) {
 		element.style.display = 'none';
 	}
-	#removeConnection(connStr = 'id1:id2') {
-        if (!this.physicConnections[connStr]) return;
-		// remove physic connection
-        const [fromId, toId] = connStr.split(':');
-        delete this.physicConnections[connStr];
-        
-        // Update neighbours
-		this.nodesStore.get(fromId)?.removeNeighbour(toId);
-		this.nodesStore.get(toId)?.removeNeighbour(fromId);
-
-        this.#removeConnectionLine(connStr);
-    }
-	#addConnectionLine(fromId = 'peer_1', toId = 'peer_2') {
-		const connStr = `${fromId}:${toId}`;
-		const fromPos = this.nodesStore.get(fromId)?.position;
-		const toPos = this.nodesStore.get(toId)?.position;
-		if (!fromPos || !toPos) return;
-		if (this.connectionLines[connStr]) return; // already exists
-
-		const geometry = new THREE.BufferGeometry();
-		const p = new Float32Array([
-			fromPos.x, fromPos.y, fromPos.z,
-			toPos.x, toPos.y, toPos.z
-		]);
-		geometry.setAttribute('position', new THREE.BufferAttribute(p, 3));
-		
-		const material = new THREE.LineBasicMaterial({
-			color: this.colors.connection,
-			transparent: true,
-			opacity: .5,
-		});
-		const line = new THREE.Line(geometry, material);
-		line.userData = { fromId, toId, type: 'connection' };
-		
-		this.scene.add(line);
-		this.connectionLines[connStr] = line;
-	}
-	#removeConnectionLine(connStr = 'id1:id2') {
-		const connObj = this.connectionLines[connStr];
-		if (!connObj) return;
-		this.scene.remove(connObj);
-		delete this.connectionLines[connStr];
-	}
     #getNodeColor(peerId) {
 		const { status, isPublic } = this.nodesStore.get(peerId);
 		const isTwitchUser = peerId.startsWith('f_');
@@ -671,15 +695,6 @@ export class NetworkRenderer {
             default: return isPublic ? this.colors.publicNode : this.colors.knownPeer;
         }
     }
-	#updateConnectionColor(peerId1, peerId2, colorHex, opacity = 1) {
-		const connStr = `${peerId1}:${peerId2}`;
-		const revConnStr = `${peerId2}:${peerId1}`;
-		const connMesh1 = this.connectionLines[connStr];
-		const connMesh2 = this.connectionLines[revConnStr];
-		if (!connMesh1 && !connMesh2) return;
-		if (connMesh1) { connMesh1.material.color.setHex(colorHex); connMesh1.material.opacity = opacity; }
-		if (connMesh2) { connMesh2.material.color.setHex(colorHex); connMesh2.material.opacity = opacity; }
-	}
 	#getReducedBatch = (nodeIds) => {
 		const batchSize = Math.floor(Math.min(nodeIds.length, this.updateBatchMax));
 		if (batchSize >= nodeIds.length) return nodeIds;
@@ -789,7 +804,9 @@ export class NetworkRenderer {
 		return isToIgnore;
 	}
     #updateConnections() {
-        for (const [connStr, line] of Object.entries(this.connectionLines)) {
+		for (const [connStr, line] of Object.entries(this.connectionsStore.store)) {
+			if (line === true) continue; // not assigned (physic only)
+
             const [fromId, toId] = connStr.split(':');
             const fromPos = this.nodesStore.get(fromId)?.position;
             const toPos = this.nodesStore.get(toId)?.position;
@@ -803,17 +820,18 @@ export class NetworkRenderer {
                 positionAttribute.array[4] = toPos.y;
                 positionAttribute.array[5] = this.options.mode === '3d' ? toPos.z : 0;
                 positionAttribute.needsUpdate = true;
-
-                // Update connection color
 				if (this.#isIgnoredConnectionRepaint(connStr)) continue;
+				
+				// Update connection color
                 let color = this.colors.connection;
                 const isCurrentPeer = fromId === this.currentPeerId || toId === this.currentPeerId;
                 const isHoveredPeer = fromId === this.hoveredNodeId || toId === this.hoveredNodeId;
                 if (isCurrentPeer) color = this.colors.currentPeerConnection;
                 if (isHoveredPeer) color = this.colors.hoveredPeer;
-                line.material.color.setHex(color);
-				line.material.opacity = color === this.colors.connection ? .33 : .5;
-				line.material.needsUpdate = true;
+				this.connectionsStore.updateLineColor(fromId, toId, color);
+                //line.material.color.setHex(color);
+				//line.material.opacity = color === this.colors.connection ? .33 : .5;
+				//line.material.needsUpdate = true;
             }
         }
     }
@@ -835,7 +853,7 @@ export class NetworkRenderer {
     updateStats(neighborsCount = 0) {
 		const nodeCount = this.nodesStore.getNodesIds().length;
 		this.elements.nodeCountElement.textContent = nodeCount;
-		this.elements.connectionCountElement.textContent = Object.keys(this.physicConnections).length;
+		this.elements.connectionCountElement.textContent = this.connectionsStore.getConnectionsList().length / 2;
 		this.elements.neighborCountElement.textContent = neighborsCount;
     }
 }

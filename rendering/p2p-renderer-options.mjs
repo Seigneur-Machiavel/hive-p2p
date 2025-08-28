@@ -19,6 +19,8 @@ export class NetworkRendererElements {
 
 export class NetworkRendererOptions {
 	mode;
+	antialias;
+	precision;
 	nodeRadius;
 	nodeBorderRadius;
 	attraction;
@@ -42,6 +44,8 @@ export class NetworkRendererOptions {
 	 * */
 	constructor(
 		mode = '3d',
+		antialias = true, // Enable or disable antialiasing
+		precision = "highp", // "lowp"
 		nodeRadius = 12,
 		nodeBorderRadius = 3,
 		attraction = .001, // .0001
@@ -57,6 +61,8 @@ export class NetworkRendererOptions {
 		}
 	) {
 		this.mode = mode;
+		this.antialias = antialias;
+		this.precision = precision;
 		this.nodeRadius = nodeRadius;
 		this.nodeBorderRadius = nodeBorderRadius;
 		this.attraction = attraction;
