@@ -788,7 +788,7 @@ export class NetworkRenderer {
 	}
     #getNodeColor(peerId) {
 		const { status, isPublic } = this.nodesWrapper.get(peerId);
-		const isTwitchUser = peerId.startsWith('u_');
+		const isTwitchUser = peerId.startsWith('f_');
 		if (status !== 'current' && isTwitchUser) return this.colors.twitchUser;
         switch (status) {
             case 'current': return this.colors.currentPeer;

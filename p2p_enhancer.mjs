@@ -61,7 +61,7 @@ export class NetworkEnhancer {
 		else if (!conn && data.type === 'offer') {
 			const sharedNeighbours = this.peerStore.getSharedNeighbours(this.id, senderId);
 			const tooManySharedPeers = sharedNeighbours.length > NODE.MAX_SHARED_NEIGHBORS_COUNT;
-			const isTwitchUser = senderId.startsWith('u_');
+			const isTwitchUser = senderId.startsWith('f_');
 			const tooManyConnectedPeers = Object.keys(this.peerStore.store.connected).length >= NODE.TARGET_NEIGHBORS_COUNT - 1;
 			if (!isTwitchUser && (tooManySharedPeers || tooManyConnectedPeers)) this.peerStore.kickPeer(senderId, 30_000);
 			else this.peerStore.addConnectingPeer(senderId, tempTransportInstance, data, this.useTestTransport);

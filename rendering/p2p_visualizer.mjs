@@ -170,10 +170,10 @@ class NetworkVisualizer {
 		for (const id of peerInfo.store.connected) digestPeerUpdate(id, 'connected', getNeighbours(id));
 
 	
-		const nodes = this.networkRenderer.nodesWrapper.nodes;
-		const nodeIds = this.networkRenderer.nodesWrapper.getNodesIds();
+		const nodes = this.networkRenderer.nodesStore.nodes;
+		const nodeIds = this.networkRenderer.nodesStore.getNodesIds();
 		for (const id of nodeIds) // filter absent nodes
-		if (!newlyUpdated[id] && id !== this.currentPeerId) this.networkRenderer.removeNode(id);
+			if (!newlyUpdated[id] && id !== this.currentPeerId) this.networkRenderer.removeNode(id);
 
 		// ensure current peer is updated
 		if (peerInfo.id === this.currentPeerId) digestPeerUpdate(peerInfo.id, 'current', getNeighbours(peerInfo.id));

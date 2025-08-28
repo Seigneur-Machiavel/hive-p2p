@@ -217,14 +217,14 @@ class TwitchChatCommandInterpreter {
 		const splitted  = message.split(':');
 		const command = splitted[0].trim().toLowerCase();
 		const args = splitted.slice(1).map(arg => arg.trim());
-		const targetNodeId = args[0] ? args[0].startsWith('u_') ? args[0] : `u_${args[0]}` : null;
+		const targetNodeId = args[0] ? args[0].startsWith('f_') ? args[0] : `f_${args[0]}` : null;
 		if (user === 'bot' && command === '!addfollower') this.#createUserNode(args[0]);
 		if (command === '!connectto' && targetNodeId) this.userNodes[user]?.tryConnectToPeer(targetNodeId);
 	}
 	#createUserNode(user) {
 		if (this.userNodes[user]?.peerStore?.isDestroy) this.userNodes[user] = undefined;
 		if (this.userNodes[user]) return;
-		const peer = NodeP2P.createNode(`u_${user}`, pickUpRandomBootstraps(1), sVARS.useTestTransport);
+		const peer = NodeP2P.createNode(`f_${user}`, pickUpRandomBootstraps(1), sVARS.useTestTransport);
 		this.userNodes[user] = peer;
 		peers.all[peer.id] = peer;
 		peers.standard.unshift(peer);

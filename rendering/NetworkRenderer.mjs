@@ -32,7 +32,7 @@ class Node {
 		this.neighbours = this.neighbours.filter(id => id !== peerId);
 	}
 }
-class NodesWrapper {
+class NodesStore {
 	/** @type {Record<string, Node>} */ nodes = {};
 
 	/** @param {Node} node */
@@ -42,18 +42,22 @@ class NodesWrapper {
 	remove(id = 'toto') { delete this.nodes[id]; }
 	getNodesIds() { return Object.keys(this.nodes); }
 }
-class Connections {
-	nodesWrapper;
+class Connections { // DEPRECATED
+	nodesStore;
 	physics = {};
 	graphics = {};
 	temporary = {};
 	hovered = {};
 	ignoredRepaint = {};
 
-	/** @param {NodesWrapper} nodesWrapper */
-	constructor(nodesWrapper) {
-		this.nodesWrapper = nodesWrapper;
+	/** @param {NodesStore} nodesStore */
+	constructor(nodesStore) {
+		this.nodesStore = nodesStore;
 	}
+}
+
+class Connection {
+	
 }
 
 export class NetworkRenderer {
@@ -102,7 +106,7 @@ export class NetworkRenderer {
 
 	// Data structures
 	instancedMesh = null;
-	nodesWrapper = new NodesWrapper();
+	nodesStore = new NodesStore();
 	connections;
 
 	physicConnections = {}; // keyPairs
@@ -123,7 +127,7 @@ export class NetworkRenderer {
 	 * @param {NetworkRendererOptions} options
 	 * @param {NetworkRendererElements} rendererElements */
     constructor(containerId, options, rendererElements) {
-		this.connections = new Connections(this.nodesWrapper);
+		this.connections = new Connections(this.nodesStore);
         this.containerId = containerId;
 
 		this.elements = new NetworkRendererElements();
@@ -204,10 +208,10 @@ export class NetworkRenderer {
 		return borderMesh;
 	}
 	addOrUpdateNode(id, status = 'known', isPublic = false, isChosen = false, neighbours = []) {
-		const existingNode = this.nodesWrapper.get(id);
+		const existingNode = this.nodesStore.get(id);
 		if (!existingNode) { // Create new node
 			const newNode = new Node(id, status, isPublic, isChosen, neighbours);
-			this.nodesWrapper.add(newNode);
+			this.nodesStore.add(newNode);
 
 			// Get next available index for this node
 			const instanceIndex = this.nodeCount++; // Tu auras besoin d'un compteur this.nodeCount = 0
@@ -263,7 +267,7 @@ export class NetworkRenderer {
 		delete this.nodeBorders[id];
 	}
 	removeNode(id) {
-		if (!this.nodesWrapper.has(id)) return; // Node doesn't exist
+		if (!this.nodesStore.has(id)) return; // Node doesn't exist
 
 		const instanceIndex = this.nodeIndexMap[id];
 		if (instanceIndex !== undefined) {
@@ -306,7 +310,7 @@ export class NetworkRenderer {
 			border.material.dispose();
 			delete this.nodeBorders[id];
 		}
-		this.nodesWrapper.remove(id);
+		this.nodesStore.remove(id);
 	}
 	digestConnectionsArray(conns = [], displayNeighboursDegree = 1) {
 		const existingConns = {};
@@ -319,7 +323,7 @@ export class NetworkRenderer {
 			this.physicConnections[connStr] = true;
 
 			const isOneOfThePeer = fromId === this.currentPeerId || toId === this.currentPeerId;
-			const currentPeerNode = this.nodesWrapper.get(this.currentPeerId);
+			const currentPeerNode = this.nodesStore.get(this.currentPeerId);
 			const isOneOfTheNeighbours = currentPeerNode?.neighbours?.includes(fromId) || currentPeerNode?.neighbours?.includes(toId);
 			if (!displayNeighboursDegree) return;
 			if (displayNeighboursDegree === 1 && !isOneOfThePeer) return;
@@ -364,8 +368,8 @@ export class NetworkRenderer {
 		if (clearNetworkOneChange && peerId !== this.currentPeerId) this.clearNetwork();
 
         // Reset previous current peer
-        if (this.currentPeerId && this.nodesWrapper.has(this.currentPeerId)) this.nodesWrapper.get(this.currentPeerId).status = 'known';
-        if (peerId && this.nodesWrapper.has(peerId)) this.nodesWrapper.get(peerId).status = 'current';
+        if (this.currentPeerId && this.nodesStore.has(this.currentPeerId)) this.nodesStore.get(this.currentPeerId).status = 'known';
+        if (peerId && this.nodesStore.has(peerId)) this.nodesStore.get(peerId).status = 'current';
 		this.currentPeerId = peerId;
     }
 	switchMode() {
@@ -377,8 +381,8 @@ export class NetworkRenderer {
 	}
 	clearNetwork() {
 		// Clear data
-		this.nodesWrapper = new NodesWrapper(this.nodes);
-		this.connections = new Connections(this.nodesWrapper);
+		this.nodesStore = new NodesStore(this.nodes);
+		this.connections = new Connections(this.nodesStore);
 		this.physicConnections = {};
 		this.hoveredConnections = {};
 		this.ignoredConnectionsRepaint = {};
@@ -586,7 +590,7 @@ export class NetworkRenderer {
 		this.instancedMesh.instanceColor.needsUpdate = true;
 		this.renderer.domElement.style.cursor = 'pointer';
 
-		const hoveredNode = this.nodesWrapper.get(this.hoveredNodeId);
+		const hoveredNode = this.nodesStore.get(this.hoveredNodeId);
 		const hoveredNeighbours = hoveredNode ? hoveredNode.neighbours : [];
 		for (const toId of hoveredNeighbours)  {
 			this.#addConnectionLine(this.hoveredNodeId, toId);
@@ -594,7 +598,7 @@ export class NetworkRenderer {
 		}
 	}
 	#showTooltip(x, y, nodeId, element = document.getElementById('tooltip')) {
-		const node = this.nodesWrapper.get(nodeId);
+		const node = this.nodesStore.get(nodeId);
 		if (!node) return;
 
 		const json = {
@@ -620,15 +624,15 @@ export class NetworkRenderer {
         delete this.physicConnections[connStr];
         
         // Update neighbours
-		this.nodesWrapper.get(fromId)?.removeNeighbour(toId);
-		this.nodesWrapper.get(toId)?.removeNeighbour(fromId);
+		this.nodesStore.get(fromId)?.removeNeighbour(toId);
+		this.nodesStore.get(toId)?.removeNeighbour(fromId);
 
         this.#removeConnectionLine(connStr);
     }
 	#addConnectionLine(fromId = 'peer_1', toId = 'peer_2') {
 		const connStr = `${fromId}:${toId}`;
-		const fromPos = this.nodesWrapper.get(fromId)?.position;
-		const toPos = this.nodesWrapper.get(toId)?.position;
+		const fromPos = this.nodesStore.get(fromId)?.position;
+		const toPos = this.nodesStore.get(toId)?.position;
 		if (!fromPos || !toPos) return;
 		if (this.connectionLines[connStr]) return; // already exists
 
@@ -657,8 +661,8 @@ export class NetworkRenderer {
 		delete this.connectionLines[connStr];
 	}
     #getNodeColor(peerId) {
-		const { status, isPublic } = this.nodesWrapper.get(peerId);
-		const isTwitchUser = peerId.startsWith('u_');
+		const { status, isPublic } = this.nodesStore.get(peerId);
+		const isTwitchUser = peerId.startsWith('f_');
 		if (status !== 'current' && isTwitchUser) return this.colors.twitchUser;
         switch (status) {
             case 'current': return this.colors.currentPeer;
@@ -690,8 +694,8 @@ export class NetworkRenderer {
 	#updateNodesPositions(nodeIds = [], lockCurrentNodePosition = true, simplyCalculation = true) {
 		const batchIds = simplyCalculation ? this.#getReducedBatch(nodeIds) : nodeIds;
 		for (const id of batchIds) {
-			const [pos, vel] = [this.nodesWrapper.get(id)?.position, this.nodesWrapper.get(id)?.velocity];
-            const node = this.nodesWrapper.get(id);
+			const [pos, vel] = [this.nodesStore.get(id)?.position, this.nodesStore.get(id)?.velocity];
+            const node = this.nodesStore.get(id);
 			const instanceIndex = this.nodeIndexMap[id];
 			if (!pos || !vel || !node || instanceIndex === undefined) continue;
 
@@ -701,7 +705,7 @@ export class NetworkRenderer {
             for (const otherId of [...batchIds, ...node.neighbours]) {
                 if (id === otherId) continue;
 
-                const otherNode = this.nodesWrapper.get(otherId);
+                const otherNode = this.nodesStore.get(otherId);
                 const otherPos = otherNode?.position;
                 if (!otherPos || !otherNode) continue;
 
@@ -719,7 +723,7 @@ export class NetworkRenderer {
 
             // Attraction along physicConnections
             for (const neighbourId of node.neighbours) {
-				const neighbourPos = this.nodesWrapper.get(neighbourId)?.position;
+				const neighbourPos = this.nodesStore.get(neighbourId)?.position;
                 if (!neighbourPos) continue;
 
                 const dx = neighbourPos.x - pos.x;
@@ -787,8 +791,8 @@ export class NetworkRenderer {
     #updateConnections() {
         for (const [connStr, line] of Object.entries(this.connectionLines)) {
             const [fromId, toId] = connStr.split(':');
-            const fromPos = this.nodesWrapper.get(fromId)?.position;
-            const toPos = this.nodesWrapper.get(toId)?.position;
+            const fromPos = this.nodesStore.get(fromId)?.position;
+            const toPos = this.nodesStore.get(toId)?.position;
 
             if (fromPos && toPos && line.geometry) {
                 const positionAttribute = line.geometry.attributes.position;
@@ -820,7 +824,7 @@ export class NetworkRenderer {
 
 		this.instancedMesh.instanceMatrix.needsUpdate = true;
 		this.instancedMesh.instanceColor.needsUpdate = true;
-		const nodeIds = this.nodesWrapper.getNodesIds();
+		const nodeIds = this.nodesStore.getNodesIds();
 		this.#updateNodesPositions(nodeIds);
 		this.#updateConnections();
 		this.renderer.render(this.scene, this.camera);
@@ -829,7 +833,7 @@ export class NetworkRenderer {
 		setTimeout(() => requestAnimationFrame(() => this.#animate()), schedule);
 	}
     updateStats(neighborsCount = 0) {
-		const nodeCount = this.nodesWrapper.getNodesIds().length;
+		const nodeCount = this.nodesStore.getNodesIds().length;
 		this.elements.nodeCountElement.textContent = nodeCount;
 		this.elements.connectionCountElement.textContent = Object.keys(this.physicConnections).length;
 		this.elements.neighborCountElement.textContent = neighborsCount;
