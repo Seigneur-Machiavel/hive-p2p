@@ -2,7 +2,7 @@ import { GOSSIP } from '../utils/p2p_params.mjs';
 import { xxHash32 } from '../utils/xxhash32.mjs';
 
 /**
- * @typedef {import('./p2p_peerStore.mjs').PeerStore} PeerStore
+ * @typedef {import('./peer-store.mjs').PeerStore} PeerStore
  */
 
 export class GossipMessage {

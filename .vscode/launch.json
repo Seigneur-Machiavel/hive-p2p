@@ -9,14 +9,14 @@
 			"request": "launch",
 			"name": "Start_Simulation",
 			"skipFiles": ["<node_internals>/**"],
-			"program": "${workspaceFolder}\\test\\p2p_simulator.mjs",
+			"program": "${workspaceFolder}\\simulation\\simulator.mjs",
 		},
 		{
 			"type": "node",
 			"request": "launch",
 			"name": "With_Inspect",
 			"skipFiles": ["<node_internals>/**"],
-			"program": "${workspaceFolder}\\test\\p2p_simulator.mjs",
+			"program": "${workspaceFolder}\\simulation\\simulator.mjs",
 			"runtimeArgs": ["--inspect"]
 		}
 	]

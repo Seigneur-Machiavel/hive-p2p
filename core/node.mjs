@@ -1,9 +1,9 @@
 import { WebSocketServer } from 'ws';
-import { TestWsServer } from '../test/p2p_test_transport.mjs';
-import { PeerStore } from './p2p_peerStore.mjs';
-import { NetworkEnhancer } from './p2p_enhancer.mjs';
-import { DirectMessager } from './p2p_direct.mjs';
-import { Gossip } from './p2p_gossip.mjs';
+import { TestWsServer } from '../simulation/test-transports.mjs';
+import { PeerStore } from './peer-store.mjs';
+import { NetworkEnhancer } from './network-enhancer.mjs';
+import { DirectMessager } from './unicast.mjs';
+import { Gossip } from './gossip.mjs';
 import { NODE } from '../utils/p2p_params.mjs';
 
 export class NodeP2P {

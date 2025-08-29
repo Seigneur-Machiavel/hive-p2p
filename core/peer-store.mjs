@@ -1,12 +1,11 @@
 import wrtc from 'wrtc';
 import SimplePeer from 'simple-peer';
-import { TestTransport } from '../test/p2p_test_transport.mjs';
+import { TestTransport } from '../simulation/test-transports.mjs';
 
 /**
  * @typedef {import('ws').WebSocket} WebSocket
- * @typedef {import('./p2p_direct.mjs').DirectMessage} DirectMessage
- * @typedef {import('./p2p_gossip.mjs').GossipMessage} GossipMessage
- */
+ * @typedef {import('./unicast.mjs').DirectMessage} DirectMessage
+ * @typedef {import('./gossip.mjs').GossipMessage} GossipMessage */
 
 export class PeerConnection {
 	/** @type {WebSocket | undefined} Transport used for initial connection to public node (usually a WebSocket) */

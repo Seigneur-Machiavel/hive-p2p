@@ -1,9 +1,9 @@
 /**
  * Sandbox for testing WebSocket and transport connections.
  * 
- * @typedef {import('./p2p_test_transport.mjs').TestWsConnection} TestWsConnection
- * @typedef {import('./p2p_test_transport.mjs').TestWsServer} TestWsServer
- * @typedef {import('./p2p_test_transport.mjs').TestTransport} TestTransport
+ * @typedef {import('./test-transports.mjs').TestWsConnection} TestWsConnection
+ * @typedef {import('./test-transports.mjs').TestWsServer} TestWsServer
+ * @typedef {import('./test-transports.mjs').TestTransport} TestTransport
  */
 
 export class Sandbox {

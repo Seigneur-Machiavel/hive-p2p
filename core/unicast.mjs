@@ -1,9 +1,9 @@
 import { MESSAGER } from "../utils/p2p_params.mjs";
 
 /**
- * @typedef {import('./p2p_peerStore.mjs').PeerStore} PeerStore
- * @typedef {import('./p2p_peerStore.mjs').KnownPeer} KnownPeer
- * @typedef {import('./p2p_peerStore.mjs').PeerConnection} PeerConnection
+ * @typedef {import('./peer-store.mjs').PeerStore} PeerStore
+ * @typedef {import('./peer-store.mjs').KnownPeer} KnownPeer
+ * @typedef {import('./peer-store.mjs').PeerConnection} PeerConnection
  * 
  * @typedef {Object} RouteInfo
  * @property {string[]} path - Array of peer IDs forming the route [from, ..., remoteId]
