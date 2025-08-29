@@ -61,7 +61,8 @@ export class Gossip {
 
 	/** @type {Record<string, Function[]>} */
 	callbacks = {
-		'peer_connected': [(senderId, data) => this.peerStore.linkPeers(data, senderId)],
+		//'peer_connected': [(senderId, data) => this.peerStore.linkPeers(data.peerId, senderId)], // DEPRECATED
+		"peer_connected": [(senderId, data) => this.peerStore.linkPeers(senderId, data)],
 		'peer_disconnected': [(senderId, data) => this.peerStore.unlinkPeers(data, senderId)],
 		// Add more gossip event handlers here
 	};

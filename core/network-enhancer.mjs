@@ -7,16 +7,12 @@ import { NODE } from '../utils/p2p_params.mjs';
  * 
  * @typedef {Object} bootstrapInfo
  * @property {string} id
- * @property {string} publicUrl
- */
-
+ * @property {string} publicUrl */
 
 export class NetworkEnhancer {
 	id;
 	peerStore;
-	/** @type {NodeJS.Timeout | null} public nodes connexions interval */ intervalA = null;
-	/** @type {NodeJS.Timeout | null} standard nodes connexions interval */ intervalB = null;
-	/** @type {NodeJS.Timeout | null} optimized nodes connexions interval */ optimizedInterval = null;
+	/** @type {NodeJS.Timeout | null} optimized nodes connexions interval */ interval = null;
 
 	/** @type {Array<bootstrapInfo>} */ bootstraps = [];
 	/** @type {Record<string, string>} */ bootstrapsIds = {};
@@ -37,20 +33,15 @@ export class NetworkEnhancer {
 	init() {
 		this.#tryConnectNextBootstrap(); // first shot ASAP
 		const ecd = NODE.ENHANCE_CONNECTION_DELAY;
-		//this.intervalA = setInterval(() => this.#tryConnectNextBootstrap(), ecd);
-		//setTimeout(() => this.intervalB = setInterval(() => this.#tryConnectMoreNodes(), ecd), 1000);
-
 		let phase = 0;
-		this.optimizedInterval = setInterval(() => {
+		this.interval = setInterval(() => {
 			phase = phase ? 0 : 1;
 			if (phase) this.#tryConnectNextBootstrap();
 			else this.#tryConnectMoreNodes();
 		}, ecd);
 	}
 	destroy() {
-		if (this.intervalA) clearInterval(this.intervalA);
-		if (this.intervalB) clearInterval(this.intervalB);
-		if (this.optimizedInterval) clearInterval(this.optimizedInterval);
+		if (this.interval) clearInterval(this.interval);
 	}
 	/** @param {string} senderId @param {object} data @param {WebSocket} [tempTransportInstance] optional WebSocket */
 	handleIncomingSignal(senderId, data, tempTransportInstance) {

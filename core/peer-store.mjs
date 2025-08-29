@@ -104,12 +104,16 @@ class Store {
 		return Object.keys(this.known[peerId1].neighbours).filter(id => this.known[peerId2].neighbours[id]);
 	}
 }
-
 export class PeerStore {
 	store = new Store();
 	punisher;
 	connUpgradeTimeout;
-	connectingTimeouts = {};
+
+	/** @type {Record<string, number>} key: peerId1:peerId2, value: expiration */
+	pendingLinks = {};
+	/** @type {Record<string, number>} key: peerId, value: expiration */
+	pendingConnections = {};
+	expirationManagementInterval = setInterval(() => this.#cleanupExpired(), 2000);
 
 	/** @type {Record<string, Function[]>} */ callbacks = {
 		'connect': [(peerId, direction) => this.#upgradeConnectingToConnected(peerId)],
@@ -163,8 +167,18 @@ export class PeerStore {
 		});
 
 		if (remoteSDP) try { transportInstance.signal(remoteSDP); } catch (error) { console.error(`Error signaling remote SDP for ${remoteId}:`, error.message); }
-		this.connectingTimeouts[remoteId] = setTimeout(() =>
-			this.removePeer(remoteId, 'connecting'), this.connUpgradeTimeout);
+		this.pendingConnections[remoteId] = Date.now() + this.connUpgradeTimeout;
+	}
+	handlePeerConnectedMessage(peerId1 = 'toto', peerId2 = 'tutu', timeout = 10_000) {
+		const key1 = `${peerId1}:${peerId2}`;
+		const key2 = `${peerId2}:${peerId1}`;
+		const pendingLinkExpiration = this.pendingLinks[key1] || this.pendingLinks[key2];
+		if (!pendingLinkExpiration) this.pendingLinks[key1] = Date.now() + timeout;
+		else { // only one pendingLinks exist, by deleting both we ensure deletion
+			delete this.pendingLinks[key1];
+			delete this.pendingLinks[key2];
+			this.linkPeers(peerId1, peerId2);
+		}
 	}
 
 	// PUNISHER API
@@ -179,6 +193,7 @@ export class PeerStore {
 	assignSignal(remoteId = 'toto', signalData = {}) { if (!this.isDestroy) this.store.assignSignal(remoteId, signalData); }
 	/** @param {string} remoteId @param {'connected' | 'connecting'} status */
 	removePeer(remoteId, status) { this.store.removePeer(remoteId, status); }
+	setPendingLink(peerId1 = 'toto', peerId2 = 'tutu') { if (peerId1 && peerId2) this.store.setPendingLink(peerId1, peerId2); }
 	linkPeers(peerId1 = 'toto', peerId2 = 'tutu') { if (peerId1 && peerId2) this.store.linkPeers(peerId1, peerId2); }
 	unlinkPeers(peerId1 = 'toto', peerId2 = 'tutu') { if (peerId1 && peerId2) this.store.unlinkPeers(peerId1, peerId2); }
 	/** Improve discovery by considering used route as peer links @param {string[]} route */
@@ -197,19 +212,28 @@ export class PeerStore {
 		this.isDestroy = true;
 		for (const peerId in this.store.connected) this.removePeer(peerId, 'connected');
 		for (const peerId in this.store.connecting) this.removePeer(peerId, 'connecting');
-		for (const timeoutId in this.connectingTimeouts)
-			{ clearTimeout(this.connectingTimeouts[timeoutId]); delete this.connectingTimeouts[timeoutId]; }
+		clearInterval(this.expirationManagementInterval);
 	}
 
 	// INTERNAL METHODS
+	#cleanupExpired() { // Clean up expired pending connections and pending links
+		const now = Date.now();
+		for (const peerId in this.pendingConnections) {
+			if (this.pendingConnections[peerId] > now) continue; // not expired
+			delete this.pendingConnections[peerId];
+			this.removePeer(peerId, 'connecting');
+		}
+
+		for (const [key, expiration] of Object.entries(this.pendingLinks))
+			if (expiration < now) delete this.pendingLinks[key];
+	}
 	#upgradeConnectingToConnected(remoteId) {
 		if (!this.store.connecting[remoteId]) return console.error(`Peer with ID ${remoteId} is not connecting.`);
-		clearTimeout(this.connectingTimeouts[remoteId]);
 
 		const peer = this.store.connecting[remoteId];
 		this.store.connected[remoteId] = peer;
 		delete this.store.connecting[remoteId];
-		delete this.connectingTimeouts[remoteId];
+		delete this.pendingConnections[remoteId];
 		peer.setConnectionStartTime();
 		if (peer.tempTransportInstance) peer.tempTransportInstance.close();
 	}

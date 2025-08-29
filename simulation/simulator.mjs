@@ -17,7 +17,7 @@ const sVARS = { // SIMULATION VARIABLES
 	peersCount: 5,
 	chosenPeerCount: 1,
 	delayBetweenInit: 5, // 0 = faster for simulating big networks but > 0 = should be more realistic
-	randomMessagePerSecond: 10, // 20 = 1 message every 50ms, 0 = disabled ( max: 500 )
+	randomMessagePerSecond: 100, // 20 = 1 message every 50ms, 0 = disabled ( max: 500 )
 };
 if (sVARS.useTestTransport) {
 	sVARS.publicPeersCount = 100; // 100; // stable: 3, medium: 100, strong: 200
@@ -114,7 +114,10 @@ function sendRandomMessage(log = false) {
 	try {
 		const peerIds = [...peers.public, ...peers.standard, ...peers.chosen].map(p => p.id);
 		const sender = peers.all[peerIds[Math.floor(Math.random() * peerIds.length)]];
-		const recipient = peers.all[peerIds[Math.floor(Math.random() * peerIds.length)]];
+		//const recipient = peers.all[peerIds[Math.floor(Math.random() * peerIds.length)]];
+		const senderKnowsPeers = sender ? Object.keys(sender.peerStore.store.known) : [];
+		const recipientId = senderKnowsPeers[Math.floor(Math.random() * senderKnowsPeers.length)];
+		const recipient = peers.all[recipientId];
 		if (!sender || !recipient || sender.id === recipient.id) return; // skip if sender or recipient is not found or they are the same
 		const message = { type: 'randomMessage', data: `Hello from ${sender.id}` };
 		const result = sender.sendMessage(recipient.id, 'message', message);
