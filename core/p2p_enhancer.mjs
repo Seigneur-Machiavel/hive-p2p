@@ -1,6 +1,6 @@
-import { TestWsConnection } from './tests/p2p_test_transport.mjs';
-import { shuffleArray } from './utils/p2p_common_functions.mjs';
-import { NODE } from './utils/p2p_params.mjs';
+import { TestWsConnection } from '../test/p2p_test_transport.mjs';
+import { shuffleArray } from '../utils/p2p_common_functions.mjs';
+import { NODE } from '../utils/p2p_params.mjs';
 
 /**
  * @typedef {import('./p2p_peerStore.mjs').PeerStore} PeerStore

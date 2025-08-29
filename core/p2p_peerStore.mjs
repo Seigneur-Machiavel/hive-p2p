@@ -1,6 +1,6 @@
 import wrtc from 'wrtc';
 import SimplePeer from 'simple-peer';
-import { TestTransport } from './tests/p2p_test_transport.mjs';
+import { TestTransport } from '../test/p2p_test_transport.mjs';
 
 /**
  * @typedef {import('ws').WebSocket} WebSocket

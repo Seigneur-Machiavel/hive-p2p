@@ -1,4 +1,4 @@
-import { MESSAGER } from "./utils/p2p_params.mjs";
+import { MESSAGER } from "../utils/p2p_params.mjs";
 
 /**
  * @typedef {import('./p2p_peerStore.mjs').PeerStore} PeerStore

@@ -1,11 +1,10 @@
 import { WebSocketServer } from 'ws';
-import { TestWsServer } from './tests/p2p_test_transport.mjs';
-
+import { TestWsServer } from '../test/p2p_test_transport.mjs';
 import { PeerStore } from './p2p_peerStore.mjs';
 import { NetworkEnhancer } from './p2p_enhancer.mjs';
 import { DirectMessager } from './p2p_direct.mjs';
 import { Gossip } from './p2p_gossip.mjs';
-import { NODE } from './utils/p2p_params.mjs';
+import { NODE } from '../utils/p2p_params.mjs';
 
 export class NodeP2P {
 	verbose;
