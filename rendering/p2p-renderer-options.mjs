@@ -2,18 +2,21 @@ export class NetworkRendererElements {
 	modeSwitchBtn;
 	nodeCountElement;
 	neighborCountElement;
-	connectionCountElement;
+	connectionsCountElement;
+	linesCountElement;
 
 	constructor(
 		modeSwitchBtn = document.getElementById('modeSwitchBtn'),
 		nodeCountElement = document.getElementById('nodeCount'),
 		neighborCountElement = document.getElementById('neighborCount'),
-		connectionCountElement = document.getElementById('connectionCount'),
+		connectionsCountElement = document.getElementById('connectionsCount'),
+		linesCountElement = document.getElementById('linesCount'),
 	) {
 		this.modeSwitchBtn = modeSwitchBtn;
 		this.nodeCountElement = nodeCountElement;
 		this.neighborCountElement = neighborCountElement;
-		this.connectionCountElement = connectionCountElement;
+		this.connectionsCountElement = connectionsCountElement;
+		this.linesCountElement = linesCountElement;
 	}
 }
 
