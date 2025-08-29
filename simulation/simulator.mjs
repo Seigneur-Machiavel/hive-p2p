@@ -20,9 +20,9 @@ const sVARS = { // SIMULATION VARIABLES
 	randomMessagePerSecond: 10, // 20 = 1 message every 50ms, 0 = disabled ( max: 500 )
 };
 if (sVARS.useTestTransport) {
-	sVARS.publicPeersCount = 3; // 100; // stable: 3, medium: 100, strong: 200
-	sVARS.peersCount = 25; // stable: 25, medium: 800, strong: 1600
-	sVARS.chosenPeerCount = 5; // stable: 5, medium: 100, strong: 200
+	sVARS.publicPeersCount = 100; // 100; // stable: 3, medium: 100, strong: 200
+	sVARS.peersCount = 800; // stable: 25, medium: 800, strong: 1600
+	sVARS.chosenPeerCount = 100; // stable: 5, medium: 100, strong: 200
 }
 
 const peers = {
@@ -127,14 +127,12 @@ if (sVARS.randomMessagePerSecond) setInterval(sendRandomMessage, 1000 / Math.min
 
 // simple server to serve texts/p2p_simulator.html
 const app = express();
-const __dirname = path.resolve();
-const parentPath = path.join(__dirname, '../P2P');
-app.use('/rendering/p2p_visualizer.mjs', (req, res, next) => {
+app.use('../rendering/p2p_visualizer.mjs', (req, res, next) => {
     res.set({ 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache', 'Expires': '0' });
     next();
 });
 
-app.use(express.static(parentPath));
+app.use(express.static(path.resolve()));
 const server = app.listen(3000, () => console.log('Server listening on http://localhost:3000'));
 app.get('/', (req, res) => res.sendFile('rendering/p2p_visualizer.html', { root: '.' }));
 
