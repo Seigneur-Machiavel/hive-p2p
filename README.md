@@ -1,3 +1,260 @@
+[EN] (Scroll down to read [FR] version)
+
+# P2P Network with Dynamic Global Mapping
+## A New Paradigm for Decentralization
+
+### Executive Summary
+
+This document presents a novel peer-to-peer network approach that solves the entropy limitations of classical DHTs like Kademlia. By sharing connection events through gossip, each peer builds a global network map enabling optimal neighbor selection and maximum network uniformity.
+
+---
+
+## 1. The Problem with Current DHTs
+
+### 1.1 Kademlia Limitations
+
+Kademlia, used in BitTorrent, Ethereum, and IPFS, has a fundamental weakness: **it doesn't guarantee maximum entropy**. It's essentially "hoping things work out" with some heuristics.
+
+**Identified problems:**
+- **Geographic clustering**: physically close peers end up in the same buckets
+- **Correlated failures**: power outages, software updates, shared vulnerabilities
+- **Bootstrap bias**: new nodes often discover the same clusters
+- **Blind neighborhood**: no visibility into global topology
+
+### 1.2 Real-World Consequences
+
+```
+Ideal Kademlia network:    Real Kademlia network:
+                          
+    A---B---C                A---B---C
+    |   |   |                |   |   |
+    D---E---F                D---E---F
+    |   |   |                 \  |  /
+    G---H---I                  \ | /
+                                \|/
+                                 X
+                            (isolated cluster)
+```
+
+Correlated failures can isolate entire network regions.
+
+---
+
+## 2. Our Solution: Global Mapping Through Gossip
+
+### 2.1 Core Principle
+
+**Simple idea:** If every peer knows who's connected to whom, it can choose neighbors to maximize network uniformity.
+
+**Mechanism:**
+1. Peers share their connection/disconnection events via gossip
+2. Each peer builds its own network map
+3. New neighbor selection based on minimal overlap
+4. Network converges toward optimized topology
+
+### 2.2 General Architecture
+
+```
+Peer A                    Peer B                    Peer C
+┌─────────────┐          ┌─────────────┐          ┌─────────────┐
+│ PeerStore   │◄────────►│ PeerStore   │◄────────►│ PeerStore   │
+│ (map)       │   Gossip │ (map)       │   Gossip │ (map)       │
+├─────────────┤          ├─────────────┤          ├─────────────┤
+│ Neighbor    │          │ Neighbor    │          │ Neighbor    │
+│ Selection   │          │ Selection   │          │ Selection   │
+└─────────────┘          └─────────────┘          └─────────────┘
+       │                        │                        │
+       └────────────────────────┼────────────────────────┘
+                    Direct Messages
+                     (with routing)
+```
+
+---
+
+## 3. Technical Components
+
+### 3.1 PeerStore - The Global Map
+
+**Minimalist structure:**
+```js
+knownPeers: {
+  "peer123": {
+    peerId: "peer123",           // 32 bytes
+    neighbours: ["peer456", ...] // 12 IDs max × 32 bytes
+  }
+}
+```
+
+**Memory cost:** 416 bytes per known peer
+**Capacity:** 100k peers = 41.6 MB (Raspberry Pi compatible)
+
+### 3.2 Event Gossip
+
+**Event messages:**
+```js
+{
+  event: 'connect',
+  peerId: 'ABC123',
+  direction: 'in',      // 'in' = I accept, 'out' = I propose  
+  timestamp: 1682345678
+}
+```
+
+**Anti-spam filter:**
+- Buffer of recent message hashes (few seconds)
+- "I forward the message to neighbors only if absent from my buffer"
+- No complex anti-flood, just non-repetition
+
+**Propagation:**
+- Based on six degrees of separation theory
+- Configurable TTL to limit map size
+- ~10 messages/second in steady state
+
+### 3.3 Optimized Neighbor Selection
+
+**Selection algorithm:**
+1. Analyze potential connection candidates
+2. Calculate overlap with current neighbors
+3. Favor peers with minimal overlap
+4. Maintain max 12 neighbors by default
+
+```
+Peer A wants to connect:
+Current neighbors: [B, C, D]
+
+Candidate X: neighbors [E, F, G] → overlap = 0 → EXCELLENT
+Candidate Y: neighbors [B, C, H] → overlap = 2 → AVERAGE  
+Candidate Z: neighbors [B, C, D] → overlap = 3 → POOR
+```
+
+### 3.4 Direct Messages with Routing
+
+**Connection establishment:**
+- SDP messages (WebRTC) relayed peer-to-peer
+- Complete route specified by sender
+- `enableReRouting` option: consumable flag for route optimization
+- Failure tolerance: more lightweight messages rather than delivery guarantee
+
+**Routing example:**
+```
+A wants to contact D:
+Planned route: A → B → C → D
+If C discovers shortcut A → C → E → D:
+C can re-route ONCE with signature
+```
+
+---
+
+## 4. Robustness Mechanisms
+
+### 4.1 Correlated Failure Management
+
+**Early detection:**
+- Global map reveals partitions before they isolate the network
+- Dynamic neighborhood adjustment based on detected threats
+
+**Self-healing:**
+- Adaptive neighborhood: a peer can temporarily exceed 12 neighbors
+- Kick "problematic" neighbors if better candidates are discovered
+
+### 4.2 Attack Resistance
+
+**Against malicious peers:**
+- Ban/ignore system for excessive or inconsistent info
+- Hard-to-generate PubKey (PoW) to limit Sybil attacks
+- Cross-validation of events ('in' + 'out' directions)
+
+**Against pollution:**
+- Timeout for bidirectional connection confirmation
+- Preference for confirmed vs phantom connections
+
+---
+
+## 5. Advantages Over Existing Solutions
+
+### 5.1 Vs Kademlia
+
+| Aspect | Kademlia | Our Solution |
+|--------|----------|--------------|
+| **Network visibility** | Blind | Global map |
+| **Neighbor selection** | XOR distance | Minimal overlap |
+| **Correlated failures** | Vulnerable | Early detection |
+| **Adaptability** | Static | Dynamic |
+| **Memory cost** | ~200 peers | ~100k peers |
+
+### 5.2 Observed Metrics
+
+**Tests with 2500 peers:**
+- **Convergence:** >50% discovery within minutes
+- **Traffic:** ~10 messages/second steady state  
+- **Memory:** <50 MB for complete map
+- **CPU:** Raspberry Pi compatible (dual-core 1.5GHz)
+
+---
+
+## 6. Applications
+
+### 6.1 Decentralized Blockchain
+
+**Primary use case:** blockchain network with:
+- Fair distribution (like Bitcoin, no fundraising)
+- All nodes are "full" and equal
+- PoW + PoS to stabilize blocktime (1-4 minutes)
+- Optimized propagation of validated blocks
+
+**Specific advantages:**
+- **Eclipse resistance:** impossible to isolate a node
+- **Smart propagation:** optimal route selection
+- **Maximum decentralization:** greater than Bitcoin through uniformity
+
+### 6.2 Other Applications
+
+- **Decentralized CDN** with optimized routing
+- **Censorship-resistant messaging**  
+- **Distributed storage** with intelligent replication
+
+---
+
+## 7. Roadmap and Limitations
+
+### 7.1 Current Limitations
+
+**Dependencies:**
+- External time service (NTP) for synchronization
+- Bootstrap nodes for initial seeding
+
+**Scalability:**
+- Tested up to 2500 simultaneous peers
+- Theoretical extrapolation to 100k+ peers
+
+### 7.2 Planned Improvements
+
+**Short term:**
+- Bidirectional connection confirmation
+- Timestamps for automatic garbage collection  
+- Partition robustness testing
+
+**Long term:**
+- Distributed clock to eliminate NTP dependency
+- Virtual zones for scaling
+- Integrated network quality metrics
+
+---
+
+## 8. Conclusion
+
+This P2P system represents a paradigm shift: moving from a blind network to a **topology-aware network**. Global mapping through gossip enables continuous optimization and unmatched resilience.
+
+**Philosophy:** Each component is individually simple, but their synergy creates a complex and robust system. The "minimalist yet complementary" approach avoids over-engineering while solving fundamental DHT problems.
+
+**Vision:** A decentralized internet where every node contributes to global network optimization, without central coordination or single points of failure.
+
+---
+
+*"Complexity emerges from organized simplicity, not from complication."*
+
+[FR] ------------------------------------------------ [FR]
+
 # Réseau P2P avec Cartographie Globale Dynamique
 ## Un nouveau paradigme pour la décentralisation
 
