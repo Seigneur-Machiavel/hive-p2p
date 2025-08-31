@@ -157,9 +157,9 @@
 				newlyUpdated[id] = true;
 			}
 
-			for (const peer of Object.values(peerInfo.store.known)) digestPeerUpdate(peer.id, 'known');
-			for (const id of peerInfo.store.connecting) digestPeerUpdate(id, 'connecting');
-			for (const id of peerInfo.store.connected) digestPeerUpdate(id, 'connected');
+			for (const peer of Object.values(peerInfo.known)) digestPeerUpdate(peer.id, 'known');
+			for (const id of peerInfo.connecting) digestPeerUpdate(id, 'connecting');
+			for (const id of peerInfo.connected) digestPeerUpdate(id, 'connected');
 			if (peerInfo.id) digestPeerUpdate(peerInfo.id, 'current'); // ensure current peer is updated
 
 			// filter absent nodes
@@ -185,8 +185,8 @@
 			console.log(`Updated network map: ${Object.keys(nodes).length} nodes | ${Object.keys(connections).length} connections`);
 		}
 		function getNeighbours(peerId, peerInfo = lastPeerInfo) {
-			if (peerId === peerInfo.id) return peerInfo.store.connected;
-			const knownPeer = peerInfo.store.known[peerId];
+			if (peerId === peerInfo.id) return peerInfo.connected;
+			const knownPeer = peerInfo.known[peerId];
 			return knownPeer ? Object.keys(knownPeer.neighbours || {}) : [];
 		}
 

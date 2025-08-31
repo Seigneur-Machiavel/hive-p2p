@@ -54,12 +54,10 @@ class Punisher {
 	/** @type {Record<string, number>} */ ban = {};
 	/** @type {Record<string, number>} */ kick = {};
 
-	/** @type {Store} */ store;
-	constructor(store) { this.store = store; }
-
-	sanctionPeer(peerId, type = 'kick', duration = 60_000) {
+	/** @param {string} peerId @param {Record<string, PeerConnection>} connected */
+	sanctionPeer(peerId, connected, type = 'kick', duration = 60_000) {
 		this[type][peerId] = Date.now() + duration;
-		this.store.connected[peerId]?.close();
+		connected[peerId]?.close();
 	}
 	isSanctioned(peerId, type = 'kick') {
 		if (!this[type][peerId]) return false;
@@ -67,48 +65,12 @@ class Punisher {
 		else return true;
 	}
 }
-class Store {
+export class PeerStore {
+	connUpgradeTimeout;
+	punisher = new Punisher();
 	/** @type {Record<string, PeerConnection>} */ connected = {};
 	/** @type {Record<string, PeerConnection>} */ connecting = {};
 	/** @type {Record<string, KnownPeer>} */ 	  known = {};
-
-	assignSignal(remoteId = 'toto', signalData = { type: 'answer', sdp: {id: '...'} }) {
-		try {
-			if (!remoteId || !signalData) throw new Error('Invalid remoteId or signalData');
-			if (!['answer', 'candidate'].includes(signalData.type)) throw new Error(`Invalid signal data type: ${signalData.type}. Expected 'answer' or 'candidate'.`);
-			const peer = this.connecting[remoteId];
-			if (signalData.type === 'answer' && peer.direction === 'in') throw new Error(`Received ${signalData.type} for ${remoteId} incoming connexion is not allowed.`);
-			peer.transportInstance.signal(signalData);
-		} catch (error) { console.error(`Error signaling ${signalData.type} for ${remoteId}:`, error.stack); }
-	}
-	removePeer(remoteId = 'toto', status = 'connecting') {
-		const [ connectingConn, connectedConn ] = [ this.connecting[remoteId], this.connected[remoteId] ];
-		if (connectingConn && connectedConn) throw new Error(`Peer ${remoteId} is both connecting and connected.`);
-		if (!connectingConn && !connectedConn) return;
-		status === 'connecting' ? connectingConn?.close() : connectedConn?.close();
-		delete this[status][remoteId];
-	}
-	linkPeers(peerId1 = 'toto', peerId2 = 'tutu') {
-		if (!this.known[peerId1]) this.known[peerId1] = new KnownPeer(peerId1);
-		if (!this.known[peerId2]) this.known[peerId2] = new KnownPeer(peerId2);
-		this.known[peerId1].setNeighbour(peerId2);
-		this.known[peerId2].setNeighbour(peerId1);
-	}
-	unlinkPeers(peerId1 = 'toto', peerId2 = 'tutu') {
-		if (this.known[peerId1]) this.known[peerId1].unsetNeighbour(peerId2);
-		if (this.known[peerId2]) this.known[peerId2].unsetNeighbour(peerId1);
-		if (this.known[peerId1]?.connectionsCount === 0) delete this.known[peerId1];
-		if (this.known[peerId2]?.connectionsCount === 0) delete this.known[peerId2];
-	}
-	getSharedNeighbours(peerId1 = 'toto', peerId2 = 'tutu') {
-		if (!this.known[peerId1] || !this.known[peerId2]) return [];
-		return Object.keys(this.known[peerId1].neighbours).filter(id => this.known[peerId2].neighbours[id]);
-	}
-}
-export class PeerStore {
-	store = new Store();
-	punisher;
-	connUpgradeTimeout;
 
 	/** @type {Record<string, number>} key: peerId1:peerId2, value: expiration */
 	pendingLinks = {};
@@ -125,7 +87,6 @@ export class PeerStore {
 
 	constructor(connectionUpgradeTimeout = 1000) {
 		this.connUpgradeTimeout = connectionUpgradeTimeout;
-		this.punisher = new Punisher(this.store);
 	}
 
 	// API
@@ -144,7 +105,7 @@ export class PeerStore {
 		const direction = remoteSDP ? 'in' : 'out';
 		if (direction === 'in' && remoteSDP.type !== 'offer') return console.error(`Invalid remote SDP type: ${remoteSDP.type}. Expected 'offer'.`);
 		
-		const { connected, connecting } = this.store;
+		const { connected, connecting } = this;
 		if (connected[remoteId]) return console.warn(`Peer with ID ${remoteId} already connected.`), connected[remoteId];
 		if (connecting[remoteId]) return console.warn(`Peer with ID ${remoteId} is already connecting.`), connecting[remoteId];
 
@@ -170,7 +131,7 @@ export class PeerStore {
 		if (remoteSDP) try { transportInstance.signal(remoteSDP); } catch (error) { console.error(`Error signaling remote SDP for ${remoteId}:`, error.message); }
 		this.pendingConnections[remoteId] = Date.now() + this.connUpgradeTimeout;
 	}
-	handlePeerConnectedMessage(peerId1 = 'toto', peerId2 = 'tutu', timeout = 10_000) {
+	handlePeerConnectedGossipEvent(peerId1 = 'toto', peerId2 = 'tutu', timeout = 10_000) {
 		const key1 = `${peerId1}:${peerId2}`;
 		const key2 = `${peerId2}:${peerId1}`;
 		const pendingLinkExpiration = this.pendingLinks[key1] || this.pendingLinks[key2];
@@ -184,26 +145,51 @@ export class PeerStore {
 
 	// PUNISHER API
 	/** Avoid peer connection and messages @param {string} peerId @param {number} duration default: 60_000ms */
-	banPeer(peerId, duration = 60_000) { this.punisher.sanctionPeer(peerId, 'ban', duration); }
+	banPeer(peerId, duration = 60_000) { this.punisher.sanctionPeer(peerId, this.connected, 'ban', duration); }
 	isBanned(peerId) { return this.punisher.isSanctioned(peerId, 'ban'); }
 	/** Avoid peer connection @param {string} peerId @param {number} duration default: 60_000ms */
-	kickPeer(peerId, duration = 60_000) { this.punisher.sanctionPeer(peerId, 'kick', duration); }
+	kickPeer(peerId, duration = 60_000) { this.punisher.sanctionPeer(peerId, this.connected, 'kick', duration); }
 	isKicked(peerId) { return this.punisher.isSanctioned(peerId, 'kick'); }
 
 	// STORE API
-	assignSignal(remoteId = 'toto', signalData = {}) { if (!this.isDestroy) this.store.assignSignal(remoteId, signalData); }
-	/** @param {string} remoteId @param {'connected' | 'connecting'} status */
-	removePeer(remoteId, status) { this.store.removePeer(remoteId, status); }
-	setPendingLink(peerId1 = 'toto', peerId2 = 'tutu') { if (peerId1 && peerId2) this.store.setPendingLink(peerId1, peerId2); }
-	linkPeers(peerId1 = 'toto', peerId2 = 'tutu') { if (peerId1 && peerId2) this.store.linkPeers(peerId1, peerId2); }
-	unlinkPeers(peerId1 = 'toto', peerId2 = 'tutu') { if (peerId1 && peerId2) this.store.unlinkPeers(peerId1, peerId2); }
 	/** Improve discovery by considering used route as peer links @param {string[]} route */
 	digestValidRoute(route = []) { for (let i = 1; i < route.length; i++) this.linkPeers(route[i - 1], route[i]); }
-	getSharedNeighbours(peerId1 = 'toto', peerId2 = 'tutu') { return this.store.getSharedNeighbours(peerId1, peerId2); }
-
+	assignSignal(remoteId = 'toto', signalData = { type: 'answer', sdp: {id: '...'} }) {
+		try {
+			if (!remoteId || !signalData) throw new Error('Invalid remoteId or signalData');
+			if (!['answer', 'candidate'].includes(signalData.type)) throw new Error(`Invalid signal data type: ${signalData.type}. Expected 'answer' or 'candidate'.`);
+			const peer = this.connecting[remoteId];
+			if (signalData.type === 'answer' && peer.direction === 'in') throw new Error(`Received ${signalData.type} for ${remoteId} incoming connexion is not allowed.`);
+			peer.transportInstance.signal(signalData);
+		} catch (error) { console.error(`Error signaling ${signalData.type} for ${remoteId}:`, error.stack); }
+	}
+	/** @param {string} remoteId @param {'connected' | 'connecting'} status */
+	removePeer(remoteId = 'toto', status = 'connecting') {
+		const [ connectingConn, connectedConn ] = [ this.connecting[remoteId], this.connected[remoteId] ];
+		if (connectingConn && connectedConn) throw new Error(`Peer ${remoteId} is both connecting and connected.`);
+		if (!connectingConn && !connectedConn) return;
+		status === 'connecting' ? connectingConn?.close() : connectedConn?.close();
+		delete this[status][remoteId];
+	}
+	linkPeers(peerId1 = 'toto', peerId2 = 'tutu') {
+		if (!this.known[peerId1]) this.known[peerId1] = new KnownPeer(peerId1);
+		if (!this.known[peerId2]) this.known[peerId2] = new KnownPeer(peerId2);
+		this.known[peerId1].setNeighbour(peerId2);
+		this.known[peerId2].setNeighbour(peerId1);
+	}
+	unlinkPeers(peerId1 = 'toto', peerId2 = 'tutu') {
+		if (this.known[peerId1]) this.known[peerId1].unsetNeighbour(peerId2);
+		if (this.known[peerId2]) this.known[peerId2].unsetNeighbour(peerId1);
+		if (this.known[peerId1]?.connectionsCount === 0) delete this.known[peerId1];
+		if (this.known[peerId2]?.connectionsCount === 0) delete this.known[peerId2];
+	}
+	getSharedNeighbours(peerId1 = 'toto', peerId2 = 'tutu') {
+		if (!this.known[peerId1] || !this.known[peerId2]) return [];
+		return Object.keys(this.known[peerId1].neighbours).filter(id => this.known[peerId2].neighbours[id]);
+	}
 	/** @param {string} remoteId @param {GossipMessage | DirectMessage} message */
 	sendMessageToPeer(remoteId, message) {
-		const transportInstance = this.store.connected[remoteId]?.transportInstance || this.store.connecting[remoteId]?.tempTransportInstance;
+		const transportInstance = this.connected[remoteId]?.transportInstance || this.connecting[remoteId]?.tempTransportInstance;
 		if (!transportInstance) return { success: false, reason: `Transport instance is not available for peer ${remoteId}.` };
 		try { transportInstance.send(JSON.stringify(message));
 		} catch (error) { console.error(`Error sending message to ${remoteId}:`, error.stack); }
@@ -211,8 +197,8 @@ export class PeerStore {
 	}
 	destroy() {
 		this.isDestroy = true;
-		for (const peerId in this.store.connected) this.removePeer(peerId, 'connected');
-		for (const peerId in this.store.connecting) this.removePeer(peerId, 'connecting');
+		for (const peerId in this.connected) this.removePeer(peerId, 'connected');
+		for (const peerId in this.connecting) this.removePeer(peerId, 'connecting');
 		clearInterval(this.expirationManagementInterval);
 	}
 
@@ -229,11 +215,11 @@ export class PeerStore {
 			if (expiration < now) delete this.pendingLinks[key];
 	}
 	#upgradeConnectingToConnected(remoteId) {
-		if (!this.store.connecting[remoteId]) return console.error(`Peer with ID ${remoteId} is not connecting.`);
+		if (!this.connecting[remoteId]) return console.error(`Peer with ID ${remoteId} is not connecting.`);
 
-		const peer = this.store.connecting[remoteId];
-		this.store.connected[remoteId] = peer;
-		delete this.store.connecting[remoteId];
+		const peer = this.connecting[remoteId];
+		this.connected[remoteId] = peer;
+		delete this.connecting[remoteId];
 		delete this.pendingConnections[remoteId];
 		peer.setConnectionStartTime();
 		if (peer.tempTransportInstance) peer.tempTransportInstance.close();

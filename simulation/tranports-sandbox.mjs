@@ -100,12 +100,10 @@ export class Sandbox {
 	#addSignalOffer(id, signalData) {
 		this.PENDING_OFFERS[id] = signalData;
 		this.OFFERS_EMITTERS[signalData.id] = id;
-		//setTimeout(() => this.#destroySignal(id, signalData.id), Sandbox.SIGNAL_TIMEOUT);
 	}
 	#addSignalAnswer(id, signalData) {
 		this.PENDING_ANSWERS[id] = signalData;
 		this.ANSWER_EMITTERS[signalData.id] = id;
-		//setTimeout(() => this.#destroySignal(id, signalData.id), Sandbox.SIGNAL_TIMEOUT);
 	}
 	buildSDP(id, type = 'offer') {
 		const SDP = {

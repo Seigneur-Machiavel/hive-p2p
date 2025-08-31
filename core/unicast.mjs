@@ -95,7 +95,7 @@ export class DirectMessage {
 	}
 }
 
-export class DirectMessager {
+export class UnicastMessager {
 	id;
 	peerStore;
 	maxHops = MESSAGER.MAX_HOPS;
@@ -115,9 +115,9 @@ export class DirectMessager {
 
 	/** @param {string} remoteId @param {string | Uint8Array} data */
 	sendMessage(remoteId, type, data, spread = 1) {
-		const tempConActive = this.peerStore.store.connecting[remoteId]?.tempTransportInstance?.readyState === 1;
+		const tempConActive = this.peerStore.connecting[remoteId]?.tempTransportInstance?.readyState === 1;
 		if (tempConActive && type !== 'signal') return; // 'signal' message only on temporary connections
-		const pathFinder = new RouteBuilder(this.id, this.peerStore.store.known, this.peerStore.store.connected);
+		const pathFinder = new RouteBuilder(this.id, this.peerStore.known, this.peerStore.connected);
 		const builtResult = tempConActive
 			? { success: true, routes: [{ path: [this.id, remoteId] }] }
 			: pathFinder.buildRoutes(this.id, remoteId, this.maxRoutes, this.maxHops, this.maxNodes, true);
@@ -149,7 +149,7 @@ export class DirectMessager {
 		}
 
 		this.peerStore.digestValidRoute(route); // peer discovery by the way
-		if (type === 'signal') for (const cb of this.callbacks.signal) cb(senderId, data);
+		if (this.callbacks[type]) for (const cb of this.callbacks[type]) cb(senderId, data);
 	}
 	/** @param {'signal' | 'message'} callbackType @param {Function} callback */
 	on(callbackType, callback) {

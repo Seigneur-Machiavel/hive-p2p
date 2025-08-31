@@ -52,7 +52,7 @@ export class TestWsConnection { // WebSocket like
 		}
 
 		//const serialized = JSON.stringify(message);
-		this.remoteWs.callbacks.message.forEach(cb => cb(message)); // emit message event
+		this.remoteWs?.callbacks.message.forEach(cb => cb(message)); // emit message event
 		if (this.remoteWs?.onmessage) this.remoteWs.onmessage({ data: message }); // emit onmessage event
 	}
 	#dispatchError(error) {

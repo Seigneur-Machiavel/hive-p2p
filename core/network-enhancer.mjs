@@ -47,13 +47,13 @@ export class NetworkEnhancer {
 	handleIncomingSignal(senderId, data, tempTransportInstance) {
 		if (this.peerStore.isKicked(senderId) || this.peerStore.isBanned(senderId)) return;
 		if (!senderId || typeof data !== 'object') return;
-		const conn = this.peerStore.store.connecting[senderId];
+		const conn = this.peerStore.connecting[senderId];
 		if (conn && data.type !== 'offer') this.peerStore.assignSignal(senderId, data);
 		else if (!conn && data.type === 'offer') {
 			const sharedNeighbours = this.peerStore.getSharedNeighbours(this.id, senderId);
 			const tooManySharedPeers = sharedNeighbours.length > NODE.MAX_SHARED_NEIGHBORS_COUNT;
 			const isTwitchUser = senderId.startsWith('f_');
-			const tooManyConnectedPeers = Object.keys(this.peerStore.store.connected).length >= NODE.TARGET_NEIGHBORS_COUNT - 1;
+			const tooManyConnectedPeers = Object.keys(this.peerStore.connected).length >= NODE.TARGET_NEIGHBORS_COUNT - 1;
 			if (!isTwitchUser && (tooManySharedPeers || tooManyConnectedPeers)) this.peerStore.kickPeer(senderId, 30_000);
 			else this.peerStore.addConnectingPeer(senderId, tempTransportInstance, data, this.useTestTransport);
 		}
@@ -61,7 +61,7 @@ export class NetworkEnhancer {
 
 	// INTERNAL METHODS
 	#isConnectedToEnoughPeers() {
-		const connectedPeersCount = Object.keys(this.peerStore.store.connected).length;
+		const connectedPeersCount = Object.keys(this.peerStore.connected).length;
 		const missingCount = (NODE.TARGET_NEIGHBORS_COUNT - connectedPeersCount);
 		return { isEnough: connectedPeersCount >= NODE.TARGET_NEIGHBORS_COUNT, missingCount };
 	}
@@ -69,7 +69,7 @@ export class NetworkEnhancer {
 		if (this.bootstraps.length === 0) return;
 		if (this.#isConnectedToEnoughPeers().isEnough) return; // already connected to enough peers
 		
-		const [connected, connecting] = [this.peerStore.store.connected, this.peerStore.store.connecting];
+		const [connected, connecting] = [this.peerStore.connected, this.peerStore.connecting];
 		const connectingCount = Object.keys(connecting).filter(id => this.bootstrapsIds[id]).length;
 		const connectedCount = Object.keys(connected).filter(id => this.bootstrapsIds[id]).length;
 		if (connectedCount + connectingCount >= NODE.MAX_BOOTSTRAPS_OUT_CONNS) return; // already connected to enough bootstraps
@@ -98,15 +98,15 @@ export class NetworkEnhancer {
 		const { isEnough, missingCount } = this.#isConnectedToEnoughPeers();
 		if (isEnough) return;
 		
-		/** @type {string[]} */ const knowPeerIds = shuffleArray(Object.keys(this.peerStore.store.known))
+		/** @type {string[]} */ const knowPeerIds = shuffleArray(Object.keys(this.peerStore.known))
 		/** @type {string[]} */ const targets = [];
 		for (const peerId of knowPeerIds) {
 			if (this.peerStore.isKicked(peerId) || this.peerStore.isBanned(peerId)) continue;
-			const peerInfo = this.peerStore.store.known[peerId];
+			const peerInfo = this.peerStore.known[peerId];
 			if (targets.length >= missingCount) break;
 			else if (peerId === this.id) continue; // skip self
-			else if (this.peerStore.store.connected[peerId]) continue; // skip connected peers
-			else if (this.peerStore.store.connecting[peerId]) continue; // skip connecting peers
+			else if (this.peerStore.connected[peerId]) continue; // skip connected peers
+			else if (this.peerStore.connecting[peerId]) continue; // skip connecting peers
 
 			if (this.peerStore.getSharedNeighbours(this.id, peerId).length > 2) continue;
 			if (peerInfo.connectionsCount < NODE.TARGET_NEIGHBORS_COUNT) targets.push(peerId);

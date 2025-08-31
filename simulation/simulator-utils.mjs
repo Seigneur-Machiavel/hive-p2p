@@ -1,3 +1,7 @@
+/**
+ * @typedef {import('../core/node.mjs').NodeP2P} NodeP2P
+ */
+
 export class MessageQueue {
 	typesInTheQueue = [];
 	queue = [];
@@ -21,10 +25,10 @@ export class MessageQueue {
 
 export class SubscriptionsManager {
 	/** @type {Function} */ sendFnc;
-	peers;
+	/** @type {Record<string, Record<string, NodeP2P>} */ peers;
 	sVARS;
-	totalMsg = 0;
-	sessionMsg = 0;
+	unicastCount = { session: 0, total: 0 };
+	gossipCount = { session: 0, total: 0 };
 	TMPT = {}; // Gossip "total Msg Per Topic"
 	MTP = {}; // Gossip "Msg Per Topic"
 	onPeerMessage = null; // currently subscribed peer
@@ -36,18 +40,26 @@ export class SubscriptionsManager {
 		this.peers = peers;
 		this.sVARS = sVARS;
 		this.interval = setInterval(() => {
-			console.info(`${Math.floor((Date.now() - this.sVARS.startTime) / 1000)} sec elapsed ----------------------`);
-			console.info(`Total messages: ${this.totalMsg} (+${this.sessionMsg})`);
+			console.info(`${Math.floor((Date.now() - this.sVARS.startTime) / 1000)} sec elapsed | totalNodes in simulation: ${Object.keys(this.peers.all).length} ----------------------`);
+			console.info(`Total gossip: ${this.gossipCount.total} (+${this.gossipCount.session}) | total unicast: ${this.unicastCount.total} (+${this.unicastCount.session})`);
 			for (const topic in this.TMPT) console.info(`Topic "${topic}" messages:  ${this.TMPT[topic]} (+${this.MTP[topic] || 0})`);
 			for (const topic in this.MTP) this.MTP[topic] = 0; // reset per topic count
-			this.sessionMsg = 0; // reset session count
+			this.gossipCount.session = 0; // reset session count
+			this.unicastCount.session = 0; // reset session count
 		}, delay);
 	}
 	addPeerMessageListener(peerId) {
 		const peer = this.peers.all[peerId];
 		if (!peer) return false;
 		
-		this.onPeerMessage = peerId;
+		this.onPeerMessage = peerId; // set flag
+		const unicastMessageHandler = (senderId, data) => {
+			this.unicastCount.total++; this.unicastCount.session++;
+		}
+		//peer.messager.on('message', (senderId, data) => unicastMessageHandler(senderId, data));
+		peer.messager.on('signal', (senderId, data) => unicastMessageHandler(senderId, data));
+
+		// Listen to all GOSSIP messages from this peer
 		peer.peerStore.on('data', (remoteId, d) => {
 			const data = JSON.parse(d);
 			this.sendFnc({ type: 'peerMessage', remoteId, data: JSON.stringify(data) });
@@ -55,7 +67,7 @@ export class SubscriptionsManager {
 				this.TMPT[data.topic] ? this.TMPT[data.topic]++ : this.TMPT[data.topic] = 1;
 				this.MTP[data.topic] ? this.MTP[data.topic]++ : this.MTP[data.topic] = 1;
 			}
-			this.totalMsg++; this.sessionMsg++;
+			this.gossipCount.total++; this.gossipCount.session++;
 		});
 		return true;
 	}

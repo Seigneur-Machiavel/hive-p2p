@@ -2,7 +2,7 @@ import { WebSocketServer } from 'ws';
 import { TestWsServer } from '../simulation/test-transports.mjs';
 import { PeerStore } from './peer-store.mjs';
 import { NetworkEnhancer } from './network-enhancer.mjs';
-import { DirectMessager } from './unicast.mjs';
+import { UnicastMessager } from './unicast.mjs';
 import { Gossip } from './gossip.mjs';
 import { NODE } from '../utils/p2p_params.mjs';
 
@@ -30,16 +30,16 @@ export class NodeP2P {
 		this.id = id;
 		this.peerStore = new PeerStore(NODE.CONNECTION_UPGRADE_TIMEOUT);
 		this.networkEnhancer = new NetworkEnhancer(id, this.peerStore, bootstraps, useTestTransport);
-		this.messager = new DirectMessager(id, this.peerStore);
+		this.messager = new UnicastMessager(id, this.peerStore);
 		this.gossip = new Gossip(id, this.peerStore);
 		this.useTestTransport = useTestTransport;
 
 		// SETUP LISTENERS
-		this.messager.on('signal', (senderId, data) => this.networkEnhancer.handleIncomingSignal(senderId, data));
 		this.peerStore.on('signal', (peerId, data) => this.sendMessage(peerId, 'signal', data));
 		this.peerStore.on('connect', (peerId, direction) => this.#onConnect(peerId, direction));
 		this.peerStore.on('disconnect', (peerId, direction) => this.#onDisconnect(peerId, direction));
 		this.peerStore.on('data', (peerId, data) => this.#onData(peerId, data));
+		this.messager.on('signal', (senderId, data) => this.networkEnhancer.handleIncomingSignal(senderId, data));
 
 		if (verbose > 0) console.log(`NodeP2P initialized: ${id}`);
 	}
@@ -47,20 +47,23 @@ export class NodeP2P {
 	// PRIVATE METHODS
 	/** @param {string} peerId @param {'in' | 'out'} direction */
 	#onConnect = (peerId, direction) => {
-		if (this.peerStore.isKicked(peerId)) { this.peerStore.kickPeer(peerId, 60_000); return; } // kick again
+		if (this.peerStore.isKicked(peerId)) return;
 		if (this.verbose) console.log(`(${this.id}) ${direction === 'in' ? 'Incoming' : 'Outgoing'} connection established with peer ${peerId}`);
 		this.peerStore.linkPeers(this.id, peerId); // Add link in self store
-		setTimeout(() => this.broadcast('peer_connected', peerId), NODE.MIN_CONNECTION_TIME_TO_DISPATCH_EVENT);
-		//this.broadcast('peer_connected', peerId); // Spread the info
+		
+		setTimeout(() => {
+			this.broadcast('peer_connected', peerId); // Spread the info
+			const messagesHistory = this.gossip.bloomFilter.getMessagesHistoryByTime();
+			for (const msg of messagesHistory) this.gossip.broadcastToPeer(peerId, msg.senderId, msg.topic, msg.data);
+		}, 500); // send recent messages after 0.5s
 	}
 	/** @param {string} peerId @param {'in' | 'out'} direction */
 	#onDisconnect = (peerId, direction) => {
 		if (this.verbose) console.log(`(${this.id}) ${direction === 'in' ? 'Incoming' : 'Outgoing'} connection closed with peer ${peerId}`);
-		const connDuration = this.peerStore.store.connected[peerId]?.getConnectionDuration() || 0;
+		const connDuration = this.peerStore.connected[peerId]?.getConnectionDuration() || 0;
 		this.peerStore.unlinkPeers(this.id, peerId);
-		if (connDuration > NODE.MIN_CONNECTION_TIME_TO_DISPATCH_EVENT) // dispatch event based on  conn duration
-			setTimeout(() => this.broadcast('peer_disconnected', peerId), NODE.MIN_CONNECTION_TIME_TO_DISPATCH_EVENT);
-		//this.broadcast('peer_disconnected', peerId); // Spread the info
+		if (connDuration < NODE.MIN_CONNECTION_TIME_TO_DISPATCH_EVENT) return;
+		this.broadcast('peer_disconnected', peerId); // Spread the info
 	}
 	#onData = (peerId, data) => {
 		const deserialized = JSON.parse(data);
@@ -119,7 +122,6 @@ export class NodeP2P {
 	destroy() {
 		this.peerStore.destroy();
 		this.networkEnhancer.destroy();
-		this.gossip.destroy();
 		if (this.wsServer) this.wsServer.close();
 	}
 }

@@ -22,35 +22,58 @@ export class GossipMessage {
 
 class DegenerateBloomFilter {
 	/** @type {Record<string, number>} */
-	seenTimeouts = {};
-	msgHashes = [];
+	seenTimeouts = {}; // Map of message hashes to their expiration timestamps
+	messagesByHashes = {}; // Map of message hashes to their content
 	nMHi = 0; // Next Message Hash Index to control
 	cleanupDurationWarning = 10;
-	cleanupIntervalTime = 1000;
-	cleanupInterval;
 
-	// TRYING TO OPTIMIZE THIS CRAP
+	// PUBLIC API
 	addMessage(senderId, topic, data, TTL = GOSSIP.TTL.default) {
 		const h = xxHash32(`${senderId}${topic}${JSON.stringify(data)}`);
 		const n = Date.now();
 		let forwardMessage = true;
 		if (this.seenTimeouts[h] && n < this.seenTimeouts[h]) forwardMessage = false; // already exists and not expired
-		else this.#addMessageHash(h, n + (TTL * 1000)); // add/update timeout
-		this.#cleanupNext(n); // cleanup next message hash if needed
+		else this.#addEntry(senderId, topic, data, h, n + (TTL * 10_000));
+		this.#cleanupOldestEntry(n); // cleanup oldest message hash if needed
 
 		return forwardMessage;
 	}
-	#addMessageHash(h, t) {
-		if (!this.seenTimeouts[h]) this.msgHashes.push(h);
-		this.seenTimeouts[h] = t; // add/update timeout
+	/** @param {'asc' | 'desc'} order */
+	getMessagesHistoryByTime(order = 'asc') {
+		const messages = Object.entries(this.messagesByHashes).map(([hash, { senderId, topic, data }]) => ({
+			hash, senderId, topic, data, timeout: this.seenTimeouts[hash],
+		}));
+		return messages.sort((a, b) => (order === 'asc' ? a.timeout - b.timeout : b.timeout - a.timeout));
 	}
-	#cleanupNext(now = Date.now()) {
-		this.nMHi = (this.nMHi + 1) % this.msgHashes.length;
-		const t = this.msgHashes[this.nMHi];
-		if (t && now > t) delete this.seenTimeouts[this.nMHi];
+
+	// PRIVATE METHODS
+	#addEntry(senderId, topic, data, hash, timeout) {
+		this.seenTimeouts[hash] = timeout;
+		this.messagesByHashes[hash] = { senderId, topic, data };
 	}
-	destroy() {
-		clearInterval(this.cleanupInterval);
+	#findOldestEntryKey() {
+		/** @type {{ key: string | null, time: number }} */
+		const oldest = { key: null, time: Infinity };
+		for (const [key, time] of Object.entries(this.seenTimeouts))
+			if (time < oldest.time) {
+				oldest.time = time;
+				oldest.key = key;
+			}
+
+		return oldest.key;
+	}
+	#cleanupOldestEntry(n = Date.now()) {
+		const oldestKey = this.#findOldestEntryKey();
+		if (!oldestKey) return; // nothing to cleanup
+		if (n < this.seenTimeouts[oldestKey]) return; // if not expired...
+
+		// debug log
+		/*const keysCount = Object.keys(this.seenTimeouts).length;
+		const msgsCount = Object.keys(this.messagesByHashes).length;
+		console.warn(`keys: ${keysCount}, msgsCount: ${msgsCount}`);*/
+
+		delete this.seenTimeouts[oldestKey];
+		delete this.messagesByHashes[oldestKey];
 	}
 }
 
@@ -61,8 +84,7 @@ export class Gossip {
 
 	/** @type {Record<string, Function[]>} */
 	callbacks = {
-		//'peer_connected': [(senderId, data) => this.peerStore.linkPeers(data.peerId, senderId)], // DEPRECATED
-		"peer_connected": [(senderId, data) => this.peerStore.handlePeerConnectedMessage(senderId, data)],
+		"peer_connected": [(senderId, data) => this.peerStore.handlePeerConnectedGossipEvent(senderId, data)],
 		'peer_disconnected': [(senderId, data) => this.peerStore.unlinkPeers(data, senderId)],
 		// Add more gossip event handlers here
 	};
@@ -73,10 +95,17 @@ export class Gossip {
 		this.peerStore = peerStore;
 	}
 
-	/** @param {string} topic @param {string | Uint8Array} data @param {number} [TTL] */
+	/** Gossip a message to all connected peers > will be forwarded to all peers
+	 * @param {string} topic @param {string | Uint8Array} data @param {number} [TTL] */
 	broadcast(topic, data, TTL = GOSSIP.TTL.default) {
 		const message = new GossipMessage(this.id, topic, data, TTL);
-		for (const peerId in this.peerStore.store.connected) this.peerStore.sendMessageToPeer(peerId, message);
+		for (const peerId in this.peerStore.connected) this.peerStore.sendMessageToPeer(peerId, message);
+	}
+	/** Broadcast a message to a specific peer (TTL = 0)
+	 * @param {string} targetPeerId @param {string} senderId @param {string} topic @param {string | Uint8Array} data */
+	broadcastToPeer(targetPeerId, senderId, topic, data) {
+		const message = new GossipMessage(senderId, topic, data, 0);
+		this.peerStore.sendMessageToPeer(targetPeerId, message); // verify the 0
 	}
 	/** @param {string} from @param {GossipMessage} message @param {string | Uint8Array} serializedMessage @param {number} [verbose] */
 	handleGossipMessage(from, message, serializedMessage, verbose = 0) {
@@ -88,14 +117,11 @@ export class Gossip {
 		if (TTL < 1) return; // stop forwarding if TTL is 0
 		if (this.id === senderId) return; // avoid sending our own message again
 		const transmissionRate = GOSSIP.TRANSMISSION_RATE[topic] || GOSSIP.TRANSMISSION_RATE.default;
-		for (const [peerId, conn] of Object.entries(this.peerStore.store.connected)) {
+		for (const [peerId, conn] of Object.entries(this.peerStore.connected)) {
 			if (peerId === from) continue; // avoid sending back to sender
 			if (Math.random() > transmissionRate) continue; // apply gossip transmission rate
 			try { conn.transportInstance.send(JSON.stringify(new GossipMessage(senderId, topic, data, TTL - 1))); }
 			catch (error) { if (verbose > 1) console.error(`Error sending gossip message from ${this.id} to ${peerId}:`, error.stack); }
 		}
-	}
-	destroy() {
-		this.bloomFilter.destroy();
 	}
 }

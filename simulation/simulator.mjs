@@ -9,6 +9,7 @@ import { io } from 'socket.io-client'; // used for twitch events only
 let initInterval = null;
 /** @type {TwitchChatCommandInterpreter} */ let cmdInterpreter = null;
 const sVARS = { // SIMULATION VARIABLES
+	avoidFollowersNodes: true,
 	publicPeersCards: [],
 	startTime: Date.now(),
 	useTestTransport: true,
@@ -16,13 +17,13 @@ const sVARS = { // SIMULATION VARIABLES
 	publicPeersCount: 2,
 	peersCount: 5,
 	chosenPeerCount: 1,
-	delayBetweenInit: 5, // 0 = faster for simulating big networks but > 0 = should be more realistic
-	randomMessagePerSecond: 100, // 20 = 1 message every 50ms, 0 = disabled ( max: 500 )
+	delayBetweenInit: 10, // 0 = faster for simulating big networks but > 0 = should be more realistic
+	randomMessagePerSecond: 5, // 20 = 1 message every 50ms, 0 = disabled ( max: 500 )
 };
 if (sVARS.useTestTransport) {
-	sVARS.publicPeersCount = 10; // 100; // stable: 3, medium: 100, strong: 200
-	sVARS.peersCount = 25; // stable: 25, medium: 800, strong: 1600
-	sVARS.chosenPeerCount = 5; // stable: 5, medium: 100, strong: 200
+	sVARS.publicPeersCount = 100; // 100; // stable: 3, medium: 100, strong: 200
+	sVARS.peersCount = 800; // stable: 25, medium: 800, strong: 1600
+	sVARS.chosenPeerCount = 100; // stable: 5, medium: 100, strong: 200
 }
 
 const peers = {
@@ -82,12 +83,12 @@ async function initPeers() {
 
 	/** @type {Array<NodeP2P>} */
 	const toInit = shuffleArray([...peers.chosen, ...peers.standard])
-	/*initInterval = setInterval(() => {
+	if (d === 0) for (const peer of toInit) peer.init(); // init all peers at once.
+	else initInterval = setInterval(() => { // ... Or successively
 		if (toInit.pop()?.init()) return;
 		clearInterval(initInterval);
 		console.log('°°° ALL PEERS INITIALIZED °°°');
-	}, d);*/
-	for (const peer of toInit) peer.init();
+	}, d);
 }
 if (sVARS.autoStart) initPeers();
 
@@ -104,9 +105,9 @@ function getPeerInfo(peerId) {
 	return {
 		id: peer.id,
 		store: {
-			connected: Object.keys(peer.peerStore.store.connected), // ids only
-			connecting: Object.keys(peer.peerStore.store.connecting), // ids only
-			known: peer.peerStore.store.known
+			connected: Object.keys(peer.peerStore.connected), // ids only
+			connecting: Object.keys(peer.peerStore.connecting), // ids only
+			known: peer.peerStore.known
 		}
 	}
 }
@@ -115,11 +116,11 @@ function sendRandomMessage(log = false) {
 		const peerIds = [...peers.public, ...peers.standard, ...peers.chosen].map(p => p.id);
 		const sender = peers.all[peerIds[Math.floor(Math.random() * peerIds.length)]];
 		//const recipient = peers.all[peerIds[Math.floor(Math.random() * peerIds.length)]];
-		const senderKnowsPeers = sender ? Object.keys(sender.peerStore.store.known) : [];
+		const senderKnowsPeers = sender ? Object.keys(sender.peerStore.known) : [];
 		const recipientId = senderKnowsPeers[Math.floor(Math.random() * senderKnowsPeers.length)];
 		const recipient = peers.all[recipientId];
 		if (!sender || !recipient || sender.id === recipient.id) return; // skip if sender or recipient is not found or they are the same
-		const message = { type: 'randomMessage', data: `Hello from ${sender.id}` };
+		const message = { type: 'message', data: `Hello from ${sender.id}` };
 		const result = sender.sendMessage(recipient.id, 'message', message);
 		if (!log) return;
 		if (!result || result.success) console.error(`Failed to send message to ${recipient.id}: ${result.reason}`);
@@ -163,6 +164,7 @@ wss.on('connection', (ws) => {
 });
 
 const onMessage = async (data) => {
+	if (!data) return;
 	switch (data.type) {
 		case 'start':
 			sVARS.startTime = Date.now();
@@ -196,8 +198,7 @@ const onMessage = async (data) => {
 
 (async () => { // Message processing loop
 	while (true) {
-		const nextMsg = msgQueue.getNextMessage();
-		if (nextMsg) await onMessage(nextMsg);
+		await onMessage(msgQueue.getNextMessage());
 		await new Promise(resolve => setTimeout(resolve, 10)); // prevent blocking the event loop
 	}
 })();
@@ -219,7 +220,7 @@ class TwitchChatCommandInterpreter {
 		const command = splitted[0].trim().toLowerCase();
 		const args = splitted.slice(1).map(arg => arg.trim());
 		const targetNodeId = args[0] ? args[0].startsWith('f_') ? args[0] : `f_${args[0]}` : null;
-		if (user === 'bot' && command === '!addfollower') this.#createUserNode(args[0]);
+		if (user === 'bot' && command === '!addfollower' && !sVARS.avoidFollowersNodes) this.#createUserNode(args[0]);
 		if (command === '!connectto' && targetNodeId) this.userNodes[user]?.tryConnectToPeer(targetNodeId);
 	}
 	#createUserNode(user) {
