@@ -62,7 +62,7 @@ export class Gossip {
 	/** @type {Record<string, Function[]>} */
 	callbacks = {
 		//'peer_connected': [(senderId, data) => this.peerStore.linkPeers(data.peerId, senderId)], // DEPRECATED
-		"peer_connected": [(senderId, data) => this.peerStore.linkPeers(senderId, data)],
+		"peer_connected": [(senderId, data) => this.peerStore.handlePeerConnectedMessage(senderId, data)],
 		'peer_disconnected': [(senderId, data) => this.peerStore.unlinkPeers(data, senderId)],
 		// Add more gossip event handlers here
 	};
@@ -81,7 +81,6 @@ export class Gossip {
 	/** @param {string} from @param {GossipMessage} message @param {string | Uint8Array} serializedMessage @param {number} [verbose] */
 	handleGossipMessage(from, message, serializedMessage, verbose = 0) {
 		if (this.peerStore.isBanned(from)) return; // ignore messages from banned peers
-		//if (this.bloomFilter.addMessage(serializedMessage) === false) return; // already processed this message
 		const { senderId, topic, data, TTL } = message;
 		if (this.bloomFilter.addMessage(senderId, topic, data, TTL) === false) return; // already processed this message
 		for (const cb of this.callbacks[topic] || []) cb(senderId, data);

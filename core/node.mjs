@@ -9,7 +9,6 @@ import { NODE } from '../utils/p2p_params.mjs';
 export class NodeP2P {
 	verbose;
 	/** @type {string | undefined} WebSocket URL (public node only) */ publicUrl;
-
 	/** should be based on crypto */ id;
 	/** class managing network connections */ peerStore;
 	/** class managing network connections */ networkEnhancer;
@@ -51,16 +50,17 @@ export class NodeP2P {
 		if (this.peerStore.isKicked(peerId)) { this.peerStore.kickPeer(peerId, 60_000); return; } // kick again
 		if (this.verbose) console.log(`(${this.id}) ${direction === 'in' ? 'Incoming' : 'Outgoing'} connection established with peer ${peerId}`);
 		this.peerStore.linkPeers(this.id, peerId); // Add link in self store
-		this.broadcast('peer_connected', peerId); // Spread the info
+		setTimeout(() => this.broadcast('peer_connected', peerId), NODE.MIN_CONNECTION_TIME_TO_DISPATCH_EVENT);
+		//this.broadcast('peer_connected', peerId); // Spread the info
 	}
 	/** @param {string} peerId @param {'in' | 'out'} direction */
 	#onDisconnect = (peerId, direction) => {
 		if (this.verbose) console.log(`(${this.id}) ${direction === 'in' ? 'Incoming' : 'Outgoing'} connection closed with peer ${peerId}`);
 		const connDuration = this.peerStore.store.connected[peerId]?.getConnectionDuration() || 0;
 		this.peerStore.unlinkPeers(this.id, peerId);
-		//if (connDuration > NODE.MIN_CONNECTION_TIME_TO_DISPATCH_EVENT) // dispatch event based on  conn duration
-			//setTimeout(() => this.broadcast('peer_disconnected', peerId), NODE.MIN_CONNECTION_TIME_TO_DISPATCH_EVENT);
-		this.broadcast('peer_disconnected', peerId); // Spread the info
+		if (connDuration > NODE.MIN_CONNECTION_TIME_TO_DISPATCH_EVENT) // dispatch event based on  conn duration
+			setTimeout(() => this.broadcast('peer_disconnected', peerId), NODE.MIN_CONNECTION_TIME_TO_DISPATCH_EVENT);
+		//this.broadcast('peer_disconnected', peerId); // Spread the info
 	}
 	#onData = (peerId, data) => {
 		const deserialized = JSON.parse(data);

@@ -32,16 +32,17 @@ export class KnownPeer {
 	/** @type {string[]} The peers that are directly connected to this peer */ neighbours;
 	connectionsCount = 0;
 	id;
+
 	constructor(id, neighbours = {}) {
 		this.neighbours = neighbours;
 		this.id = id;
 		this.#updateConnectionsCount();
 	}
-	addNeighbour(peerId, timestamp = Date.now()) {
+	setNeighbour(peerId, timestamp = Date.now()) {
 		this.neighbours[peerId] = timestamp;
 		this.#updateConnectionsCount();
 	}
-	removeNeighbour(peerId) {
+	unsetNeighbour(peerId) {
 		delete this.neighbours[peerId];
 		this.#updateConnectionsCount();
 	}
@@ -90,12 +91,12 @@ class Store {
 	linkPeers(peerId1 = 'toto', peerId2 = 'tutu') {
 		if (!this.known[peerId1]) this.known[peerId1] = new KnownPeer(peerId1);
 		if (!this.known[peerId2]) this.known[peerId2] = new KnownPeer(peerId2);
-		this.known[peerId1].addNeighbour(peerId2);
-		this.known[peerId2].addNeighbour(peerId1);
+		this.known[peerId1].setNeighbour(peerId2);
+		this.known[peerId2].setNeighbour(peerId1);
 	}
 	unlinkPeers(peerId1 = 'toto', peerId2 = 'tutu') {
-		if (this.known[peerId1]) this.known[peerId1].removeNeighbour(peerId2);
-		if (this.known[peerId2]) this.known[peerId2].removeNeighbour(peerId1);
+		if (this.known[peerId1]) this.known[peerId1].unsetNeighbour(peerId2);
+		if (this.known[peerId2]) this.known[peerId2].unsetNeighbour(peerId1);
 		if (this.known[peerId1]?.connectionsCount === 0) delete this.known[peerId1];
 		if (this.known[peerId2]?.connectionsCount === 0) delete this.known[peerId2];
 	}
