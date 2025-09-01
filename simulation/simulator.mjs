@@ -131,14 +131,14 @@ if (sVARS.randomMessagePerSecond) setInterval(sendRandomMessage, 1000 / Math.min
 
 // simple server to serve texts/p2p_simulator.html
 const app = express();
-app.use('../rendering/p2p_visualizer.mjs', (req, res, next) => {
+app.use('../rendering/visualizer.mjs', (req, res, next) => {
     res.set({ 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache', 'Expires': '0' });
     next();
 });
 
 app.use(express.static(path.resolve()));
 const server = app.listen(3000, () => console.log('Server listening on http://localhost:3000'));
-app.get('/', (req, res) => res.sendFile('rendering/p2p_visualizer.html', { root: '.' }));
+app.get('/', (req, res) => res.sendFile('rendering/visualizer.html', { root: '.' }));
 
 /** @type {WebSocket} */
 let clientWs;

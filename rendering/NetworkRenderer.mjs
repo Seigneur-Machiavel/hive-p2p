@@ -1,6 +1,6 @@
-import { FpsStabilizer } from './p2p-renderer-utils.mjs';
-import { NetworkRendererElements, NetworkRendererOptions } from './p2p-renderer-options.mjs';
-import { Node, NodesStore, ConnectionsStore } from './p2p_stores.mjs';
+import { FpsStabilizer } from './renderer-utils.mjs';
+import { NetworkRendererElements, NetworkRendererOptions } from './renderer-options.mjs';
+import { Node, NodesStore, ConnectionsStore } from './renderer-stores.mjs';
 
 export class NetworkRenderer {
 	fpsStabilizer = new FpsStabilizer(document.getElementById('fpsCount'));

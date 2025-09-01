@@ -19,12 +19,20 @@ export class GossipMessage {
 		this.TTL = TTL;
 	}
 }
-
+/**
+ * @typedef {Object} BloomFilterCacheEntry
+ * @property {string} hash
+ * @property {string} senderId
+ * @property {string} topic
+ * @property {string | Uint8Array} data
+ * @property {number} expiration
+ */
 class DegenerateBloomFilter {
 	/** @type {Record<string, number>} */
 	seenTimeouts = {}; // Map of message hashes to their expiration timestamps
 	messagesByHashes = {}; // Map of message hashes to their content
-	nMHi = 0; // Next Message Hash Index to control
+
+	/** @type {BloomFilterCacheEntry[]} */ cache = [];
 	cleanupDurationWarning = 10;
 
 	// PUBLIC API
@@ -34,7 +42,7 @@ class DegenerateBloomFilter {
 		let forwardMessage = true;
 		if (this.seenTimeouts[h] && n < this.seenTimeouts[h]) forwardMessage = false; // already exists and not expired
 		else this.#addEntry(senderId, topic, data, h, n + (TTL * 10_000));
-		this.#cleanupOldestEntry(n); // cleanup oldest message hash if needed
+		this.#cleanupOldestEntry(n); // cleanup expired cache
 
 		return forwardMessage;
 	}
@@ -48,32 +56,19 @@ class DegenerateBloomFilter {
 
 	// PRIVATE METHODS
 	#addEntry(senderId, topic, data, hash, timeout) {
-		this.seenTimeouts[hash] = timeout;
-		this.messagesByHashes[hash] = { senderId, topic, data };
-	}
-	#findOldestEntryKey() {
-		/** @type {{ key: string | null, time: number }} */
-		const oldest = { key: null, time: Infinity };
-		for (const [key, time] of Object.entries(this.seenTimeouts))
-			if (time < oldest.time) {
-				oldest.time = time;
-				oldest.key = key;
-			}
-
-		return oldest.key;
+		this.cache.push({ hash, senderId, topic, data, expiration: timeout });
 	}
 	#cleanupOldestEntry(n = Date.now()) {
-		const oldestKey = this.#findOldestEntryKey();
-		if (!oldestKey) return; // nothing to cleanup
-		if (n < this.seenTimeouts[oldestKey]) return; // if not expired...
+		let eraseUntil = 0; // cache is ordered by insertion time, stop at first non-expired
+		for (let i = 0; i < this.cache.length; i++)
+			if (this.cache[i].expiration > n) break;
+			else eraseUntil = i;
+
+		if (eraseUntil === 0) return; // nothing to erase
+		this.cache.splice(0, eraseUntil + 1); // remove all expired entries
 
 		// debug log
-		/*const keysCount = Object.keys(this.seenTimeouts).length;
-		const msgsCount = Object.keys(this.messagesByHashes).length;
-		console.warn(`keys: ${keysCount}, msgsCount: ${msgsCount}`);*/
-
-		delete this.seenTimeouts[oldestKey];
-		delete this.messagesByHashes[oldestKey];
+		//console.warn(`entriesCount: ${this.cache.length});
 	}
 }
 
