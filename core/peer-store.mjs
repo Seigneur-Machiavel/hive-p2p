@@ -131,6 +131,9 @@ export class PeerStore {
 		if (remoteSDP) try { transportInstance.signal(remoteSDP); } catch (error) { console.error(`Error signaling remote SDP for ${remoteId}:`, error.message); }
 		this.pendingConnections[remoteId] = Date.now() + this.connUpgradeTimeout;
 	}
+	/** Link two peers if both declared the connection in a short delay(10s), trigger on:
+	 * - 'peer_connected' gossip message
+	 * - 'peer_connected' from gossipHistory (unicast message following onConnect) */
 	handlePeerConnectedGossipEvent(peerId1 = 'toto', peerId2 = 'tutu', timeout = 10_000) {
 		const key1 = `${peerId1}:${peerId2}`;
 		const key2 = `${peerId2}:${peerId1}`;
@@ -177,6 +180,7 @@ export class PeerStore {
 		this.known[peerId1].setNeighbour(peerId2);
 		this.known[peerId2].setNeighbour(peerId1);
 	}
+	// called on 'peer_disconnected' gossip message
 	unlinkPeers(peerId1 = 'toto', peerId2 = 'tutu') {
 		if (this.known[peerId1]) this.known[peerId1].unsetNeighbour(peerId2);
 		if (this.known[peerId2]) this.known[peerId2].unsetNeighbour(peerId1);

@@ -9,7 +9,7 @@ import { io } from 'socket.io-client'; // used for twitch events only
 let initInterval = null;
 /** @type {TwitchChatCommandInterpreter} */ let cmdInterpreter = null;
 const sVARS = { // SIMULATION VARIABLES
-	avoidFollowersNodes: true,
+	avoidFollowersNodes: false,
 	publicPeersCards: [],
 	startTime: Date.now(),
 	useTestTransport: true,

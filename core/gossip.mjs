@@ -28,9 +28,9 @@ export class GossipMessage {
  * @property {number} expiration
  */
 class DegenerateBloomFilter {
+	xxHash32UsageCount = 0;
 	/** @type {Record<string, number>} */
 	seenTimeouts = {}; // Map of message hashes to their expiration timestamps
-	messagesByHashes = {}; // Map of message hashes to their content
 
 	/** @type {BloomFilterCacheEntry[]} */ cache = [];
 	cleanupDurationWarning = 10;
@@ -38,40 +38,34 @@ class DegenerateBloomFilter {
 	// PUBLIC API
 	addMessage(senderId, topic, data, TTL = GOSSIP.TTL.default) {
 		const h = xxHash32(`${senderId}${topic}${JSON.stringify(data)}`);
+		this.xxHash32UsageCount++;
+		if (this.xxHash32UsageCount % 1000 === 0) console.log(`xxHash32 usage count: ${this.xxHash32UsageCount}, cache size: ${this.cache.length}`);
 		const n = Date.now();
 		let forwardMessage = true;
 		if (this.seenTimeouts[h] && n < this.seenTimeouts[h]) forwardMessage = false; // already exists and not expired
-		else this.#addEntry(senderId, topic, data, h, n + (TTL * 10_000));
-		this.#cleanupOldestEntry(n); // cleanup expired cache
+		else this.#addEntry(senderId, topic, data, h, n + 10_000);
+		this.#cleanupOldestEntries(n); // cleanup expired cache
 
 		return forwardMessage;
 	}
 	/** @param {'asc' | 'desc'} order */
-	getMessagesHistoryByTime(order = 'asc') {
-		const messages = Object.entries(this.messagesByHashes).map(([hash, { senderId, topic, data }]) => ({
-			hash, senderId, topic, data, timeout: this.seenTimeouts[hash],
-		}));
-		return messages.sort((a, b) => (order === 'asc' ? a.timeout - b.timeout : b.timeout - a.timeout));
+	getGossipHistoryByTime(order = 'asc') {
+		if (this.cache.length === 0) return [];
+		const lightenHistory = this.cache.map(e => ({ senderId: e.senderId, topic: e.topic, data: e.data }));
+		if (order === 'asc') return lightenHistory;
+		return lightenHistory.reverse();
 	}
 
 	// PRIVATE METHODS
-	#addEntry(senderId, topic, data, hash, timeout) {
-		this.cache.push({ hash, senderId, topic, data, expiration: timeout });
+	#addEntry(senderId, topic, data, hash, expiration) {
+		this.seenTimeouts[hash] = expiration;
+		this.cache.push({ hash, senderId, topic, data, expiration });
 	}
-	#cleanupOldestEntry(n = Date.now()) {
-		let eraseUntil = 0; // cache is ordered by insertion time, stop at first non-expired
-		for (let i = 0; i < this.cache.length; i++)
-			if (this.cache[i].expiration > n) break;
-			else eraseUntil = i;
-
-		if (eraseUntil === 0) return; // nothing to erase
-		this.cache.splice(0, eraseUntil + 1); // remove all expired entries
-
-		// debug log
-		//console.warn(`entriesCount: ${this.cache.length});
+	#cleanupOldestEntries(n = Date.now()) {
+		while (this.cache.length > 0 && this.cache[0].expiration < n)
+			delete this.seenTimeouts[this.cache.shift().hash];
 	}
 }
-
 export class Gossip {
 	bloomFilter = new DegenerateBloomFilter();
 	id;
@@ -79,7 +73,7 @@ export class Gossip {
 
 	/** @type {Record<string, Function[]>} */
 	callbacks = {
-		"peer_connected": [(senderId, data) => this.peerStore.handlePeerConnectedGossipEvent(senderId, data)],
+		'peer_connected': [(senderId, data) => this.peerStore.handlePeerConnectedGossipEvent(senderId, data)],
 		'peer_disconnected': [(senderId, data) => this.peerStore.unlinkPeers(data, senderId)],
 		// Add more gossip event handlers here
 	};

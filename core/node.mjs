@@ -40,6 +40,7 @@ export class NodeP2P {
 		this.peerStore.on('disconnect', (peerId, direction) => this.#onDisconnect(peerId, direction));
 		this.peerStore.on('data', (peerId, data) => this.#onData(peerId, data));
 		this.messager.on('signal', (senderId, data) => this.networkEnhancer.handleIncomingSignal(senderId, data));
+		this.messager.on('gossip_history', (senderId, messages) => this.networkEnhancer.handleIncomingGossipHistory(senderId, messages));
 
 		if (verbose > 0) console.log(`NodeP2P initialized: ${id}`);
 	}
@@ -53,8 +54,9 @@ export class NodeP2P {
 		
 		setTimeout(() => {
 			this.broadcast('peer_connected', peerId); // Spread the info
-			const messagesHistory = this.gossip.bloomFilter.getMessagesHistoryByTime();
-			for (const msg of messagesHistory) this.gossip.broadcastToPeer(peerId, msg.senderId, msg.topic, msg.data);
+			const gossipHistory = this.gossip.bloomFilter.getGossipHistoryByTime();
+			this.messager.sendMessage(peerId, 'gossip_history', gossipHistory);
+			//for (const msg of messagesHistory) this.gossip.broadcastToPeer(peerId, msg.senderId, msg.topic, msg.data);
 		}, 500); // send recent messages after 0.5s
 	}
 	/** @param {string} peerId @param {'in' | 'out'} direction */

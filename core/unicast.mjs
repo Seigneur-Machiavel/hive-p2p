@@ -104,6 +104,7 @@ export class UnicastMessager {
 
 	/** @type {Record<string, Function[]>} */ callbacks = {
 		'signal': [],
+		'gossip_history': [],
 		'message': []
 	};
 

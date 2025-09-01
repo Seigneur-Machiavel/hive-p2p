@@ -45,7 +45,7 @@ export class NetworkEnhancer {
 	}
 	/** @param {string} senderId @param {object} data @param {WebSocket} [tempTransportInstance] optional WebSocket */
 	handleIncomingSignal(senderId, data, tempTransportInstance) {
-		if (this.peerStore.isKicked(senderId) || this.peerStore.isBanned(senderId)) return;
+		if (this.peerStore.isKicked(senderId)) return;
 		if (!senderId || typeof data !== 'object') return;
 		const conn = this.peerStore.connecting[senderId];
 		if (conn && data.type !== 'offer') this.peerStore.assignSignal(senderId, data);
@@ -57,6 +57,12 @@ export class NetworkEnhancer {
 			if (!isTwitchUser && (tooManySharedPeers || tooManyConnectedPeers)) this.peerStore.kickPeer(senderId, 30_000);
 			else this.peerStore.addConnectingPeer(senderId, tempTransportInstance, data, this.useTestTransport);
 		}
+	}
+	/** @param {string} senderId @param {Array<{senderId: string, topic: string, data: string | Uint8Array}>} gossipHistory */
+	handleIncomingGossipHistory(senderId, gossipHistory = []) {
+		for (const msg of gossipHistory)
+			if (msg.topic === 'peer_disconnected') this.peerStore.unlinkPeers(msg.data, msg.senderId);
+			else if (msg.topic === 'peer_connected') this.peerStore.handlePeerConnectedGossipEvent(msg.senderId, msg.data);
 	}
 
 	// INTERNAL METHODS
