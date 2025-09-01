@@ -18,12 +18,12 @@ const sVARS = { // SIMULATION VARIABLES
 	peersCount: 5,
 	chosenPeerCount: 1,
 	delayBetweenInit: 10, // 0 = faster for simulating big networks but > 0 = should be more realistic
-	randomMessagePerSecond: 5, // 20 = 1 message every 50ms, 0 = disabled ( max: 500 )
+	randomMessagePerSecondPerPeer: .2, // capped at a total of 500msg/sec
 };
 if (sVARS.useTestTransport) {
-	sVARS.publicPeersCount = 100; // 100; // stable: 3, medium: 100, strong: 200
-	sVARS.peersCount = 800; // stable: 25, medium: 800, strong: 1600
-	sVARS.chosenPeerCount = 100; // stable: 5, medium: 100, strong: 200
+	sVARS.publicPeersCount = 200; // stable: 3,  medium: 100, strong: 200,  safe: 200
+	sVARS.peersCount = 1600; 		  // stable: 25, medium: 800, strong: 1600, safe: 0
+	sVARS.chosenPeerCount = 200;  // stable: 5,  medium: 100, strong: 200,  safe: 800
 }
 
 const peers = {
@@ -127,7 +127,17 @@ function sendRandomMessage(log = false) {
 		else console.log(`Message sent to ${recipient.id} via routes: ${JSON.stringify(result.routes)}`);
 	} catch (error) { console.error('Error sending random message:', error); }
 }
-if (sVARS.randomMessagePerSecond) setInterval(sendRandomMessage, 1000 / Math.min(sVARS.randomMessagePerSecond, 500));
+//if (sVARS.randomMessagePerSecond) setInterval(sendRandomMessage, 1000 / Math.min(sVARS.randomMessagePerSecond, 500));
+(async () => {
+	if (!sVARS.randomMessagePerSecondPerPeer) return;
+	while(true) {
+		sendRandomMessage();
+		const numberOfPeers = Object.keys(peers.all).length;
+		let pauseDuration = Math.max(2, 1000 / (sVARS.randomMessagePerSecondPerPeer * numberOfPeers));
+		pauseDuration = Math.min(1000, pauseDuration);
+		await new Promise(resolve => setTimeout(resolve, Math.round(pauseDuration)));
+	}
+})();
 
 // simple server to serve texts/p2p_simulator.html
 const app = express();

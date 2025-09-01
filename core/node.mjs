@@ -65,7 +65,7 @@ export class NodeP2P {
 		const connDuration = this.peerStore.connected[peerId]?.getConnectionDuration() || 0;
 		this.peerStore.unlinkPeers(this.id, peerId);
 		if (connDuration < NODE.MIN_CONNECTION_TIME_TO_DISPATCH_EVENT) return;
-		this.broadcast('peer_disconnected', peerId); // Spread the info
+		setTimeout(() => this.broadcast('peer_disconnected', peerId), 600); // Spread the info
 	}
 	#onData = (peerId, data) => {
 		const deserialized = JSON.parse(data);

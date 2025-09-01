@@ -29,7 +29,7 @@ export class PeerConnection {
 	}
 }
 export class KnownPeer {
-	/** @type {string[]} The peers that are directly connected to this peer */ neighbours;
+	/** @type {Record<string, number>} key: peerId, value: timestamp */ neighbours;
 	connectionsCount = 0;
 	id;
 
@@ -106,7 +106,8 @@ export class PeerStore {
 		if (direction === 'in' && remoteSDP.type !== 'offer') return console.error(`Invalid remote SDP type: ${remoteSDP.type}. Expected 'offer'.`);
 		
 		const { connected, connecting } = this;
-		if (connected[remoteId]) return console.warn(`Peer with ID ${remoteId} already connected.`), connected[remoteId];
+		//if (connected[remoteId]) return console.warn(`Peer with ID ${remoteId} already connected.`), connected[remoteId];
+		if (connected[remoteId]) return;
 		if (connecting[remoteId]) return console.warn(`Peer with ID ${remoteId} is already connecting.`), connecting[remoteId];
 
 		const sCT = Date.now(); // signalCreationTime (debug)
@@ -164,7 +165,10 @@ export class PeerStore {
 			const peer = this.connecting[remoteId];
 			if (signalData.type === 'answer' && peer.direction === 'in') throw new Error(`Received ${signalData.type} for ${remoteId} incoming connexion is not allowed.`);
 			peer.transportInstance.signal(signalData);
-		} catch (error) { console.error(`Error signaling ${signalData.type} for ${remoteId}:`, error.stack); }
+		} catch (error) {
+			if (error.message.includes('connexion is not allowed')) return; // avoid logging
+			console.error(`Error signaling ${signalData.type} for ${remoteId}:`, error.stack);
+		}
 	}
 	/** @param {string} remoteId @param {'connected' | 'connecting'} status */
 	removePeer(remoteId = 'toto', status = 'connecting') {
@@ -190,6 +194,12 @@ export class PeerStore {
 	getSharedNeighbours(peerId1 = 'toto', peerId2 = 'tutu') {
 		if (!this.known[peerId1] || !this.known[peerId2]) return [];
 		return Object.keys(this.known[peerId1].neighbours).filter(id => this.known[peerId2].neighbours[id]);
+	}
+	getRandomConnectedPeerId() {
+		const connectedPeerIds = Object.keys(this.connected);
+		if (connectedPeerIds.length === 0) return null;
+		const randomIndex = Math.floor(Math.random() * connectedPeerIds.length);
+		return connectedPeerIds[randomIndex];
 	}
 	/** @param {string} remoteId @param {GossipMessage | DirectMessage} message */
 	sendMessageToPeer(remoteId, message) {

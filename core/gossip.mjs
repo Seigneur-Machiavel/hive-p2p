@@ -39,13 +39,13 @@ class DegenerateBloomFilter {
 	addMessage(senderId, topic, data, TTL = GOSSIP.TTL.default) {
 		const h = xxHash32(`${senderId}${topic}${JSON.stringify(data)}`);
 		this.xxHash32UsageCount++;
-		if (this.xxHash32UsageCount % 1000 === 0) console.log(`xxHash32 usage count: ${this.xxHash32UsageCount}, cache size: ${this.cache.length}`);
 		const n = Date.now();
 		let forwardMessage = true;
 		if (this.seenTimeouts[h] && n < this.seenTimeouts[h]) forwardMessage = false; // already exists and not expired
-		else this.#addEntry(senderId, topic, data, h, n + 10_000);
+		else this.#addEntry(senderId, topic, data, h, n + 60_000);
 		this.#cleanupOldestEntries(n); // cleanup expired cache
-
+		
+		//if (this.xxHash32UsageCount % 1000 === 0) console.log(`xxHash32 usage count: ${this.xxHash32UsageCount}, cache size: ${this.cache.length}`);
 		return forwardMessage;
 	}
 	/** @param {'asc' | 'desc'} order */

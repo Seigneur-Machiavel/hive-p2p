@@ -32,28 +32,27 @@ export class RouteBuilder {
 
 	/** Find all possible routes between two peers using exhaustive BFS
 	 * - CAN BE IMPROVED
-	 * @param {string} from - Source peer ID
 	 * @param {string} remoteId - Destination peer ID
 	 * @param {number} maxRoutes - Maximum number of routes to return (default: 5)
 	 * @param {number} maxHops - Maximum relays allowed (default: 3)
 	 * @param {number} maxNodes - Maximum nodes to explore (default: 1728 = 12³)
 	 * @param {boolean} sortByScore - Whether to sort routes by score (default: true)
 	 * @returns {RouteResult} Result containing found routes and metadata */
-	buildRoutes(from, remoteId, maxRoutes = 5, maxHops = 3, maxNodes = 1728, sortByScore = true) {
-		if (from === remoteId) return { routes: [], success: false, nodesExplored: 0 };
-		if (from === this.selfId && this.connectedPeers[remoteId])
-			return { routes: [{ path: [from, remoteId] }], success: true, nodesExplored: 1 };
+	buildRoutes(remoteId, maxRoutes = 5, maxHops = 3, maxNodes = 1728, sortByScore = true) {
+		if (this.selfId === remoteId) throw new Error('Cannot build route to self');
+		if (this.connectedPeers[remoteId])
+			return { routes: [{ path: [this.selfId, remoteId] }], success: true, nodesExplored: 1 };
 
 		let nodesExplored = 0;
 		const foundRoutes = [];
-		const queue = [{ node: from, path: [from], depth: 0 }]; // Initialize BFS queue with starting point
+		const queue = [{ node: this.selfId, path: [this.selfId], depth: 0 }]; // Initialize BFS queue with starting point
 		while (queue.length > 0 && nodesExplored < maxNodes) { // Exhaustive search: explore ALL paths up to maxHops
 			const { node: current, path, depth } = queue.shift();
 			nodesExplored++;
-
 			if (depth >= maxHops) continue; // Don't explore beyond max depth
-			const neighbors = Object.keys(this.knownPeers[current]?.neighbours || {});
-			for (const neighbor of neighbors) {
+
+			const neighbors = current === this.selfId ? this.connectedPeers : this.knownPeers[current]?.neighbours || {};
+			for (const neighbor of Object.keys(neighbors)) {
 				if (path.includes(neighbor)) continue; // Skip if this would create a cycle
 				
 				// If we reached destination record this route or Continue exploring from this neighbor
@@ -70,8 +69,9 @@ export class RouteBuilder {
 			hops: path.length - 1,
 			score: Math.max(0, 1 - (path.length * .1))
 		}));
+
 		if (sortByScore) routesWithScores.sort((a, b) => b.score - a.score); // Sort by score (best first)
-		return { routes: routesWithScores.slice(0, maxRoutes), success: true,  nodesExplored };
+		return { routes: routesWithScores.slice(0, maxRoutes), success: true, nodesExplored };
 	}
 }
 
@@ -118,30 +118,64 @@ export class UnicastMessager {
 	sendMessage(remoteId, type, data, spread = 1) {
 		const tempConActive = this.peerStore.connecting[remoteId]?.tempTransportInstance?.readyState === 1;
 		if (tempConActive && type !== 'signal') return; // 'signal' message only on temporary connections
+		if (remoteId === this.id) return;
+
 		const pathFinder = new RouteBuilder(this.id, this.peerStore.known, this.peerStore.connected);
 		const builtResult = tempConActive
 			? { success: true, routes: [{ path: [this.id, remoteId] }] }
-			: pathFinder.buildRoutes(this.id, remoteId, this.maxRoutes, this.maxHops, this.maxNodes, true);
-		if (!builtResult.success) return { success: false, reason: 'No route found' };
+			: pathFinder.buildRoutes(remoteId, this.maxRoutes, this.maxHops, this.maxNodes, true);
+		//if (!builtResult.success) return { success: false, reason: 'No route found' };
 
-		for (let i = 0; i < Math.min(spread, builtResult.routes.length); i++) {
-			const msg = new DirectMessage(builtResult.routes[i].path, type, data);
-			this.peerStore.sendMessageToPeer(msg.route[1], msg); // send to next peer
+		if (!builtResult.success) {
+			//return { success: false, reason: 'No route found' };
+			const randomNeighbourId = this.peerStore.getRandomConnectedPeerId();
+			const route = [this.id, randomNeighbourId, remoteId];
+			const msg = new DirectMessage(route, type, data, true);
+			this.peerStore.sendMessageToPeer(route[1], msg);
+		} else for (let i = 0; i < Math.min(spread, builtResult.routes.length); i++) {
+			const route = builtResult.routes[i].path;
+			const msg = new DirectMessage(route, type, data, true);
+			this.peerStore.sendMessageToPeer(route[1], msg); // send to next peer
 		}
 
 		return { success: true, routes: builtResult.routes };
+	}
+	#patchRouteToReachTarget(traveledRoute = [], targetId = 'toto') {
+		const pathFinder = new RouteBuilder(this.id, this.peerStore.known, this.peerStore.connected);
+		const builtResult = pathFinder.buildRoutes(targetId, this.maxRoutes, this.maxHops, this.maxNodes, true);
+		if (!builtResult.success) return null;
+		return [...traveledRoute.slice(0, -1), ...builtResult.routes[0].path];
+	}
+	#extractTraveledRoute(route = []) {
+		const traveledRoute = [];
+		for (const peerId of route) {
+			traveledRoute.push(peerId);
+			if (peerId === this.id) return traveledRoute;
+		}
+		return null;
 	}
 	/** @param {string} from @param {DirectMessage} message */
 	handleDirectMessage(from, message, log = false) {
 		if (this.peerStore.isBanned(from)) return;
 		const { route, type, data, isFlexible } = message;
+		const traveledRoute = this.#extractTraveledRoute(route);
+		if (!traveledRoute) return console.warn(`Failed to extract traveled route from ${route}`);
+		
+		this.peerStore.digestValidRoute(traveledRoute); // peer discovery by the way
 		const myIdPosition = route.indexOf(this.id);
-		if (myIdPosition === -1) return console.warn(`Direct message from ${from} to ${this.id} is not routed correctly. Route:`, route);
-
-		const [senderId, prevId, nextId] = [route[0], route[myIdPosition - 1], route[myIdPosition + 1]];
+		const [senderId, prevId, nextId, targetId] = [route[0], route[myIdPosition - 1], route[myIdPosition + 1], route[route.length - 1]];
 		if (senderId === this.id) return console.warn(`Direct message from self (${this.id}) is not allowed.`);
 		if (from !== prevId) return console.warn(`Direct message from ${from} to ${this.id} is not routed correctly. Expected previous ID: ${prevId}, but got: ${from}`);
-		if (myIdPosition !== route.length - 1) return this.peerStore.sendMessageToPeer(nextId, message); // forward to next
+
+		const selfIsDestination = this.id === targetId;
+		if (!selfIsDestination) { // forward to next
+			const { success, reason } = this.peerStore.sendMessageToPeer(nextId, message);
+			if (!success && isFlexible) { // try to patch the route
+				const patchedRoute = this.#patchRouteToReachTarget(traveledRoute, targetId);
+				const newMsg = { route: patchedRoute, type, data, isFlexible: false };
+				if (patchedRoute) this.peerStore.sendMessageToPeer(nextId, newMsg);
+			}
+		}
 		
 		// ... or this node is the target of the message
 		if (log) {
@@ -149,7 +183,7 @@ export class UnicastMessager {
 			else console.log(`(${this.id}) Direct message received from ${senderId} (lastRelay: ${from}): ${data}`);
 		}
 
-		this.peerStore.digestValidRoute(route); // peer discovery by the way
+		//if (!selfIsDestination) return;
 		if (this.callbacks[type]) for (const cb of this.callbacks[type]) cb(senderId, data);
 	}
 	/** @param {'signal' | 'message'} callbackType @param {Function} callback */

@@ -66,14 +66,19 @@ export class NetworkEnhancer {
 	}
 
 	// INTERNAL METHODS
-	#isConnectedToEnoughPeers() {
+	#getConnectionInfo() {
 		const connectedPeersCount = Object.keys(this.peerStore.connected).length;
 		const missingCount = (NODE.TARGET_NEIGHBORS_COUNT - connectedPeersCount);
-		return { isEnough: connectedPeersCount >= NODE.TARGET_NEIGHBORS_COUNT, missingCount };
+		return { 
+			isEnough: connectedPeersCount >= NODE.TARGET_NEIGHBORS_COUNT,
+			missingCount,
+			connectedPeersCount,
+			knownPeersCount: Object.keys(this.peerStore.known).length
+		};
 	}
 	#tryConnectNextBootstrap() {
 		if (this.bootstraps.length === 0) return;
-		if (this.#isConnectedToEnoughPeers().isEnough) return; // already connected to enough peers
+		if (this.#getConnectionInfo().isEnough) return; // already connected to enough peers
 		
 		const [connected, connecting] = [this.peerStore.connected, this.peerStore.connecting];
 		const connectingCount = Object.keys(connecting).filter(id => this.bootstrapsIds[id]).length;
@@ -101,25 +106,30 @@ export class NetworkEnhancer {
 		return ws;
 	}
 	#tryConnectMoreNodes() {
-		const { isEnough, missingCount } = this.#isConnectedToEnoughPeers();
+		const { isEnough, missingCount, connectedPeersCount, knownPeersCount } = this.#getConnectionInfo();
 		if (isEnough) return;
 		
-		/** @type {string[]} */ const knowPeerIds = shuffleArray(Object.keys(this.peerStore.known))
 		/** @type {string[]} */ const targets = [];
-		for (const peerId of knowPeerIds) {
+		for (const [peerId, peerInfo] of Object.entries(this.peerStore.known)) {
 			if (this.peerStore.isKicked(peerId) || this.peerStore.isBanned(peerId)) continue;
-			const peerInfo = this.peerStore.known[peerId];
 			if (targets.length >= missingCount) break;
 			else if (peerId === this.id) continue; // skip self
 			else if (this.peerStore.connected[peerId]) continue; // skip connected peers
 			else if (this.peerStore.connecting[peerId]) continue; // skip connecting peers
 
-			if (this.peerStore.getSharedNeighbours(this.id, peerId).length > 2) continue;
+			const sharedNeighborsCount = this.peerStore.getSharedNeighbours(this.id, peerId).length;
+			if (sharedNeighborsCount > NODE.MAX_SHARED_NEIGHBORS_COUNT) continue;
 			if (peerInfo.connectionsCount < NODE.TARGET_NEIGHBORS_COUNT) targets.push(peerId);
 		}
 
-		//for (const targetId of targets) if (Math.random() < NODE.ENHANCE_CONNECTION_RATE) this.tryConnectToPeer(targetId);
-		for (const targetId of targets) if (Math.random() < NODE.ENHANCE_CONNECTION_RATE)
+		const connectedFactor = connectedPeersCount;
+		const knowsFactor = Math.ceil(knownPeersCount / 10);
+		const ratePow = Math.min(knowsFactor + connectedFactor, 8);
+		const enhancedConnectionRate = Math.pow(NODE.ENHANCE_CONNECTION_RATE_BASIS, ratePow);
+		for (const targetId of targets) {
+			if (Math.random() > enhancedConnectionRate) continue;
 			this.peerStore.addConnectingPeer(targetId, undefined, undefined, this.useTestTransport);
+			break;
+		}
 	}
 }
