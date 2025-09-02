@@ -19,6 +19,7 @@ export class GossipMessage {
 		this.TTL = TTL;
 	}
 }
+
 /**
  * @typedef {Object} BloomFilterCacheEntry
  * @property {string} hash
@@ -33,6 +34,7 @@ class DegenerateBloomFilter {
 	seenTimeouts = {}; // Map of message hashes to their expiration timestamps
 
 	/** @type {BloomFilterCacheEntry[]} */ cache = [];
+	#cacheStartIndex = 0;
 	cleanupDurationWarning = 10;
 
 	// PUBLIC API
@@ -50,10 +52,10 @@ class DegenerateBloomFilter {
 	}
 	/** @param {'asc' | 'desc'} order */
 	getGossipHistoryByTime(order = 'asc') {
-		if (this.cache.length === 0) return [];
-		const lightenHistory = this.cache.map(e => ({ senderId: e.senderId, topic: e.topic, data: e.data }));
-		if (order === 'asc') return lightenHistory;
-		return lightenHistory.reverse();
+		if (this.#cacheStartIndex >= this.cache.length) return [];
+		const activeCache = this.cache.slice(this.#cacheStartIndex);
+		const lightenHistory = activeCache.map(e => ({ senderId: e.senderId, topic: e.topic, data: e.data }));
+		return order === 'asc' ? lightenHistory : lightenHistory.reverse();
 	}
 
 	// PRIVATE METHODS
@@ -62,8 +64,16 @@ class DegenerateBloomFilter {
 		this.cache.push({ hash, senderId, topic, data, expiration });
 	}
 	#cleanupOldestEntries(n = Date.now()) {
-		while (this.cache.length > 0 && this.cache[0].expiration < n)
-			delete this.seenTimeouts[this.cache.shift().hash];
+		while (this.#cacheStartIndex < this.cache.length && 
+		       this.cache[this.#cacheStartIndex].expiration < n) {
+			delete this.seenTimeouts[this.cache[this.#cacheStartIndex].hash];
+			this.#cacheStartIndex++;
+		}
+
+		// Periodic compaction to prevent the cache from becoming too large
+		if (this.#cacheStartIndex <= this.cache.length / 2) return;
+		this.cache = this.cache.slice(this.#cacheStartIndex);
+		this.#cacheStartIndex = 0;
 	}
 }
 export class Gossip {

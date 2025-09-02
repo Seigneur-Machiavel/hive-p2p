@@ -100,11 +100,10 @@ class TestTransportOptions {
 }
 
 class TransportPool {
-	constructor(maxSize = 100) {
-		this.maxSize = maxSize;
-		this.available = [];
-		this.inUse = new Map();
-	}
+	inUse = new Map(); 
+	/** @type {TestTransport[]} */ available = [];
+	
+	constructor(maxSize = 100) { this.maxSize = maxSize; }
 
 	get() {
 		if (this.available.length > 0) {
@@ -117,7 +116,7 @@ class TransportPool {
 	release(transport) {
 		if (this.available.length >= this.maxSize) transport.destroy();
 		else {
-			transport.cleanup();
+			transport.callbacks = {};
 			this.available.push(transport);
 		}
 	}
@@ -129,6 +128,7 @@ export class TestTransport { // SimplePeer like
 	id = 0;
 	remoteId = null;
 	// SimplePeer.Options: { initiator: !remoteSDP, trickle: true, wrtc }
+	callbacks = { connect: [], close: [], data: [], signal: [], error: [] };
 	signalCreationDelay;
 	initiator;
 	trickle;
@@ -141,35 +141,19 @@ export class TestTransport { // SimplePeer like
 		this.trickle = opts.trickle;
 		this.wrtc = opts.wrtc;
 
-		this.#initCallbacks();
 		if (!this.initiator) return; // standby
 		const SDP = SANDBOX.buildSDP(this.id, 'offer'); // emit signal event 'offer'
 		setTimeout(() => this.callbacks.signal.forEach(cb => cb(SDP)), this.signalCreationDelay);
 	}
 
-	#initCallbacks() {
-		this.callbacks = { connect: [], close: [], data: [], signal: [], error: [] };
-	}
 	reset() {
-		this.clearTimeouts();
 		this.remoteId = null;
 		this.closing = false;
-		this.#initCallbacks();
-	}
-	clearTimeouts() {
-		if (this.signalTimeout) {
-			clearTimeout(this.signalTimeout);
-			this.signalTimeout = null;
-		}
-	}
-	cleanup() {
-		this.clearTimeouts();
-		this.callbacks = {};
+		this.callbacks = { connect: [], close: [], data: [], signal: [], error: [] };
 	}
 	destroy(errorMsg = null) {
 		if (this.closing) return;
 		this.closing = true;
-		this.clearTimeouts();
 		if (!errorMsg) this.callbacks.close?.forEach(cb => cb());
 		else this.dispatchError(errorMsg);
 		SANDBOX.destroyTransport(this.id);
@@ -209,12 +193,5 @@ export class TestTransport { // SimplePeer like
 	}
 	close() {
 		this.destroy();
-	}
-	destroy(errorMsg = null) {
-		if (this.closing) return;
-		this.closing = true;
-		if (!errorMsg) this.callbacks.close.forEach(cb => cb()); // emit close event
-		else this.dispatchError(errorMsg);
-		SANDBOX.destroyTransport(this.id);
 	}
 }

@@ -29,25 +29,22 @@ export class PeerConnection {
 	}
 }
 export class KnownPeer {
-	/** @type {Record<string, number>} key: peerId, value: timestamp */ neighbours;
-	connectionsCount = 0;
 	id;
-
+	neighbours;
+	connectionsCount;
+	/** @param {string} id @param {Record<string, number>} neighbours key: peerId, value: timestamp */
 	constructor(id, neighbours = {}) {
-		this.neighbours = neighbours;
 		this.id = id;
-		this.#updateConnectionsCount();
+		this.neighbours = neighbours;
+		this.connectionsCount = Object.keys(neighbours).length;
 	}
 	setNeighbour(peerId, timestamp = Date.now()) {
+		if (!this.neighbours[peerId]) this.connectionsCount++;
 		this.neighbours[peerId] = timestamp;
-		this.#updateConnectionsCount();
 	}
 	unsetNeighbour(peerId) {
+		if (this.neighbours[peerId]) this.connectionsCount--;
 		delete this.neighbours[peerId];
-		this.#updateConnectionsCount();
-	}
-	#updateConnectionsCount() {
-		this.connectionsCount = Object.keys(this.neighbours).length;
 	}
 }
 class Punisher {
@@ -184,7 +181,7 @@ export class PeerStore {
 		this.known[peerId1].setNeighbour(peerId2);
 		this.known[peerId2].setNeighbour(peerId1);
 	}
-	// called on 'peer_disconnected' gossip message
+	/** called on 'peer_disconnected' gossip message */
 	unlinkPeers(peerId1 = 'toto', peerId2 = 'tutu') {
 		if (this.known[peerId1]) this.known[peerId1].unsetNeighbour(peerId2);
 		if (this.known[peerId2]) this.known[peerId2].unsetNeighbour(peerId1);

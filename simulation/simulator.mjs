@@ -22,8 +22,8 @@ const sVARS = { // SIMULATION VARIABLES
 };
 if (sVARS.useTestTransport) {
 	sVARS.publicPeersCount = 200; // stable: 3,  medium: 100, strong: 200,  safe: 200
-	sVARS.peersCount = 1600; 		  // stable: 25, medium: 800, strong: 1600, safe: 0
-	sVARS.chosenPeerCount = 200;  // stable: 5,  medium: 100, strong: 200,  safe: 800
+	sVARS.peersCount = 0; 	  // stable: 25, medium: 800, strong: 1600, safe: 0
+	sVARS.chosenPeerCount = 800;  // stable: 5,  medium: 100, strong: 200,  safe: 800
 }
 
 const peers = {

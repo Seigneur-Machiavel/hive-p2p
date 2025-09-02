@@ -1,6 +1,6 @@
 export const NODE = {
 	SERVICE_PORT: 8080,
-	PUBLIC_AUTO_BAN_DELAY: { min: 10_000, max: 60_000 },
+	PUBLIC_AUTO_BAN_DELAY: { min: 10_000, max: 30_000 },
 	PUBLIC_AUTO_BAN_DURATION: 60_000,
 
 	CONNECTION_UPGRADE_TIMEOUT: 5_000, // default: 5_000 (5 seconds)
@@ -14,7 +14,7 @@ export const NODE = {
 }
 export const MESSAGER = {
 	MAX_HOPS: 10,
-	MAX_NODES: 1728,
+	MAX_NODES: 512, // default: 1728 (12³), light: 512 (8³)
 	MAX_ROUTES: 5
 }
 export const GOSSIP = {

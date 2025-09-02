@@ -1,79 +1,10 @@
 import { MESSAGER } from "../utils/p2p_params.mjs";
+import { RouteBuilder_V1, RouteBuilder_V2 } from "./route-builder.mjs";
+const RouteBuilder = RouteBuilder_V2; // temporary switch
 
 /**
  * @typedef {import('./peer-store.mjs').PeerStore} PeerStore
- * @typedef {import('./peer-store.mjs').KnownPeer} KnownPeer
- * @typedef {import('./peer-store.mjs').PeerConnection} PeerConnection
- * 
- * @typedef {Object} RouteInfo
- * @property {string[]} path - Array of peer IDs forming the route [from, ..., remoteId]
- * @property {number} hops - Number of hops/relays in the route (path.length - 1)
- * @property {number} score - Quality score (0-1, higher is better)
- *
- * @typedef {Object} RouteResult
- * @property {RouteInfo[]} routes - Array of found routes, sorted by quality (best first)
- * @property {boolean} success - Whether at least one route was found
- * @property {number} nodesExplored - Number of nodes visited during search
  */
-
-
-/** Simple prototype of a path finder searching to sort the possible routes form peerA to peerB
- * This logic can be improved a lot, especially in terms of efficiency and flexibility.
- * I chose a BFS approach for its simplicity and completeness. */
-export class RouteBuilder {
-	selfId;
-	/** @type {Record<string, KnownPeer>} */ knownPeers;
-	/** @type {Record<string, PeerConnection>} */ connectedPeers;
-	constructor(selfId = 'toto', knownPeers = {}, connectedPeers = {}) {
-		this.selfId = selfId;
-		this.knownPeers = knownPeers;
-		this.connectedPeers = connectedPeers;
-	}
-
-	/** Find all possible routes between two peers using exhaustive BFS
-	 * - CAN BE IMPROVED
-	 * @param {string} remoteId - Destination peer ID
-	 * @param {number} maxRoutes - Maximum number of routes to return (default: 5)
-	 * @param {number} maxHops - Maximum relays allowed (default: 3)
-	 * @param {number} maxNodes - Maximum nodes to explore (default: 1728 = 12³)
-	 * @param {boolean} sortByScore - Whether to sort routes by score (default: true)
-	 * @returns {RouteResult} Result containing found routes and metadata */
-	buildRoutes(remoteId, maxRoutes = 5, maxHops = 3, maxNodes = 1728, sortByScore = true) {
-		if (this.selfId === remoteId) throw new Error('Cannot build route to self');
-		if (this.connectedPeers[remoteId])
-			return { routes: [{ path: [this.selfId, remoteId] }], success: true, nodesExplored: 1 };
-
-		let nodesExplored = 0;
-		const foundRoutes = [];
-		const queue = [{ node: this.selfId, path: [this.selfId], depth: 0 }]; // Initialize BFS queue with starting point
-		while (queue.length > 0 && nodesExplored < maxNodes) { // Exhaustive search: explore ALL paths up to maxHops
-			const { node: current, path, depth } = queue.shift();
-			nodesExplored++;
-			if (depth >= maxHops) continue; // Don't explore beyond max depth
-
-			const neighbors = current === this.selfId ? this.connectedPeers : this.knownPeers[current]?.neighbours || {};
-			for (const neighbor of Object.keys(neighbors)) {
-				if (path.includes(neighbor)) continue; // Skip if this would create a cycle
-				
-				// If we reached destination record this route or Continue exploring from this neighbor
-				const newPath = [...path, neighbor];
-				if (neighbor === remoteId) foundRoutes.push(newPath);
-				else queue.push({ node: neighbor, path: newPath, depth: depth + 1 });
-			}
-		}
-
-		if (foundRoutes.length === 0) return { routes: [], success: false, nodesExplored };
-		
-		const routesWithScores = foundRoutes.map(path => ({
-			path,
-			hops: path.length - 1,
-			score: Math.max(0, 1 - (path.length * .1))
-		}));
-
-		if (sortByScore) routesWithScores.sort((a, b) => b.score - a.score); // Sort by score (best first)
-		return { routes: routesWithScores.slice(0, maxRoutes), success: true, nodesExplored };
-	}
-}
 
 export class DirectMessage {
 	route;
@@ -98,6 +29,7 @@ export class DirectMessage {
 export class UnicastMessager {
 	id;
 	peerStore;
+	pathFinder;
 	maxHops = MESSAGER.MAX_HOPS;
 	maxRoutes = MESSAGER.MAX_ROUTES;
 	maxNodes = MESSAGER.MAX_NODES;
@@ -112,6 +44,7 @@ export class UnicastMessager {
 	constructor(peerId, peerStore) {
 		this.id = peerId;
 		this.peerStore = peerStore;
+		this.pathFinder = new RouteBuilder(this.id, this.peerStore.known, this.peerStore.connected);
 	}
 
 	/** @param {string} remoteId @param {string | Uint8Array} data */
@@ -120,10 +53,9 @@ export class UnicastMessager {
 		if (tempConActive && type !== 'signal') return; // 'signal' message only on temporary connections
 		if (remoteId === this.id) return;
 
-		const pathFinder = new RouteBuilder(this.id, this.peerStore.known, this.peerStore.connected);
 		const builtResult = tempConActive
 			? { success: true, routes: [{ path: [this.id, remoteId] }] }
-			: pathFinder.buildRoutes(remoteId, this.maxRoutes, this.maxHops, this.maxNodes, true);
+			: this.pathFinder.buildRoutes(remoteId, this.maxRoutes, this.maxHops, this.maxNodes, true);
 		//if (!builtResult.success) return { success: false, reason: 'No route found' };
 
 		if (!builtResult.success) {
@@ -141,8 +73,7 @@ export class UnicastMessager {
 		return { success: true, routes: builtResult.routes };
 	}
 	#patchRouteToReachTarget(traveledRoute = [], targetId = 'toto') {
-		const pathFinder = new RouteBuilder(this.id, this.peerStore.known, this.peerStore.connected);
-		const builtResult = pathFinder.buildRoutes(targetId, this.maxRoutes, this.maxHops, this.maxNodes, true);
+		const builtResult = this.pathFinder.buildRoutes(targetId, this.maxRoutes, this.maxHops, this.maxNodes, true);
 		if (!builtResult.success) return null;
 		return [...traveledRoute.slice(0, -1), ...builtResult.routes[0].path];
 	}

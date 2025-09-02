@@ -77,8 +77,9 @@ export class NetworkEnhancer {
 		};
 	}
 	#tryConnectNextBootstrap() {
+		const { isEnough, missingCount, connectedPeersCount, knownPeersCount } = this.#getConnectionInfo();
 		if (this.bootstraps.length === 0) return;
-		if (this.#getConnectionInfo().isEnough) return; // already connected to enough peers
+		if (isEnough) return; // already connected to enough peers
 		
 		const [connected, connecting] = [this.peerStore.connected, this.peerStore.connecting];
 		const connectingCount = Object.keys(connecting).filter(id => this.bootstrapsIds[id]).length;
