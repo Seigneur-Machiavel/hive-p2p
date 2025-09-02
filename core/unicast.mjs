@@ -96,7 +96,7 @@ export class UnicastMessager {
 		const myIdPosition = route.indexOf(this.id);
 		const [senderId, prevId, nextId, targetId] = [route[0], route[myIdPosition - 1], route[myIdPosition + 1], route[route.length - 1]];
 		if (senderId === this.id) return console.warn(`Direct message from self (${this.id}) is not allowed.`);
-		if (from !== prevId) return console.warn(`Direct message from ${from} to ${this.id} is not routed correctly. Expected previous ID: ${prevId}, but got: ${from}`);
+		if (from !== prevId) return; // console.warn(`Direct message from ${from} to ${this.id} is not routed correctly. Expected previous ID: ${prevId}, but got: ${from}`);
 
 		const selfIsDestination = this.id === targetId;
 		if (!selfIsDestination) { // forward to next

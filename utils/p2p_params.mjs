@@ -23,7 +23,7 @@ export const GOSSIP = {
 	},
 	TRANSMISSION_RATE: {
 		default: 1, // .51 === 50%
-		peer_connected: (10 / 12) * .25, // we can reduce this, but lowering the map quality
-		peer_disconnected: (10 / 12) * .25
+		//peer_connected: .5, // we can reduce this, but lowering the map quality
+		//peer_disconnected: .5
 	},
 }

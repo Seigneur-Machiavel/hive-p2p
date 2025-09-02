@@ -1,7 +1,7 @@
-// HERE WE ARE BASICALLY COPYING THE PRINCIPLE OF "SimplePeer"
 import { Sandbox } from './tranports-sandbox.mjs';
 const SANDBOX = new Sandbox();
 
+// // HERE WE ARE BASICALLY COPYING THE PRINCIPLE OF "WebSocket"
 export class TestWsConnection { // WebSocket like
 	/** @type {TestWsConnection} */
 	remoteWs;
@@ -87,6 +87,7 @@ export class TestWsServer { // WebSocket like
 	}
 }
 
+// HERE WE ARE BASICALLY COPYING THE PRINCIPLE OF "SimplePeer"
 class TestTransportOptions {
 	/** @type {number} */
 	signalCreationDelay = 250;
@@ -98,7 +99,6 @@ class TestTransportOptions {
 	/** @type {any} */
 	wrtc;
 }
-
 class TransportPool {
 	inUse = new Map(); 
 	/** @type {TestTransport[]} */ available = [];
@@ -121,9 +121,7 @@ class TransportPool {
 		}
 	}
 }
-
 const TRANSPORT_POOL = new TransportPool();
-
 export class TestTransport { // SimplePeer like
 	id = 0;
 	remoteId = null;
