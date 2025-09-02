@@ -8,14 +8,10 @@ export class TestWsConnection { // WebSocket like
 	delayBeforeConnectionTry = 500;
 	readyState = 0;
 	url; // outgoing connection only
-	callbacks = {
-		message: [],
-		close: []
-	}
-	onmessage;
-	onopen;
-	onclose;
-	onerror;
+	// SERVER CALLBACKS
+	callbacks = { message: [], close: [] }
+	// CLIENT CALLBACKS
+	onmessage; onopen; onclose; onerror;
 
 	constructor(url = 'ws://...', clientWsConnection) {
 		if (!clientWsConnection) this.url = url;
@@ -52,8 +48,9 @@ export class TestWsConnection { // WebSocket like
 		}
 
 		//const serialized = JSON.stringify(message);
-		this.remoteWs?.callbacks.message.forEach(cb => cb(message)); // emit message event
-		if (this.remoteWs?.onmessage) this.remoteWs.onmessage({ data: message }); // emit onmessage event
+		//this.remoteWs?.callbacks.message.forEach(cb => cb(message)); // emit message event
+		//if (this.remoteWs?.onmessage) this.remoteWs.onmessage({ data: message }); // emit onmessage event
+		SANDBOX.enqueueWsMessage(this.remoteWs, message);
 	}
 	#dispatchError(error) {
 		this.callbacks.error.forEach(cb => cb(error));

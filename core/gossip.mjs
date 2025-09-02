@@ -115,10 +115,18 @@ export class Gossip {
 
 		if (TTL < 1) return; // stop forwarding if TTL is 0
 		if (this.id === senderId) return; // avoid sending our own message again
-		const transmissionRate = GOSSIP.TRANSMISSION_RATE[topic] || GOSSIP.TRANSMISSION_RATE.default;
-		for (const [peerId, conn] of Object.entries(this.peerStore.connected)) {
+
+		const neighbours = Object.entries(this.peerStore.connected);
+		const nCount = neighbours.length;
+		const trm = Math.max(1, nCount / GOSSIP.TRANSMISSION_RATE_MOD);
+		const tRateBase = GOSSIP.TRANSMISSION_RATE[topic] || GOSSIP.TRANSMISSION_RATE.default;
+		const transmissionRate = Math.pow(tRateBase, trm);
+		const avoidTransmissionRate = nCount < GOSSIP.MIN_NEIGHBOURS_TO_APPLY_TRANSMISSION_RATE; // 4: true, 5: false
+		
+		//const transmissionRate = GOSSIP.TRANSMISSION_RATE[topic] || GOSSIP.TRANSMISSION_RATE.default;
+		for (const [peerId, conn] of neighbours) {
 			if (peerId === from) continue; // avoid sending back to sender
-			if (Math.random() > transmissionRate) continue; // apply gossip transmission rate
+			if (!avoidTransmissionRate && Math.random() > transmissionRate) continue; // apply gossip transmission rate
 			try { conn.transportInstance.send(JSON.stringify(new GossipMessage(senderId, topic, data, TTL - 1))); }
 			catch (error) { if (verbose > 1) console.error(`Error sending gossip message from ${this.id} to ${peerId}:`, error.stack); }
 		}

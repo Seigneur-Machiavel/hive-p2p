@@ -51,7 +51,7 @@ export class NetworkEnhancer {
 		if (conn && data.type !== 'offer') this.peerStore.assignSignal(senderId, data);
 		else if (!conn && data.type === 'offer') {
 			const sharedNeighbours = this.peerStore.getSharedNeighbours(this.id, senderId);
-			const tooManySharedPeers = sharedNeighbours.length > NODE.MAX_SHARED_NEIGHBORS_COUNT;
+			const tooManySharedPeers = sharedNeighbours.length > NODE.MAX_OVERLAP;
 			const isTwitchUser = senderId.startsWith('f_');
 			const tooManyConnectedPeers = Object.keys(this.peerStore.connected).length >= NODE.TARGET_NEIGHBORS_COUNT - 1;
 			if (!isTwitchUser && (tooManySharedPeers || tooManyConnectedPeers)) this.peerStore.kickPeer(senderId, 30_000);
@@ -118,8 +118,8 @@ export class NetworkEnhancer {
 			else if (this.peerStore.connected[peerId]) continue; // skip connected peers
 			else if (this.peerStore.connecting[peerId]) continue; // skip connecting peers
 
-			const sharedNeighborsCount = this.peerStore.getSharedNeighbours(this.id, peerId).length;
-			if (sharedNeighborsCount > NODE.MAX_SHARED_NEIGHBORS_COUNT) continue;
+			const overlap = this.peerStore.getSharedNeighbours(this.id, peerId).length;
+			if (overlap > NODE.MAX_OVERLAP) continue;
 			if (peerInfo.connectionsCount < NODE.TARGET_NEIGHBORS_COUNT) targets.push(peerId);
 		}
 

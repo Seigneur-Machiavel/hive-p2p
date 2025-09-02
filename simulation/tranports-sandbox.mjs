@@ -59,7 +59,8 @@ export class Sandbox {
 		const transportInstance = this.connections[fromId];
 		if (!transportInstance) return { success: false, reason: `No transport instance found for id: ${fromId}` };
 		if (transportInstance.id !== toId) return { success: false, reason: `Wrong id for transportInstance ${fromId} !== ${toId}` };
-		for (const cb of transportInstance.callbacks.data) cb(data); // emit data event
+		//for (const cb of transportInstance.callbacks.data) cb(data); // emit data event
+		this.enqueueTransportData(transportInstance, data);
 		return { success: true };
 	}
 	destroyTransport(id) {
@@ -165,4 +166,38 @@ export class Sandbox {
 			signalData: signalAssociatedId !== undefined ? this.buildSDP(receiverId, 'answer') : undefined
 		};
 	}
+
+	messageQueue = [];
+	queueIndex = 0;
+    queueInterval = 5; // 5ms = 200Hz
+    batchSize = 400; // total: 400 x 200 = 80_000msg/sec
+	maxQueueSize = 10000;
+	queueProcessor = setInterval(() => this.#processMessageQueue(), this.queueInterval);
+
+	#processMessageQueue() {
+		const queueLength = this.messageQueue.length;
+        if (queueLength === 0) return;
+
+		if (queueLength > this.maxQueueSize) this.queueIndex += queueLength - this.maxQueueSize;
+        
+        const endIndex = Math.min(this.queueIndex + this.batchSize, queueLength);
+        for (let i = this.queueIndex; i < endIndex; i++) {
+			const [type, tInstance, data] = this.messageQueue[i];
+            if (type === 'transport_data') {
+                if (!tInstance) continue;
+                for (const cb of tInstance.callbacks.data) cb(data);
+            } else if (type === 'ws_message') {
+                if (!tInstance) continue;
+                for (const cb of tInstance.callbacks.message) cb(data);
+                if (tInstance.onmessage) tInstance.onmessage({ data });
+            }
+        }
+        this.queueIndex = endIndex;
+        
+        if (this.queueIndex < 5000) return; // Periodic cleanup, avoid memory leaks
+        this.messageQueue = this.messageQueue.slice(this.queueIndex);
+        this.queueIndex = 0;
+    }
+	enqueueWsMessage(remoteWs, message) { this.messageQueue.push(['ws_message', remoteWs, message]); }
+	enqueueTransportData(transportInstance, data) { this.messageQueue.push(['transport_data', transportInstance, data]); }
 }
