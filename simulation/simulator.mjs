@@ -2,7 +2,7 @@ import path from 'path';
 import express from 'express';
 import { WebSocketServer } from 'ws';
 import { NodeP2P } from '../core/node.mjs';
-import { shuffleArray } from '../utils/p2p_common_functions.mjs';
+import { shuffleArray } from '../utils/common_functions.mjs';
 import { MessageQueue, SubscriptionsManager } from './simulator-utils.mjs';
 import { io } from 'socket.io-client'; // used for twitch events only
 

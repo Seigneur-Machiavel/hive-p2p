@@ -1,4 +1,4 @@
-import { GOSSIP } from '../utils/p2p_params.mjs';
+import { GOSSIP } from './global_parameters.mjs';
 import { xxHash32 } from '../utils/xxhash32.mjs';
 
 /**

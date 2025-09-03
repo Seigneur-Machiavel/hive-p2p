@@ -4,7 +4,7 @@ import { PeerStore } from './peer-store.mjs';
 import { NetworkEnhancer } from './network-enhancer.mjs';
 import { UnicastMessager } from './unicast.mjs';
 import { Gossip } from './gossip.mjs';
-import { NODE } from '../utils/p2p_params.mjs';
+import { NODE } from './global_parameters.mjs';
 
 export class NodeP2P {
 	verbose;
@@ -28,7 +28,7 @@ export class NodeP2P {
 	constructor(id = 'toto', bootstraps = [], useTestTransport = false, verbose = 0) {
 		this.verbose = verbose;
 		this.id = id;
-		this.peerStore = new PeerStore(NODE.CONNECTION_UPGRADE_TIMEOUT);
+		this.peerStore = new PeerStore(id, NODE.CONNECTION_UPGRADE_TIMEOUT);
 		this.networkEnhancer = new NetworkEnhancer(id, this.peerStore, bootstraps, useTestTransport);
 		this.messager = new UnicastMessager(id, this.peerStore);
 		this.gossip = new Gossip(id, this.peerStore);

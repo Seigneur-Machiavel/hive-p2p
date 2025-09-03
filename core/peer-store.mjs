@@ -63,6 +63,7 @@ class Punisher {
 	}
 }
 export class PeerStore {
+	id;
 	connUpgradeTimeout;
 	punisher = new Punisher();
 	/** @type {Record<string, PeerConnection>} */ connected = {};
@@ -82,7 +83,8 @@ export class PeerStore {
 		'data': []
 	};
 
-	constructor(connectionUpgradeTimeout = 1000) {
+	constructor(selfId = 'toto', connectionUpgradeTimeout = 1000) {
+		this.id = selfId;
 		this.connUpgradeTimeout = connectionUpgradeTimeout;
 	}
 
@@ -188,9 +190,12 @@ export class PeerStore {
 		if (this.known[peerId1]?.connectionsCount === 0) delete this.known[peerId1];
 		if (this.known[peerId2]?.connectionsCount === 0) delete this.known[peerId2];
 	}
-	getSharedNeighbours(peerId1 = 'toto', peerId2 = 'tutu') {
-		if (!this.known[peerId1] || !this.known[peerId2]) return [];
-		return Object.keys(this.known[peerId1].neighbours).filter(id => this.known[peerId2].neighbours[id]);
+	/** @param {string} peerId1 @param {string} [peerId2] default: this.id */
+	getOverlap(peerId1, peerId2 = this.id) {
+		const p1Neighbours = this.known[peerId1]?.neighbours || {};
+		const p2Neighbours = peerId2 === this.id ? this.connected : this.known[peerId2]?.neighbours || {};
+		const sharedNeighbours = Object.keys(p1Neighbours).filter(id => p2Neighbours[id]);
+		return { sharedNeighbours, overlap: sharedNeighbours.length };
 	}
 	getRandomConnectedPeerId() {
 		const connectedPeerIds = Object.keys(this.connected);

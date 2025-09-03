@@ -1,6 +1,6 @@
 import { TestWsConnection } from '../simulation/test-transports.mjs';
-import { shuffleArray } from '../utils/p2p_common_functions.mjs';
-import { NODE } from '../utils/p2p_params.mjs';
+import { shuffleArray } from '../utils/common_functions.mjs';
+import { NODE } from './global_parameters.mjs';
 
 /**
  * @typedef {import('./peer-store.mjs').PeerStore} PeerStore
@@ -19,9 +19,9 @@ export class NetworkEnhancer {
 	/** @type {number} next Bootstrap Index */ nBI = 0;
 	/** @type {boolean} specify to use test transport (useful for simulator) */ useTestTransport;
 
-	/** @param {string} id @param {PeerStore} peerStore @param {Array<bootstrapInfo>} bootstraps */
-	constructor(id, peerStore, bootstraps, useTestTransport = false) {
-		this.id = id;
+	/** @param {string} selfId @param {PeerStore} peerStore @param {Array<bootstrapInfo>} bootstraps */
+	constructor(selfId, peerStore, bootstraps, useTestTransport = false) {
+		this.id = selfId;
 		this.peerStore = peerStore;
 		this.bootstraps = shuffleArray(bootstraps);
 		for (const b of bootstraps) this.bootstrapsIds[b.id] = b.publicUrl;
@@ -50,7 +50,7 @@ export class NetworkEnhancer {
 		const conn = this.peerStore.connecting[senderId];
 		if (conn && data.type !== 'offer') this.peerStore.assignSignal(senderId, data);
 		else if (!conn && data.type === 'offer') {
-			const sharedNeighbours = this.peerStore.getSharedNeighbours(this.id, senderId);
+			const { sharedNeighbours, overlap } = this.peerStore.getOverlap(senderId);
 			const tooManySharedPeers = sharedNeighbours.length > NODE.MAX_OVERLAP;
 			const isTwitchUser = senderId.startsWith('f_');
 			const tooManyConnectedPeers = Object.keys(this.peerStore.connected).length >= NODE.TARGET_NEIGHBORS_COUNT - 1;
@@ -118,7 +118,7 @@ export class NetworkEnhancer {
 			else if (this.peerStore.connected[peerId]) continue; // skip connected peers
 			else if (this.peerStore.connecting[peerId]) continue; // skip connecting peers
 
-			const overlap = this.peerStore.getSharedNeighbours(this.id, peerId).length;
+			const { sharedNeighbours, overlap } = this.peerStore.getOverlap(peerId);
 			if (overlap > NODE.MAX_OVERLAP) continue;
 			if (peerInfo.connectionsCount < NODE.TARGET_NEIGHBORS_COUNT) targets.push(peerId);
 		}

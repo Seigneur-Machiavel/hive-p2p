@@ -17,11 +17,11 @@
  * This logic can be improved a lot, especially in terms of efficiency and flexibility.
  * I chose a BFS approach for its simplicity and completeness. */
 export class RouteBuilder_V1 {
-	selfId;
+	id;
 	/** @type {Record<string, KnownPeer>} */ knownPeers;
 	/** @type {Record<string, PeerConnection>} */ connectedPeers;
 	constructor(selfId = 'toto', knownPeers = {}, connectedPeers = {}) {
-		this.selfId = selfId;
+		this.id = selfId;
 		this.knownPeers = knownPeers;
 		this.connectedPeers = connectedPeers;
 	}
@@ -35,19 +35,19 @@ export class RouteBuilder_V1 {
 	 * @param {boolean} sortByScore - Whether to sort routes by score (default: true)
 	 * @returns {RouteResult} Result containing found routes and metadata */
 	buildRoutes(remoteId, maxRoutes = 5, maxHops = 3, maxNodes = 1728, sortByScore = true) {
-		if (this.selfId === remoteId) throw new Error('Cannot build route to self');
-		if (this.connectedPeers[remoteId]) return { routes: [{ path: [this.selfId, remoteId] }], success: true, nodesExplored: 1 };
+		if (this.id === remoteId) throw new Error('Cannot build route to self');
+		if (this.connectedPeers[remoteId]) return { routes: [{ path: [this.id, remoteId] }], success: true, nodesExplored: 1 };
 		if (!this.knownPeers[remoteId]) return { routes: [], success: false, nodesExplored: 0 };
 
 		let nodesExplored = 0;
 		const foundRoutes = [];
-		const queue = [{ node: this.selfId, path: [this.selfId], depth: 0 }]; // Initialize BFS queue with starting point
+		const queue = [{ node: this.id, path: [this.id], depth: 0 }]; // Initialize BFS queue with starting point
 		while (queue.length > 0 && nodesExplored < maxNodes) { // Exhaustive search: explore ALL paths up to maxHops
 			const { node: current, path, depth } = queue.shift();
 			nodesExplored++;
 			if (depth >= maxHops) continue; // Don't explore beyond max depth
 
-			const neighbors = current === this.selfId ? this.connectedPeers : this.knownPeers[current]?.neighbours || {};
+			const neighbors = current === this.id ? this.connectedPeers : this.knownPeers[current]?.neighbours || {};
 			for (const neighbor of Object.keys(neighbors)) {
 				if (path.includes(neighbor)) continue; // Skip if this would create a cycle
 				
@@ -79,7 +79,7 @@ export class RouteBuilder_V2 {
 	/** @type {Record<string, PeerConnection>} */ connectedPeers;
 
 	constructor(selfId = 'toto', knownPeers = {}, connectedPeers = {}) {
-		this.selfId = selfId;
+		this.id = selfId;
 		this.knownPeers = knownPeers;
 		this.connectedPeers = connectedPeers;
 	}
@@ -93,8 +93,8 @@ export class RouteBuilder_V2 {
 	 * @param {number} goodEnoughScore - Stop early if route score >= this (default: 0.8)
 	 * @returns {RouteResult} Result containing found routes and metadata */
 	buildRoutes(remoteId, maxRoutes = 5, maxHops = 3, maxNodes = 1728, sortByScore = true, goodEnoughScore = 0.8) {
-		if (this.selfId === remoteId) throw new Error('Cannot build route to self');
-		if (this.connectedPeers[remoteId]) return { routes: [{ path: [this.selfId, remoteId]}], success: true, nodesExplored: 1 };
+		if (this.id === remoteId) throw new Error('Cannot build route to self');
+		if (this.connectedPeers[remoteId]) return { routes: [{ path: [this.id, remoteId]}], success: true, nodesExplored: 1 };
 		if (!this.knownPeers[remoteId]) return { routes: [], success: false, nodesExplored: 0 };
 
 		const result = this.#bidirectionalSearch(remoteId, maxHops, maxNodes, goodEnoughScore);
@@ -115,14 +115,12 @@ export class RouteBuilder_V2 {
 		const foundPaths = [];
 		let nodesExplored = 0;
 
-		// Forward: from selfId outward
-		//const forwardQueue = [{ node: this.selfId, path: [this.selfId], depth: 0 }];
-		const forwardQueue = [{ node: this.selfId, path: [this.selfId], pathSet: new Set([this.selfId]), depth: 0 }];
-		const forwardVisited = new Map(); // node -> path from selfId
-		forwardVisited.set(this.selfId, [this.selfId]);
+		// Forward: from id outward
+		const forwardQueue = [{ node: this.id, path: [this.id], pathSet: new Set([this.id]), depth: 0 }];
+		const forwardVisited = new Map(); // node -> path from id
+		forwardVisited.set(this.id, [this.id]);
 
 		// Backward: from remoteId outward
-		//const backwardQueue = [{ node: remoteId, path: [remoteId], depth: 0 }];
 		const backwardQueue = [{ node: remoteId, path: [remoteId], pathSet: new Set([remoteId]), depth: 0 }];
 		const backwardVisited = new Map(); // node -> path from remoteId
 		backwardVisited.set(remoteId, [remoteId]);
@@ -189,7 +187,7 @@ export class RouteBuilder_V2 {
 	 * @param {string} nodeId - Current node
 	 * @returns {Record<string, any>} Neighbors object */
 	#getNeighbors(nodeId) {
-		return nodeId === this.selfId ? this.connectedPeers : this.knownPeers[nodeId]?.neighbours || {};
+		return nodeId === this.id ? this.connectedPeers : this.knownPeers[nodeId]?.neighbours || {};
 	}
 
 	/** Build complete path from meeting point

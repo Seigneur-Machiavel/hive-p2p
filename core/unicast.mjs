@@ -1,4 +1,4 @@
-import { MESSAGER } from "../utils/p2p_params.mjs";
+import { MESSAGER } from "./global_parameters.mjs";
 import { RouteBuilder_V1, RouteBuilder_V2 } from "./route-builder.mjs";
 const RouteBuilder = RouteBuilder_V2; // temporary switch
 
@@ -40,9 +40,9 @@ export class UnicastMessager {
 		'message': []
 	};
 
-	/** @param {string} peerId @param {PeerStore} peerStore */
-	constructor(peerId, peerStore) {
-		this.id = peerId;
+	/** @param {string} selfId @param {PeerStore} peerStore */
+	constructor(selfId, peerStore) {
+		this.id = selfId;
 		this.peerStore = peerStore;
 		this.pathFinder = new RouteBuilder(this.id, this.peerStore.known, this.peerStore.connected);
 	}
