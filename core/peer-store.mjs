@@ -67,7 +67,7 @@ export class PeerStore {
 	id;
 	connUpgradeTimeout;
 	punisher = new Punisher();
-	/** @type {string[]} */ 					  connectedList = []; // faster access
+	/** @type {string[]} The neighbours IDs */    neighbours = []; // faster access
 	/** @type {Record<string, PeerConnection>} */ connected = {};
 	/** @type {Record<string, PeerConnection>} */ connecting = {};
 	/** @type {Record<string, KnownPeer>} */ 	  known = {};
@@ -123,9 +123,8 @@ export class PeerStore {
 			transportInstance.on('close', () => { if (!this.isDestroy) for (const cb of this.callbacks.disconnect) cb(remoteId, direction); });
 			transportInstance.on('data', data => { if (!this.isDestroy) for (const cb of this.callbacks.data) cb(remoteId, data); });
 		});
-		transportInstance.on('signal', data => { 
-			const neighbours = Object.keys(this.connected); // share our neighbours
-			if (!this.isDestroy) for (const cb of this.callbacks.signal) cb(remoteId, { signal: data, neighbours });
+		transportInstance.on('signal', data => {
+			if (!this.isDestroy) for (const cb of this.callbacks.signal) cb(remoteId, { signal: data, neighbours: this.neighbours });
 		});
 		transportInstance.on('error', error => {
 			if (error.message.includes('Failed to digest')) return; // avoid logging
@@ -176,8 +175,7 @@ export class PeerStore {
 		}
 	}
 	rejectSignal(remoteId = 'toto') { // inform remote peer that we rejected its signal
-		const neighbours = Object.keys(this.connected); // share our neighbours
-		for (const cb of this.callbacks.signal_rejected) cb(remoteId, { signal: null, neighbours });
+		for (const cb of this.callbacks.signal_rejected) cb(remoteId, { signal: null, neighbours: this.neighbours });
 	}
 	/** @param {string} peerId @param {string[]} neighbours */
 	digestPeerNeighbours(peerId, neighbours = []) {
@@ -191,6 +189,8 @@ export class PeerStore {
 		if (!connectingConn && !connectedConn) return;
 		status === 'connecting' ? connectingConn?.close() : connectedConn?.close();
 		delete this[status][remoteId];
+		if (status === 'connecting') return;
+		this.neighbours = this.neighbours.filter(id => id !== remoteId);
 	}
 	linkPeers(peerId1 = 'toto', peerId2 = 'tutu') {
 		if (!this.known[peerId1]) this.known[peerId1] = new KnownPeer(peerId1);
@@ -207,11 +207,11 @@ export class PeerStore {
 	}
 	/** @param {string} peerId1 @param {string} [peerId2] default: this.id */
 	getOverlap(peerId1, peerId2 = this.id, ignorePublic = true) {
-		const p1Neighbours = this.known[peerId1]?.neighbours || {};
-		const p2Neighbours = peerId2 === this.id ? this.connected : this.known[peerId2]?.neighbours || {};
+		const p1Neighbours = Object.keys(this.known[peerId1]?.neighbours || {});
+		const p2Neighbours = peerId2 === this.id ? this.neighbours : Object.keys(this.known[peerId2]?.neighbours || {});
 		const sharedNeighbours = ignorePublic
-		? Object.keys(p1Neighbours).filter(id => { if (p2Neighbours[id] && !id.startsWith(IDENTIFIERS.PUBLIC_NODE)) return p2Neighbours[id]; })
-		: Object.keys(p1Neighbours).filter(id => p2Neighbours[id]);
+		? p1Neighbours.filter(id => { if (p2Neighbours[id] && !id.startsWith(IDENTIFIERS.PUBLIC_NODE)) return p2Neighbours[id]; })
+		: p1Neighbours.filter(id => p2Neighbours[id]);
 		return { sharedNeighbours, overlap: sharedNeighbours.length };
 	}
 	/** @param {string} remoteId @param {GossipMessage | DirectMessage} message */
@@ -246,7 +246,7 @@ export class PeerStore {
 
 		const peer = this.connecting[remoteId];
 		this.connected[remoteId] = peer;
-		
+		this.neighbours.push(remoteId);
 		delete this.connecting[remoteId];
 		delete this.pendingConnections[remoteId];
 		peer.setConnectionStartTime();

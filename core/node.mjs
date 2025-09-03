@@ -60,7 +60,7 @@ export class NodeP2P {
 		setTimeout(() => {
 			if (DISCOVERY.GOSSIP_HISTORY)this.messager.sendMessage(peerId, 'gossip_history', this.gossip.bloomFilter.getGossipHistoryByTime());
 			if (DISCOVERY.CONNECTED_EVENT) this.broadcast('peer_connected', peerId);
-			if (DISCOVERY.NEIGHBOUR_GOSSIP) this.gossip.broadcast('my_neighbours', Object.keys(this.peerStore.connected));
+			if (DISCOVERY.NEIGHBOUR_GOSSIP) this.gossip.broadcast('my_neighbours', this.peerStore.neighbours);
 		}, 400);
 	}
 	/** @param {string} peerId @param {'in' | 'out'} direction */

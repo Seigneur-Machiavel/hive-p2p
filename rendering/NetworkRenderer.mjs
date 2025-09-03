@@ -49,8 +49,7 @@ export class NetworkRenderer {
 	/** @type {NodesStore} */ nodesStore;
 	/** @type {ConnectionsStore} */ connectionsStore;
 
-	updateBatches = 10;
-	updateBatchMax = 50;
+	updateBatchMax = 250;
 
 	// State
 	currentPeerId = null;
@@ -547,17 +546,22 @@ export class NetworkRenderer {
     }
 	#getReducedBatch = (nodeIds) => {
 		const batchSize = Math.floor(Math.min(nodeIds.length, this.updateBatchMax));
-		if (batchSize >= nodeIds.length) return nodeIds;
+		if (batchSize >= nodeIds.length) return { batchIds: nodeIds, forceMultiplier: 1 };
 
 		const result = [...nodeIds];
 		for (let i = 0; i < batchSize; i++) {
 			const j = i + Math.floor(Math.random() * (result.length - i));
 			[result[i], result[j]] = [result[j], result[i]];
 		}
-		return result.slice(0, batchSize);
+
+		const batchIds = result.slice(0, batchSize);
+		//const forceMultiplier = Math.round(Math.sqrt(Math.max(1, nodeIds.length / batchSize)));
+		const forceMultiplier = Math.round(Math.max(1, nodeIds.length / batchSize));
+		return { batchIds, forceMultiplier };
 	}
-	#updateNodesPositions(nodeIds = [], lockCurrentNodePosition = true, simplyCalculation = true) {
-		const batchIds = simplyCalculation ? this.#getReducedBatch(nodeIds) : nodeIds;
+	#updateNodesPositions(nodeIds = [], lockCurrentNodePosition = true) {
+		const { batchIds, forceMultiplier } = this.#getReducedBatch(nodeIds);
+		console.log(`force x${forceMultiplier}`);
 		for (const id of batchIds) {
 			const [pos, vel] = [this.nodesStore.get(id)?.position, this.nodesStore.get(id)?.velocity];
             const node = this.nodesStore.get(id);
@@ -580,7 +584,7 @@ export class NetworkRenderer {
                 const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
                 if (distance > this.options.repulsionOpts.maxDistance) continue;
 
-				const force = this.options.repulsion * (distance * distance + 1);
+				const force = this.options.repulsion * (distance * distance + 1); // +1 to avoid division by zero
 				fx += (dx / distance) * force;
 				fy += (dy / distance) * force;
 				fz += (dz / distance) * force;
@@ -596,7 +600,7 @@ export class NetworkRenderer {
                 const dz = neighbourPos.z - pos.z;
                 const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
 				if (distance < this.options.attractionOpts.minDistance) continue;
-				
+
                 const force = distance * this.options.attraction;
                 fx += (dx / distance) * force;
                 fy += (dy / distance) * force;
@@ -609,9 +613,9 @@ export class NetworkRenderer {
             fz += -pos.z * this.options.centerForce;
 
             // Update velocity
-            vel.x = (vel.x + fx) * this.options.damping;
-            vel.y = (vel.y + fy) * this.options.damping;
-            vel.z = (vel.z + fz) * this.options.damping;
+            vel.x = (vel.x + fx) * this.options.damping * forceMultiplier;
+            vel.y = (vel.y + fy) * this.options.damping * forceMultiplier;
+            vel.z = (vel.z + fz) * this.options.damping * forceMultiplier;
 
             // Limit velocity
             const speed = Math.sqrt(vel.x * vel.x + vel.y * vel.y + vel.z * vel.z);

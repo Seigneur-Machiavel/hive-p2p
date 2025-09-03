@@ -1,6 +1,5 @@
 /**
- * @typedef {import('./peer-store.mjs').KnownPeer} KnownPeer
- * @typedef {import('./peer-store.mjs').PeerConnection} PeerConnection
+ * @typedef {import('./peer-store.mjs').PeerStore} PeerStore
  * 
  * @typedef {Object} RouteInfo
  * @property {string[]} path - Array of peer IDs forming the route [from, ..., remoteId]
@@ -18,12 +17,12 @@
  * I chose a BFS approach for its simplicity and completeness. */
 export class RouteBuilder_V1 {
 	id;
-	/** @type {Record<string, KnownPeer>} */ knownPeers;
-	/** @type {Record<string, PeerConnection>} */ connectedPeers;
-	constructor(selfId = 'toto', knownPeers = {}, connectedPeers = {}) {
+	peerStore;
+
+	/** @param {string} selfId @param {PeerStore} peerStore */
+	constructor(selfId, peerStore) {
 		this.id = selfId;
-		this.knownPeers = knownPeers;
-		this.connectedPeers = connectedPeers;
+		this.peerStore = peerStore;
 	}
 
 	/** Find all possible routes between two peers using exhaustive BFS
@@ -36,8 +35,8 @@ export class RouteBuilder_V1 {
 	 * @returns {RouteResult} Result containing found routes and metadata */
 	buildRoutes(remoteId, maxRoutes = 5, maxHops = 3, maxNodes = 1728, sortByScore = true) {
 		if (this.id === remoteId) throw new Error('Cannot build route to self');
-		if (this.connectedPeers[remoteId]) return { routes: [{ path: [this.id, remoteId] }], success: true, nodesExplored: 1 };
-		if (!this.knownPeers[remoteId]) return { routes: [], success: false, nodesExplored: 0 };
+		if (this.peerStore.connected[remoteId]) return { routes: [{ path: [this.id, remoteId] }], success: true, nodesExplored: 1 };
+		if (!this.peerStore.known[remoteId]) return { routes: [], success: false, nodesExplored: 0 };
 
 		let nodesExplored = 0;
 		const foundRoutes = [];
@@ -47,8 +46,8 @@ export class RouteBuilder_V1 {
 			nodesExplored++;
 			if (depth >= maxHops) continue; // Don't explore beyond max depth
 
-			const neighbors = current === this.id ? this.connectedPeers : this.knownPeers[current]?.neighbours || {};
-			for (const neighbor of Object.keys(neighbors)) {
+			const neighbors = current === this.id ? this.peerStore.neighbours : Object.keys(this.peerStore.known[current]?.neighbours || {});
+			for (const neighbor of neighbors) {
 				if (path.includes(neighbor)) continue; // Skip if this would create a cycle
 				
 				// If we reached destination record this route or Continue exploring from this neighbor
@@ -75,13 +74,12 @@ export class RouteBuilder_V1 {
  * Much more efficient than V1 for longer paths by searching from both ends */
 export class RouteBuilder_V2 {
 	selfId;
-	/** @type {Record<string, KnownPeer>} */ knownPeers;
-	/** @type {Record<string, PeerConnection>} */ connectedPeers;
+	peerStore;
 
-	constructor(selfId = 'toto', knownPeers = {}, connectedPeers = {}) {
+	/** @param {string} selfId @param {PeerStore} peerStore */
+	constructor(selfId, peerStore) {
 		this.id = selfId;
-		this.knownPeers = knownPeers;
-		this.connectedPeers = connectedPeers;
+		this.peerStore = peerStore;
 	}
 
 	/** Find routes using bidirectional BFS with early stopping
@@ -94,8 +92,8 @@ export class RouteBuilder_V2 {
 	 * @returns {RouteResult} Result containing found routes and metadata */
 	buildRoutes(remoteId, maxRoutes = 5, maxHops = 3, maxNodes = 1728, sortByScore = true, goodEnoughScore = 0.8) {
 		if (this.id === remoteId) throw new Error('Cannot build route to self');
-		if (this.connectedPeers[remoteId]) return { routes: [{ path: [this.id, remoteId]}], success: true, nodesExplored: 1 };
-		if (!this.knownPeers[remoteId]) return this.#buildBlindRoutes(remoteId);
+		if (this.peerStore.connected[remoteId]) return { routes: [{ path: [this.id, remoteId]}], success: true, nodesExplored: 1 };
+		if (!this.peerStore.known[remoteId]) return this.#buildBlindRoutes(remoteId);
 
 		const result = this.#bidirectionalSearch(remoteId, maxHops, maxNodes, goodEnoughScore);
 		if (!result.success) return { routes: [], success: false, nodesExplored: result.nodesExplored };
@@ -107,7 +105,7 @@ export class RouteBuilder_V2 {
 
 	#buildBlindRoutes(remoteId, randomizeOrder = true) {
 		const routes = [];
-		const connected = Object.keys(this.connectedPeers);
+		const connected = this.peerStore.neighbours;
 		const peerList = randomizeOrder ? connected.sort(() => Math.random() - 0.5) : connected;
 		for (const peerId of peerList) routes.push({ path: [this.id, peerId, remoteId], hops: 0, score: 0 });
 		if (routes.length === 0) return { routes: [], success: false, nodesExplored: 0 };
@@ -175,8 +173,10 @@ export class RouteBuilder_V2 {
 		if (depth >= maxDepth) return [];
 
 		const meetings = [];
-		const neighbors = this.#getNeighbors(current);
-		for (const neighbor of Object.keys(neighbors)) {
+		const neighbors = current === this.id
+		? this.peerStore.neighbours
+		: Object.keys(this.peerStore.known[current]?.neighbours || {});
+		for (const neighbor of neighbors) {
 			if (pathSet.has(neighbor)) continue;
 			
 			const newDepth = depth + 1;
@@ -190,13 +190,6 @@ export class RouteBuilder_V2 {
 		}
 
 		return meetings;
-	}
-
-	/** Get neighbors for current node
-	 * @param {string} nodeId - Current node
-	 * @returns {Record<string, any>} Neighbors object */
-	#getNeighbors(nodeId) {
-		return nodeId === this.id ? this.connectedPeers : this.knownPeers[nodeId]?.neighbours || {};
 	}
 
 	/** Build complete path from meeting point

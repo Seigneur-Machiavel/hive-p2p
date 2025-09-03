@@ -39,7 +39,7 @@ export class UnicastMessager {
 	constructor(selfId, peerStore) {
 		this.id = selfId;
 		this.peerStore = peerStore;
-		this.pathFinder = new RouteBuilder(this.id, this.peerStore.known, this.peerStore.connected);
+		this.pathFinder = new RouteBuilder(this.id, this.peerStore);
 	}
 
 	/** @param {'signal' | 'message'} callbackType @param {Function} callback */

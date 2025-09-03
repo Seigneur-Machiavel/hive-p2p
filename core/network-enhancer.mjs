@@ -63,7 +63,7 @@ export class NetworkEnhancer {
 			const { sharedNeighbours, overlap } = this.peerStore.getOverlap(senderId);
 			const tooManySharedPeers = overlap > NODE.MAX_OVERLAP;
 			const isTwitchUser = senderId.startsWith('f_');
-			const tooManyConnectedPeers = Object.keys(this.peerStore.connected).length >= NODE.TARGET_NEIGHBORS_COUNT - 1;
+			const tooManyConnectedPeers = this.peerStore.neighbours.length >= NODE.TARGET_NEIGHBORS_COUNT - 1;
 			if (!isTwitchUser && (tooManySharedPeers || tooManyConnectedPeers)) this.peerStore.kickPeer(senderId, 30_000);
 			else this.peerStore.addConnectingPeer(senderId, tempTransportInstance, signal, this.useTestTransport);
 		}
@@ -83,7 +83,7 @@ export class NetworkEnhancer {
 
 	// INTERNAL METHODS
 	#getConnectionInfo() {
-		const connectedPeersCount = Object.keys(this.peerStore.connected).length;
+		const connectedPeersCount = this.peerStore.neighbours.length;
 		const missingCount = (NODE.TARGET_NEIGHBORS_COUNT - connectedPeersCount);
 		return { 
 			isEnough: connectedPeersCount >= NODE.TARGET_NEIGHBORS_COUNT,
@@ -99,7 +99,7 @@ export class NetworkEnhancer {
 		
 		const [connected, connecting] = [this.peerStore.connected, this.peerStore.connecting];
 		const connectingCount = Object.keys(connecting).filter(id => this.bootstrapsIds[id]).length;
-		const connectedCount = Object.keys(connected).filter(id => this.bootstrapsIds[id]).length;
+		const connectedCount = this.peerStore.neighbours.filter(id => this.bootstrapsIds[id]).length;
 		if (connectedCount + connectingCount >= NODE.MAX_BOOTSTRAPS_OUT_CONNS) return; // already connected to enough bootstraps
 
 		const { id, publicUrl } = this.bootstraps[this.nBI];
