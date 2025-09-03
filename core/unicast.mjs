@@ -27,18 +27,13 @@ export class DirectMessage {
 }
 
 export class UnicastMessager {
+	/** @type {Record<string, Function[]>} */ callbacks = {};
 	id;
 	peerStore;
 	pathFinder;
 	maxHops = MESSAGER.MAX_HOPS;
 	maxRoutes = MESSAGER.MAX_ROUTES;
 	maxNodes = MESSAGER.MAX_NODES;
-
-	/** @type {Record<string, Function[]>} */ callbacks = {
-		'signal': [],
-		'gossip_history': [],
-		'message': []
-	};
 
 	/** @param {string} selfId @param {PeerStore} peerStore */
 	constructor(selfId, peerStore) {
@@ -47,6 +42,11 @@ export class UnicastMessager {
 		this.pathFinder = new RouteBuilder(this.id, this.peerStore.known, this.peerStore.connected);
 	}
 
+	/** @param {'signal' | 'message'} callbackType @param {Function} callback */
+	on(callbackType, callback) {
+		if (!this.callbacks[callbackType]) this.callbacks[callbackType] = [callback];
+		else this.callbacks[callbackType].unshift(callback);
+	}
 	/** @param {string} remoteId @param {string | Uint8Array} data */
 	sendMessage(remoteId, type, data, spread = 1) {
 		const tempConActive = this.peerStore.connecting[remoteId]?.tempTransportInstance?.readyState === 1;
@@ -56,8 +56,10 @@ export class UnicastMessager {
 		const builtResult = tempConActive
 			? { success: true, routes: [{ path: [this.id, remoteId] }] }
 			: this.pathFinder.buildRoutes(remoteId, this.maxRoutes, this.maxHops, this.maxNodes, true);
-		//if (!builtResult.success) return { success: false, reason: 'No route found' };
 
+			// MAKE IT MORE CONSISTENT
+			// take care of re-routing usage who can involve insane results
+			// apply 'spread' only if rerouting is false
 		if (!builtResult.success) {
 			//return { success: false, reason: 'No route found' };
 			const randomNeighbourId = this.peerStore.getRandomConnectedPeerId();
@@ -66,7 +68,7 @@ export class UnicastMessager {
 			this.peerStore.sendMessageToPeer(route[1], msg);
 		} else for (let i = 0; i < Math.min(spread, builtResult.routes.length); i++) {
 			const route = builtResult.routes[i].path;
-			const msg = new DirectMessage(route, type, data, true);
+			const msg = new DirectMessage(route, type, data, false);
 			this.peerStore.sendMessageToPeer(route[1], msg); // send to next peer
 		}
 
@@ -116,10 +118,5 @@ export class UnicastMessager {
 
 		//if (!selfIsDestination) return;
 		if (this.callbacks[type]) for (const cb of this.callbacks[type]) cb(senderId, data);
-	}
-	/** @param {'signal' | 'message'} callbackType @param {Function} callback */
-	on(callbackType, callback) {
-		if (!this.callbacks[callbackType]) throw new Error(`Unknown callback type: ${callbackType}`);
-		this.callbacks[callbackType].unshift(callback);
 	}
 }

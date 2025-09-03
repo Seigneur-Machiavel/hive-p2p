@@ -77,16 +77,11 @@ class DegenerateBloomFilter {
 	}
 }
 export class Gossip {
-	bloomFilter = new DegenerateBloomFilter();
+	/** @type {Record<string, Function[]>} */ callbacks = {};
 	id;
 	peerStore;
+	bloomFilter = new DegenerateBloomFilter();
 
-	/** @type {Record<string, Function[]>} */
-	callbacks = {
-		'peer_connected': [(senderId, data) => this.peerStore.handlePeerConnectedGossipEvent(senderId, data)],
-		'peer_disconnected': [(senderId, data) => this.peerStore.unlinkPeers(data, senderId)],
-		// Add more gossip event handlers here
-	};
 
 	/** @param {string} peerId @param {PeerStore} peerStore */
 	constructor(peerId, peerStore) {
@@ -94,6 +89,11 @@ export class Gossip {
 		this.peerStore = peerStore;
 	}
 
+	/** @param {string} callbackType @param {Function} callback */
+	on(callbackType, callback) {
+		if (!this.callbacks[callbackType]) this.callbacks[callbackType] = [callback];
+		else this.callbacks[callbackType].unshift(callback);
+	}
 	/** Gossip a message to all connected peers > will be forwarded to all peers
 	 * @param {string} topic @param {string | Uint8Array} data @param {number} [TTL] */
 	broadcast(topic, data, TTL = GOSSIP.TTL.default) {

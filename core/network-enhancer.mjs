@@ -1,6 +1,5 @@
 import { TestWsConnection } from '../simulation/test-transports.mjs';
-import { shuffleArray } from '../utils/common_functions.mjs';
-import { NODE } from './global_parameters.mjs';
+import { IDENTIFIERS, NODE, CONNECTION_ENHANCER } from './global_parameters.mjs';
 
 /**
  * @typedef {import('./peer-store.mjs').PeerStore} PeerStore
@@ -23,7 +22,7 @@ export class NetworkEnhancer {
 	constructor(selfId, peerStore, bootstraps, useTestTransport = false) {
 		this.id = selfId;
 		this.peerStore = peerStore;
-		this.bootstraps = shuffleArray(bootstraps);
+		this.bootstraps = bootstraps.sort(() => Math.random() - 0.5);
 		for (const b of bootstraps) this.bootstrapsIds[b.id] = b.publicUrl;
 		this.nBI = Math.random() * bootstraps.length | 0;
 		this.useTestTransport = useTestTransport;
@@ -51,7 +50,7 @@ export class NetworkEnhancer {
 		if (conn && data.type !== 'offer') this.peerStore.assignSignal(senderId, data);
 		else if (!conn && data.type === 'offer') {
 			const { sharedNeighbours, overlap } = this.peerStore.getOverlap(senderId);
-			const tooManySharedPeers = sharedNeighbours.length > NODE.MAX_OVERLAP;
+			const tooManySharedPeers = overlap > NODE.MAX_OVERLAP;
 			const isTwitchUser = senderId.startsWith('f_');
 			const tooManyConnectedPeers = Object.keys(this.peerStore.connected).length >= NODE.TARGET_NEIGHBORS_COUNT - 1;
 			if (!isTwitchUser && (tooManySharedPeers || tooManyConnectedPeers)) this.peerStore.kickPeer(senderId, 30_000);
@@ -108,29 +107,32 @@ export class NetworkEnhancer {
 	}
 	#tryConnectMoreNodes() {
 		const { isEnough, missingCount, connectedPeersCount, knownPeersCount } = this.#getConnectionInfo();
-		if (isEnough) return;
-		
-		/** @type {string[]} */ const targets = [];
-		for (const [peerId, peerInfo] of Object.entries(this.peerStore.known)) {
-			if (this.peerStore.isKicked(peerId) || this.peerStore.isBanned(peerId)) continue;
-			if (targets.length >= missingCount) break;
-			else if (peerId === this.id) continue; // skip self
-			else if (this.peerStore.connected[peerId]) continue; // skip connected peers
-			else if (this.peerStore.connecting[peerId]) continue; // skip connecting peers
-
-			const { sharedNeighbours, overlap } = this.peerStore.getOverlap(peerId);
-			if (overlap > NODE.MAX_OVERLAP) continue;
-			if (peerInfo.connectionsCount < NODE.TARGET_NEIGHBORS_COUNT) targets.push(peerId);
-		}
+		if (isEnough || !connectedPeersCount) return;
 
 		const connectedFactor = connectedPeersCount;
-		const knowsFactor = Math.ceil(knownPeersCount / 10);
-		const ratePow = Math.min(knowsFactor + connectedFactor, 8);
+		const knowsFactor = Math.ceil(Math.sqrt(knownPeersCount) / NODE.TARGET_NEIGHBORS_COUNT);
+		const ratePow = Math.max(1, Math.min(knowsFactor + connectedFactor, 8));
 		const enhancedConnectionRate = Math.pow(NODE.ENHANCE_CONNECTION_RATE_BASIS, ratePow);
-		for (const targetId of targets) {
-			if (Math.random() > enhancedConnectionRate) continue;
-			this.peerStore.addConnectingPeer(targetId, undefined, undefined, this.useTestTransport);
-			break;
+		// if (this.id === 'peer_0') // DEBUG
+		// 	 console.log(`ECR: ${enhancedConnectionRate.toFixed(6)}`)
+
+		const maxAttempts = CONNECTION_ENHANCER.MAX_ATTEMPTS_BASED_ON_CONNECTED[connectedPeersCount];
+		let attempts = 0;
+		/** @type {string[]} */ const targets = [];
+		for (const [peerId, peerInfo] of Object.entries(this.peerStore.known)) {
+			if (peerId.startsWith(IDENTIFIERS.PUBLIC_NODE)) continue; // ignore bootstrap peers
+			if (this.peerStore.isKicked(peerId) || this.peerStore.isBanned(peerId)) continue;
+			if (targets.length >= missingCount) break;
+			if (peerId === this.id) continue; // skip self
+			if (this.peerStore.connected[peerId]) continue; // skip connected peers
+			if (this.peerStore.connecting[peerId]) continue; // skip connecting peers
+			if (peerInfo.connectionsCount >= NODE.TARGET_NEIGHBORS_COUNT) continue; // skip if target already connected to enough peers
+
+			const { sharedNeighbours, overlap } = this.peerStore.getOverlap(peerId);
+			if (overlap > NODE.MAX_OVERLAP) continue; // avoid overlap
+			if (Math.random() > enhancedConnectionRate) continue; // apply rate (useful at startup)
+			this.peerStore.addConnectingPeer(peerId, undefined, undefined, this.useTestTransport);
+			if (attempts++ >= maxAttempts) break; // limit to one new connection attempt
 		}
 	}
 }

@@ -16,13 +16,8 @@ export class NodeP2P {
 	/** class who manage gossip messages */ gossip;
 	/** flag to indicate whether to use test transport */ useTestTransport;
 
-	/** @type {Record<string, Record<string, Function>>} */
-	callbacks = { // NOT USED FOR NOW BUT SHOULD BE RELATED TO THE NODE API FOR CONSISTENCY
-		onDirectMessage: [],
-		onGossipMessage: []
-	};
-
-	/** @param {string} id The unique identifier for the node
+	/** Initialize a new P2P node instance, use .start() to init networkEnhancer
+	 * @param {string} id The unique identifier for the node (PubKey)
 	 * @param {Array<Record<string, string>>} bootstraps List of bootstrap nodes used as P2P network entry
 	 * @param {boolean} useTestTransport Whether to use the test transport */
 	constructor(id = 'toto', bootstraps = [], useTestTransport = false, verbose = 0) {
@@ -34,13 +29,21 @@ export class NodeP2P {
 		this.gossip = new Gossip(id, this.peerStore);
 		this.useTestTransport = useTestTransport;
 
-		// SETUP LISTENERS
-		this.peerStore.on('signal', (peerId, data) => this.sendMessage(peerId, 'signal', data));
-		this.peerStore.on('connect', (peerId, direction) => this.#onConnect(peerId, direction));
-		this.peerStore.on('disconnect', (peerId, direction) => this.#onDisconnect(peerId, direction));
-		this.peerStore.on('data', (peerId, data) => this.#onData(peerId, data));
-		this.messager.on('signal', (senderId, data) => this.networkEnhancer.handleIncomingSignal(senderId, data));
-		this.messager.on('gossip_history', (senderId, messages) => this.networkEnhancer.handleIncomingGossipHistory(senderId, messages));
+		const { peerStore, networkEnhancer, messager, gossip } = this;
+		// SETUP TRANSPORT LISTENERS
+		peerStore.on('signal', (peerId, data) => this.sendMessage(peerId, 'signal', data));
+		peerStore.on('connect', (peerId, direction) => this.#onConnect(peerId, direction));
+		peerStore.on('disconnect', (peerId, direction) => this.#onDisconnect(peerId, direction));
+		peerStore.on('data', (peerId, data) => this.#onData(peerId, data));
+		
+		// UNICAST LISTENERS
+		messager.on('signal', (senderId, data) => networkEnhancer.handleIncomingSignal(senderId, data));
+		//TODO messager.on('connection_rejected', (senderId, data) => this.peerStore.removePeer(senderId, 'connecting'));
+		messager.on('gossip_history', (senderId, messages) => networkEnhancer.handleIncomingGossipHistory(senderId, messages));
+
+		// GOSSIP LISTENERS
+		gossip.on('peer_connected', (senderId, data) => peerStore.handlePeerConnectedGossipEvent(senderId, data));
+		gossip.on('peer_disconnected', (senderId, data) => peerStore.unlinkPeers(data, senderId));
 
 		if (verbose > 0) console.log(`NodeP2P initialized: ${id}`);
 	}
@@ -75,12 +78,12 @@ export class NodeP2P {
 
 	// PUBLIC API
 	/** @param {string} id @param {Array<string>} bootstraps @param {'SimplePeer' | 'Test'} transport */
-	static createNode(id = 'toto', bootstraps = [], transport = 'Test', init = true) {
+	static createNode(id = 'toto', bootstraps = [], transport = 'Test', start = true) {
 		const node = new NodeP2P(id, bootstraps, transport);
-		if (init) node.init();
+		if (start) node.start();
 		return node;
 	}
-	init() { this.networkEnhancer.init(); return true; }
+	start() { this.networkEnhancer.init(); return true; }
 	/** @param {string} topic @param {string | Uint8Array} data @param {number} [TTL] */
 	broadcast(topic, data, TTL) { this.gossip.broadcast(topic, data, TTL); }
 	/** @param {string} remoteId @param {string | Uint8Array} data */

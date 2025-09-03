@@ -15,7 +15,6 @@ export class NetworkRenderer {
 	colors = {
 		background: 0x1a1a1a,
 		currentPeer: 0xFFD700,
-		chosenPeer: 0xFF69B4,
 		hoveredPeer: 0xFF4500,
 		connectedPeerNeighbour: 0x4CAF50,
 		connectingPeerNeighbour: 0x03b5fc,
@@ -126,7 +125,7 @@ export class NetworkRenderer {
     }
 
     // Public API methods
-    #createMeshBorder = (nodeMesh, isChosen) => {
+    #createMeshBorder = (nodeMesh, color = this.colors.publicNodeBorder) => {
 		const marginBetween = this.options.nodeBorderRadius * 2;
 		const borderGeometry = new THREE.RingGeometry(
 			this.options.nodeRadius + marginBetween,
@@ -134,7 +133,7 @@ export class NetworkRenderer {
 			16
 		);
 		const borderMaterial = new THREE.MeshBasicMaterial({ 
-			color: isChosen ? this.colors.chosenPeer : this.colors.publicNodeBorder,
+			color,
 			side: THREE.DoubleSide,
 			transparent: true,
 			opacity: .33
@@ -146,10 +145,10 @@ export class NetworkRenderer {
 		//nodeMesh.userData.border = borderMesh;
 		return borderMesh;
 	}
-	addOrUpdateNode(id, status = 'known', isPublic = false, isChosen = false, neighbours = []) {
+	addOrUpdateNode(id, status = 'known', isPublic = false, neighbours = []) {
 		const existingNode = this.nodesStore.get(id);
 		if (!existingNode) { // Create new node
-			const newNode = new Node(id, status, isPublic, isChosen, neighbours);
+			const newNode = new Node(id, status, isPublic, neighbours);
 			this.nodesStore.add(newNode);
 
 			// Get next available index for this node
@@ -169,12 +168,7 @@ export class NetworkRenderer {
 			this.instancedMesh.setColorAt(instanceIndex, color);
 
 			// Handle borders (séparément, comme avant)
-			if (isPublic || isChosen) {
-				// Tu devras créer un mesh temporaire pour le border ou adapter ta logique
-				const borderMesh = this.#createMeshBorder({ position: pos }, isChosen);
-				this.nodeBorders[id] = borderMesh; // Nouvelle Map pour stocker les borders
-			}
-			
+			if (isPublic) this.nodeBorders[id] = this.#createMeshBorder({ position: pos }, this.colors.publicNodeBorder);
 			return;
 		}
 
@@ -184,20 +178,18 @@ export class NetworkRenderer {
 		this.instancedMesh.setColorAt(instanceIndex, newColor);
 		this.instancedMesh.instanceColor.needsUpdate = true;
 
-		let needBorderUpdate = existingNode.isPublic !== isPublic || existingNode.isChosen !== isChosen;
+		let needBorderUpdate = existingNode.isPublic !== isPublic;
 		existingNode.status = status;
 		existingNode.isPublic = isPublic;
-		existingNode.isChosen = isChosen;
 		existingNode.neighbours = neighbours;
 		this.instancedMesh.instanceMatrix.needsUpdate = true;
 		if (!needBorderUpdate) return;
 		
 		// Handle border updates
 		const existingBorder = this.nodeBorders[id];
-		if (isPublic || isChosen) {
+		if (isPublic) {
 			if (existingBorder) this.scene.remove(existingBorder);
-			const newBorder = this.#createMeshBorder({ position: existingNode.position }, isChosen);
-			this.nodeBorders[id] = newBorder;
+			this.nodeBorders[id] = this.#createMeshBorder({ position: existingNode.position }, this.colors.publicNodeBorder);
 			return;
 		}
 
@@ -531,8 +523,7 @@ export class NetworkRenderer {
 			Peer: nodeId,
 			Type: node.status,
 			Neighbours: node.neighbours.length > 0 ? node.neighbours : 'None',
-			IsPublic: node.isPublic,
-			IsChosen: node.isChosen
+			IsPublic: node.isPublic
 		};
 
 		element.innerHTML = `<pre>${JSON.stringify(json, null, 2)}</pre>`;

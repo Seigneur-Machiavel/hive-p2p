@@ -1,6 +1,7 @@
 import wrtc from 'wrtc';
 import SimplePeer from 'simple-peer';
 import { TestTransport } from '../simulation/test-transports.mjs';
+import { IDENTIFIERS } from './global_parameters.mjs';
 
 /**
  * @typedef {import('ws').WebSocket} WebSocket
@@ -123,7 +124,8 @@ export class PeerStore {
 		});
 		transportInstance.on('signal', data => { if (!this.isDestroy) for (const cb of this.callbacks.signal) cb(remoteId, data, sCT); });
 		transportInstance.on('error', error => {
-			if (error.message.includes('Failed to digest signal for peer')) return; // avoid logging
+			if (error.message.includes('Failed to digest')) return; // avoid logging
+			if (error.message.includes('No peer found')) return; // avoid logging
 			if (error.message === 'cannot signal after peer is destroyed') return; // avoid logging
 			console.error(`transportInstance error for ${remoteId}:`, error.stack);
 		});
@@ -194,7 +196,8 @@ export class PeerStore {
 	getOverlap(peerId1, peerId2 = this.id) {
 		const p1Neighbours = this.known[peerId1]?.neighbours || {};
 		const p2Neighbours = peerId2 === this.id ? this.connected : this.known[peerId2]?.neighbours || {};
-		const sharedNeighbours = Object.keys(p1Neighbours).filter(id => p2Neighbours[id]);
+		const sharedNeighbours = Object.keys(p1Neighbours).filter(
+			id => { if (p2Neighbours[id] && !id.startsWith(IDENTIFIERS.PUBLIC_NODE)) return p2Neighbours[id]; });
 		return { sharedNeighbours, overlap: sharedNeighbours.length };
 	}
 	getRandomConnectedPeerId() {

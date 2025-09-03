@@ -1,16 +1,23 @@
+export const IDENTIFIERS = {
+	PUBLIC_NODE: 'public_',
+}
+
 export const NODE = {
 	SERVICE_PORT: 8080,
-	PUBLIC_AUTO_BAN_DELAY: { min: 10_000, max: 30_000 },
-	PUBLIC_AUTO_BAN_DURATION: 60_000,
+	PUBLIC_AUTO_BAN_DELAY: { min: 20_000, max: 30_000 },
+	PUBLIC_AUTO_BAN_DURATION: 120_000,
 
-	CONNECTION_UPGRADE_TIMEOUT: 8_000, // delay before SDP failure | default: 5_000 (5 seconds)
-	ENHANCE_CONNECTION_DELAY: 2_500, // delay between connection attempts | default: 10_000 (10 seconds)
+	CONNECTION_UPGRADE_TIMEOUT: 5_000, // delay before SDP failure | default: 5_000 (5 seconds)
+	ENHANCE_CONNECTION_DELAY: 2_500, // delay between connection attempts | default: 2_500 (2.5 seconds)
 	ENHANCE_CONNECTION_RATE_BASIS: .618, // default: .618 (61.8%) (PONDERATION)
 	MAX_BOOTSTRAPS_IN_CONNS: 10, // default: 10
 	MAX_BOOTSTRAPS_OUT_CONNS: 2, // prod: 2, simulation we can set: 0
 	MIN_CONNECTION_TIME_TO_DISPATCH_EVENT: 2_500,
 	TARGET_NEIGHBORS_COUNT: 12, // default: 12
 	MAX_OVERLAP: 3 // Max of shared neighbours | default: 5, strict: 2
+}
+export const CONNECTION_ENHANCER = {
+	MAX_ATTEMPTS_BASED_ON_CONNECTED: [0, 5, 2, 1]
 }
 export const MESSAGER = {
 	MAX_HOPS: 10,

@@ -1,4 +1,5 @@
 import { NetworkRenderer } from './NetworkRenderer.mjs';
+import { IDENTIFIERS } from '../core/global_parameters.mjs';
 
 class SimulationInterface {
 	#subscriptionsPeerId = null;
@@ -73,7 +74,7 @@ class SimulationInterface {
 }
 
 class NetworkVisualizer {
-	autoSelectCurrentPeerCategory = ['standard', 'chosen', 'public']; // 'public' | 'standard' | 'chosen' | false
+	autoSelectCurrentPeerCategory = ['standard', 'public']; // 'public' | 'standard' | false
 	currentPeerId;
 	lastPeerInfo;
 	networkRenderer = new NetworkRenderer();
@@ -84,7 +85,6 @@ class NetworkVisualizer {
 
 		publicPeersCount: document.getElementById('publicPeersCount'),
 		peersCount: document.getElementById('peersCount'),
-		chosenPeerCount: document.getElementById('chosenPeerCount'),
 		startSimulation: document.getElementById('startSimulation'),
 	}
 
@@ -137,8 +137,7 @@ class NetworkVisualizer {
 	#getSimulatorSettings() {
 		return {
 			publicPeersCount: parseInt(this.elements.publicPeersCount.value),
-			peersCount: parseInt(this.elements.peersCount.value),
-			chosenPeerCount: parseInt(this.elements.chosenPeerCount.value)
+			peersCount: parseInt(this.elements.peersCount.value)
 		};
 	}
 	// LIVE METHODS
@@ -148,9 +147,8 @@ class NetworkVisualizer {
 
 		const newlyUpdated = {};
 		const digestPeerUpdate = (id = 'toto', status = 'unknown', neighbours = []) => {
-			const isPublic = id.startsWith('public_');
-			const isChosen = id.startsWith('chosen_');
-			this.networkRenderer.addOrUpdateNode(id, status, isPublic, isChosen, neighbours);
+			const isPublic = id.startsWith(IDENTIFIERS.PUBLIC_NODE);
+			this.networkRenderer.addOrUpdateNode(id, status, isPublic, neighbours);
 			newlyUpdated[id] = true;
 		}
 
@@ -188,10 +186,9 @@ class NetworkVisualizer {
 		this.networkRenderer.updateStats(peerInfo.store.connected.length);
 	}
 	// SIMULATION METHODS
-	#handleSettings(settings = { publicPeersCount: 2, peersCount: 5, chosenPeerCount: 1 }) {
+	#handleSettings(settings = { publicPeersCount: 2, peersCount: 5 }) {
 		if (settings.publicPeersCount) this.elements.publicPeersCount.value = settings.publicPeersCount;
 		if (settings.peersCount) this.elements.peersCount.value = settings.peersCount;
-		if (settings.chosenPeerCount) this.elements.chosenPeerCount.value = settings.chosenPeerCount;
 		if (settings.autoStart) this.simulationInterface.getPeerIds();
 	}
 	#updatePeersList(peersData, element = this.elements.peersList) {

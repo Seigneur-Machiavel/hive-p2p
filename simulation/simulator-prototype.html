@@ -19,10 +19,6 @@
 			<label for="peersCount">Standard:</label>
 			<input type="number" id="peersCount" value="5">
 		</div>
-		<div>
-			<label for="chosenPeerCount">Chosen:</label>
-			<input type="number" id="chosenPeerCount" value="1">
-		</div>
 		<button id="startSimulation">Start</button>
 	</div>
 	<div id="tooltip"></div>
@@ -30,7 +26,7 @@
 
 	<script type="module">
 		const config = {
-			autoSelectCurrentPeerCategory: 'standard', // 'public' | 'standard' | 'chosen' | false
+			autoSelectCurrentPeerCategory: 'standard', // 'public' | 'standard' | false
 			nodeRadius: 20,
 			attraction: .001, // .001
 			repulsion: 50000, // 50000
@@ -39,15 +35,12 @@
 			minDistance: {
 				both_public: 1000,
 				public: 500,
-				standard: 100,
-				chosen: 50,
-				both_chosen: 200
+				standard: 100
 			},
 			maxVelocity: .5 // 1
 		};
 		const colors = {
 			currentPeer: '#FFD700', // yellow
-			chosenPeer: '#FF69B4', // hot pink
 			hoveredPeer: '#FF4500', // orange red
 			connectedPeerNeighbour: '#4CAF50', // green
 			connectingPeerNeighbour: '#c1e6c1', // light green
@@ -102,14 +95,12 @@
 		function handleSettings(settings) {
 			if (settings.publicPeersCount) document.getElementById('publicPeersCount').value = settings.publicPeersCount;
 			if (settings.peersCount) document.getElementById('peersCount').value = settings.peersCount;
-			if (settings.chosenPeerCount) document.getElementById('chosenPeerCount').value = settings.chosenPeerCount;
 			if (settings.autoStart) ws.send(JSON.stringify({ type: 'getPeersIds' }));
 		}
 		function getSimulatorSettings() {
 			return {
 				publicPeersCount: parseInt(document.getElementById('publicPeersCount').value),
-				peersCount: parseInt(document.getElementById('peersCount').value),
-				chosenPeerCount: parseInt(document.getElementById('chosenPeerCount').value)
+				peersCount: parseInt(document.getElementById('peersCount').value)
 			};
 		}
 		function updatePeersList(peersData) {
@@ -152,8 +143,7 @@
 					velocities.set(id, { x: 0, y: 0 });
 				}
 				const isPublic = id.startsWith('public_');
-				const isChosen = id.startsWith('chosen_');
-				nodes[id] = { status: id === peerInfo.id ? 'current' : status, neighbours: getNeighbours(id), isPublic, isChosen };
+				nodes[id] = { status: id === peerInfo.id ? 'current' : status, neighbours: getNeighbours(id), isPublic };
 				newlyUpdated[id] = true;
 			}
 
@@ -252,7 +242,6 @@
 				else if (node.status === 'connecting') nodeColor = colors.connectingPeerNeighbour;
 
 				let strokeColor = node.isPublic ? colors.publicNodeBorder : colors.nodeBorder;
-				if (node.isChosen) strokeColor = colors.chosenPeer;
 				if (id === hoveredNodeId) strokeColor = colors.hoveredPeer;
 				p5Instance.fill(nodeColor);
 				p5Instance.stroke(strokeColor);
@@ -293,8 +282,6 @@
 					let minDistance = config.minDistance.standard;
 					if (node.isPublic) minDistance -= config.minDistance.public;
 					if (node.isPublic && otherNode.isPublic) minDistance += config.minDistance.both_public;
-					if (node.isChosen) minDistance -= config.minDistance.chosen;
-					if (node.isChosen && otherNode.isChosen) minDistance += config.minDistance.both_chosen;
 					if (distance >= Math.max(minDistance, config.minDistance.standard)) continue;
 
 					const force = config.repulsion / (distance * distance + 1);

@@ -2,7 +2,6 @@ export class Node {
 	id;
 	status;
 	isPublic;
-	isChosen;
 	neighbours;
 	velocity = { x: 0, y: 0, z: 0 };
 	position = {
@@ -13,12 +12,11 @@ export class Node {
 
 	/** Constructor for a Node
 	 * @param {string} id @param {'unknown' | 'known' | 'connecting' | 'connected' | 'current'} status
-	 * @param {boolean} isPublic @param {boolean} isChosen @param {Array<string>} neighbours */
-	constructor(id, status, isPublic, isChosen, neighbours) {
+	 * @param {boolean} isPublic @param {Array<string>} neighbours */
+	constructor(id, status, isPublic, neighbours) {
 		this.id = id;
 		this.status = status;
 		this.isPublic = isPublic;
-		this.isChosen = isChosen;
 		this.neighbours = neighbours;
 	}
 	addNeighbour(peerId) {
