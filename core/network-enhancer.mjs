@@ -117,20 +117,23 @@ export class NetworkEnhancer {
 		// 	 console.log(`ECR: ${enhancedConnectionRate.toFixed(6)}`)
 
 		const maxAttempts = CONNECTION_ENHANCER.MAX_ATTEMPTS_BASED_ON_CONNECTED[connectedPeersCount];
+		const entries = Object.entries(this.peerStore.known);
+		const nbEntries = entries.length;
+		let index = Math.floor(Math.random() * nbEntries);
 		let attempts = 0;
-		/** @type {string[]} */ const targets = [];
-		for (const [peerId, peerInfo] of Object.entries(this.peerStore.known)) {
+		for (let i = 0; i < nbEntries; i++) {
+			index = (index + 1) % nbEntries;
+			const [peerId, peerInfo] = entries[index];
 			if (peerId.startsWith(IDENTIFIERS.PUBLIC_NODE)) continue; // ignore bootstrap peers
+			if (Math.random() > enhancedConnectionRate) continue; // apply rate (useful at startup)
 			if (this.peerStore.isKicked(peerId) || this.peerStore.isBanned(peerId)) continue;
-			if (targets.length >= missingCount) break;
-			if (peerId === this.id) continue; // skip self
 			if (this.peerStore.connected[peerId]) continue; // skip connected peers
 			if (this.peerStore.connecting[peerId]) continue; // skip connecting peers
 			if (peerInfo.connectionsCount >= NODE.TARGET_NEIGHBORS_COUNT) continue; // skip if target already connected to enough peers
+			if (peerId === this.id) continue; // skip self
 
 			const { sharedNeighbours, overlap } = this.peerStore.getOverlap(peerId);
 			if (overlap > NODE.MAX_OVERLAP) continue; // avoid overlap
-			if (Math.random() > enhancedConnectionRate) continue; // apply rate (useful at startup)
 			this.peerStore.addConnectingPeer(peerId, undefined, undefined, this.useTestTransport);
 			if (attempts++ >= maxAttempts) break; // limit to one new connection attempt
 		}

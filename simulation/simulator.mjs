@@ -15,7 +15,7 @@ const sVARS = { // SIMULATION VARIABLES
 	autoStart: true,
 	publicPeersCount: 2,
 	peersCount: 5,
-	bootstrapsPerPeer: 6,
+	bootstrapsPerPeer: 6, // will not be exact, more like a limit.
 	delayBetweenInit: 10, // 0 = faster for simulating big networks but > 0 = should be more realistic
 	randomMessagePerSecondPerPeer: .2, // capped at a total of 500msg/sec
 };
@@ -40,7 +40,7 @@ async function destroyAllExistingPeers() {
 
 	return totalDestroyed;
 }
-function pickUpRandomBootstraps(count = 1) {
+function pickUpRandomBootstraps(count = sVARS.bootstrapsPerPeer) {
 	const selected = [];
 	for (let i = 0; i < count; i++) {
 		const randomBootstrapIndex = Math.floor(Math.random() * sVARS.publicPeersCards.length);
@@ -53,7 +53,7 @@ function pickUpRandomBootstraps(count = 1) {
 function addPeer(type = 'public', i = 0, bootstraps = [], init = false, setPublic = false) {
 	const id = `${type === 'standard' ? 'peer' : type}_${i}`;
 	// pickup one bootstrap only for standard node
-	const selectedBootstraps = type === 'standard' ? pickUpRandomBootstraps(sVARS.bootstrapsPerPeer) : bootstraps;
+	const selectedBootstraps = type === 'standard' ? pickUpRandomBootstraps() : bootstraps;
 	const peer = NodeP2P.createNode(id, selectedBootstraps, sVARS.useTestTransport, init);
 	peers.all[id] = peer;
 	peers[type].push(peer);
@@ -113,10 +113,7 @@ function sendRandomMessage(log = false) {
 		const recipient = peers.all[recipientId];
 		if (!sender || !recipient || sender.id === recipient.id) return; // skip if sender or recipient is not found or they are the same
 		const message = { type: 'message', data: `Hello from ${sender.id}` };
-		const result = sender.sendMessage(recipient.id, 'message', message);
-		if (!log) return;
-		if (!result || result.success) console.error(`Failed to send message to ${recipient.id}: ${result.reason}`);
-		else console.log(`Message sent to ${recipient.id} via routes: ${JSON.stringify(result.routes)}`);
+		sender.sendMessage(recipient.id, 'message', message);
 	} catch (error) { console.error('Error sending random message:', error); }
 }
 //if (sVARS.randomMessagePerSecond) setInterval(sendRandomMessage, 1000 / Math.min(sVARS.randomMessagePerSecond, 500));
@@ -228,7 +225,7 @@ class TwitchChatCommandInterpreter {
 	#createUserNode(user) {
 		if (this.userNodes[user]?.peerStore?.isDestroy) this.userNodes[user] = undefined;
 		if (this.userNodes[user]) return;
-		const peer = NodeP2P.createNode(`f_${user}`, pickUpRandomBootstraps(1), sVARS.useTestTransport);
+		const peer = NodeP2P.createNode(`f_${user}`, pickUpRandomBootstraps(), sVARS.useTestTransport);
 		this.userNodes[user] = peer;
 		peers.all[peer.id] = peer;
 		peers.standard.unshift(peer);

@@ -193,18 +193,13 @@ export class PeerStore {
 		if (this.known[peerId2]?.connectionsCount === 0) delete this.known[peerId2];
 	}
 	/** @param {string} peerId1 @param {string} [peerId2] default: this.id */
-	getOverlap(peerId1, peerId2 = this.id) {
+	getOverlap(peerId1, peerId2 = this.id, ignorePublic = true) {
 		const p1Neighbours = this.known[peerId1]?.neighbours || {};
 		const p2Neighbours = peerId2 === this.id ? this.connected : this.known[peerId2]?.neighbours || {};
-		const sharedNeighbours = Object.keys(p1Neighbours).filter(
-			id => { if (p2Neighbours[id] && !id.startsWith(IDENTIFIERS.PUBLIC_NODE)) return p2Neighbours[id]; });
+		const sharedNeighbours = ignorePublic
+		? Object.keys(p1Neighbours).filter(id => { if (p2Neighbours[id] && !id.startsWith(IDENTIFIERS.PUBLIC_NODE)) return p2Neighbours[id]; })
+		: Object.keys(p1Neighbours).filter(id => p2Neighbours[id]);
 		return { sharedNeighbours, overlap: sharedNeighbours.length };
-	}
-	getRandomConnectedPeerId() {
-		const connectedPeerIds = Object.keys(this.connected);
-		if (connectedPeerIds.length === 0) return null;
-		const randomIndex = Math.floor(Math.random() * connectedPeerIds.length);
-		return connectedPeerIds[randomIndex];
 	}
 	/** @param {string} remoteId @param {GossipMessage | DirectMessage} message */
 	sendMessageToPeer(remoteId, message) {

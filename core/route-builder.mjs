@@ -9,7 +9,7 @@
  *
  * @typedef {Object} RouteResult
  * @property {RouteInfo[]} routes - Array of found routes, sorted by quality (best first)
- * @property {boolean} success - Whether at least one route was found
+ * @property {boolean | 'blind'} success - Whether at least one route was found
  * @property {number} nodesExplored - Number of nodes visited during search
  */
 
@@ -95,7 +95,7 @@ export class RouteBuilder_V2 {
 	buildRoutes(remoteId, maxRoutes = 5, maxHops = 3, maxNodes = 1728, sortByScore = true, goodEnoughScore = 0.8) {
 		if (this.id === remoteId) throw new Error('Cannot build route to self');
 		if (this.connectedPeers[remoteId]) return { routes: [{ path: [this.id, remoteId]}], success: true, nodesExplored: 1 };
-		if (!this.knownPeers[remoteId]) return { routes: [], success: false, nodesExplored: 0 };
+		if (!this.knownPeers[remoteId]) return this.#buildBlindRoutes(remoteId);
 
 		const result = this.#bidirectionalSearch(remoteId, maxHops, maxNodes, goodEnoughScore);
 		if (!result.success) return { routes: [], success: false, nodesExplored: result.nodesExplored };
@@ -103,6 +103,15 @@ export class RouteBuilder_V2 {
 		const scoredRoutes = this.#calculateScores(result.paths);
 		if (sortByScore) scoredRoutes.sort((a, b) => b.score - a.score);
 		return { routes: scoredRoutes.slice(0, maxRoutes), success: true, nodesExplored: result.nodesExplored };
+	}
+
+	#buildBlindRoutes(remoteId, randomizeOrder = true) {
+		const routes = [];
+		const connected = Object.keys(this.connectedPeers);
+		const peerList = randomizeOrder ? connected.sort(() => Math.random() - 0.5) : connected;
+		for (const peerId of peerList) routes.push({ path: [this.id, peerId, remoteId], hops: 0, score: 0 });
+		if (routes.length === 0) return { routes: [], success: false, nodesExplored: 0 };
+		else return { routes, success: 'blind', nodesExplored: routes.length };
 	}
 
 	/** Bidirectional BFS: search from both ends until they meet

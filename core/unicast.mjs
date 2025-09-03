@@ -47,32 +47,32 @@ export class UnicastMessager {
 		if (!this.callbacks[callbackType]) this.callbacks[callbackType] = [callback];
 		else this.callbacks[callbackType].unshift(callback);
 	}
-	/** @param {string} remoteId @param {string | Uint8Array} data */
+	/** Send unicast message to a target
+	 * @param {string} remoteId @param {string} type @param {string | Uint8Array} data
+	 * @param {number} [spread] Max neighbours used to relay the message, default: 1 */
 	sendMessage(remoteId, type, data, spread = 1) {
 		const tempConActive = this.peerStore.connecting[remoteId]?.tempTransportInstance?.readyState === 1;
-		if (tempConActive && type !== 'signal') return; // 'signal' message only on temporary connections
-		if (remoteId === this.id) return;
+		if (tempConActive && type !== 'signal') return false; // 'signal' message only on temporary connections
+		if (remoteId === this.id) return false;
 
-		const builtResult = tempConActive
-			? { success: true, routes: [{ path: [this.id, remoteId] }] }
-			: this.pathFinder.buildRoutes(remoteId, this.maxRoutes, this.maxHops, this.maxNodes, true);
-
-			// MAKE IT MORE CONSISTENT
-			// take care of re-routing usage who can involve insane results
-			// apply 'spread' only if rerouting is false
-		if (!builtResult.success) {
-			//return { success: false, reason: 'No route found' };
-			const randomNeighbourId = this.peerStore.getRandomConnectedPeerId();
-			const route = [this.id, randomNeighbourId, remoteId];
-			const msg = new DirectMessage(route, type, data, true);
-			this.peerStore.sendMessageToPeer(route[1], msg);
-		} else for (let i = 0; i < Math.min(spread, builtResult.routes.length); i++) {
-			const route = builtResult.routes[i].path;
-			const msg = new DirectMessage(route, type, data, false);
-			this.peerStore.sendMessageToPeer(route[1], msg); // send to next peer
+		if (tempConActive) { // Special case: send 'signal' over tempCon to update the connection
+			const msg = new DirectMessage([this.id, remoteId], type, data, true);
+			this.peerStore.sendMessageToPeer(remoteId, msg);
+			return true;
 		}
 
-		return { success: true, routes: builtResult.routes };
+		const builtResult = this.pathFinder.buildRoutes(remoteId, this.maxRoutes, this.maxHops, this.maxNodes, true);
+		if (!builtResult.success) return false;
+
+		// Caution: re-routing usage who can involve insane results
+		const flexibleRouting = builtResult.success === 'blind';
+		const finalSpread = flexibleRouting ? 1 : spread; // Spread only if re-routing is false
+		for (let i = 0; i < Math.min(finalSpread, builtResult.routes.length); i++) {
+			const route = builtResult.routes[i].path;
+			const msg = new DirectMessage(route, type, data, flexibleRouting);
+			this.peerStore.sendMessageToPeer(route[1], msg); // send to next peer
+		}
+		return true;
 	}
 	#patchRouteToReachTarget(traveledRoute = [], targetId = 'toto') {
 		const builtResult = this.pathFinder.buildRoutes(targetId, this.maxRoutes, this.maxHops, this.maxNodes, true);
