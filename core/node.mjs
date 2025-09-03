@@ -4,7 +4,7 @@ import { PeerStore } from './peer-store.mjs';
 import { NetworkEnhancer } from './network-enhancer.mjs';
 import { UnicastMessager } from './unicast.mjs';
 import { Gossip } from './gossip.mjs';
-import { NODE } from './global_parameters.mjs';
+import { DISCOVERY, NODE } from './global_parameters.mjs';
 
 export class NodeP2P {
 	verbose;
@@ -31,19 +31,21 @@ export class NodeP2P {
 
 		const { peerStore, networkEnhancer, messager, gossip } = this;
 		// SETUP TRANSPORT LISTENERS
-		peerStore.on('signal', (peerId, data) => this.sendMessage(peerId, 'signal', data));
 		peerStore.on('connect', (peerId, direction) => this.#onConnect(peerId, direction));
 		peerStore.on('disconnect', (peerId, direction) => this.#onDisconnect(peerId, direction));
+		peerStore.on('signal', (peerId, data) => this.sendMessage(peerId, 'signal', data));
+		peerStore.on('signal_rejected', (peerId, neighbours) => this.sendMessage(peerId, 'signal_rejected', neighbours));
 		peerStore.on('data', (peerId, data) => this.#onData(peerId, data));
 		
 		// UNICAST LISTENERS
 		messager.on('signal', (senderId, data) => networkEnhancer.handleIncomingSignal(senderId, data));
-		//TODO messager.on('connection_rejected', (senderId, data) => this.peerStore.removePeer(senderId, 'connecting'));
+		messager.on('signal_rejected', (senderId, data) => networkEnhancer.handleSignalRejection(senderId, data));
 		messager.on('gossip_history', (senderId, messages) => networkEnhancer.handleIncomingGossipHistory(senderId, messages));
 
 		// GOSSIP LISTENERS
 		gossip.on('peer_connected', (senderId, data) => peerStore.handlePeerConnectedGossipEvent(senderId, data));
 		gossip.on('peer_disconnected', (senderId, data) => peerStore.unlinkPeers(data, senderId));
+		gossip.on('my_neighbours', (senderId, data) => peerStore.digestPeerNeighbours(senderId, data));
 
 		if (verbose > 0) console.log(`NodeP2P initialized: ${id}`);
 	}
@@ -56,19 +58,20 @@ export class NodeP2P {
 		this.peerStore.linkPeers(this.id, peerId); // Add link in self store
 		
 		setTimeout(() => {
-			this.broadcast('peer_connected', peerId); // Spread the info
-			const gossipHistory = this.gossip.bloomFilter.getGossipHistoryByTime();
-			this.messager.sendMessage(peerId, 'gossip_history', gossipHistory);
-			//for (const msg of messagesHistory) this.gossip.broadcastToPeer(peerId, msg.senderId, msg.topic, msg.data);
-		}, 500); // send recent messages after 0.5s
+			if (DISCOVERY.GOSSIP_HISTORY)this.messager.sendMessage(peerId, 'gossip_history', this.gossip.bloomFilter.getGossipHistoryByTime());
+			if (DISCOVERY.CONNECTED_EVENT) this.broadcast('peer_connected', peerId);
+			if (DISCOVERY.NEIGHBOUR_GOSSIP) this.gossip.broadcast('my_neighbours', Object.keys(this.peerStore.connected));
+		}, 400);
 	}
 	/** @param {string} peerId @param {'in' | 'out'} direction */
 	#onDisconnect = (peerId, direction) => {
 		if (this.verbose) console.log(`(${this.id}) ${direction === 'in' ? 'Incoming' : 'Outgoing'} connection closed with peer ${peerId}`);
 		const connDuration = this.peerStore.connected[peerId]?.getConnectionDuration() || 0;
-		this.peerStore.unlinkPeers(this.id, peerId);
 		if (connDuration < NODE.MIN_CONNECTION_TIME_TO_DISPATCH_EVENT) return;
-		setTimeout(() => this.broadcast('peer_disconnected', peerId), 600); // Spread the info
+		setTimeout(() => {
+			this.peerStore.unlinkPeers(this.id, peerId);
+			if (DISCOVERY.DISCONNECTED_EVENT) this.broadcast('peer_disconnected', peerId);
+		}, 600);
 	}
 	#onData = (peerId, data) => {
 		const deserialized = JSON.parse(data);

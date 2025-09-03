@@ -2,6 +2,14 @@ export const IDENTIFIERS = {
 	PUBLIC_NODE: 'public_',
 }
 
+export const DISCOVERY = {
+	CONNECTED_EVENT: false,
+	DISCONNECTED_EVENT: false,
+	NEIGHBOUR_GOSSIP: true,
+	TRAVELED_ROUTE: true,
+	GOSSIP_HISTORY: true
+}
+
 export const NODE = {
 	SERVICE_PORT: 8080,
 	PUBLIC_AUTO_BAN_DELAY: { min: 20_000, max: 30_000 },

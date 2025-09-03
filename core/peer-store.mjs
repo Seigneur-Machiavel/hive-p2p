@@ -67,6 +67,7 @@ export class PeerStore {
 	id;
 	connUpgradeTimeout;
 	punisher = new Punisher();
+	/** @type {string[]} */ 					  connectedList = []; // faster access
 	/** @type {Record<string, PeerConnection>} */ connected = {};
 	/** @type {Record<string, PeerConnection>} */ connecting = {};
 	/** @type {Record<string, KnownPeer>} */ 	  known = {};
@@ -81,6 +82,7 @@ export class PeerStore {
 		'connect': [(peerId, direction) => this.#upgradeConnectingToConnected(peerId)],
 		'disconnect': [(peerId) => this.removePeer(peerId, 'connected')],
 		'signal': [],
+		'signal_rejected': [],
 		'data': []
 	};
 
@@ -110,7 +112,6 @@ export class PeerStore {
 		if (connected[remoteId]) return;
 		if (connecting[remoteId]) return console.warn(`Peer with ID ${remoteId} is already connecting.`), connecting[remoteId];
 
-		const sCT = Date.now(); // signalCreationTime (debug)
 		const TransportInstancer = useTestTransport ? TestTransport : SimplePeer;
 		const transportInstance = new TransportInstancer({ initiator: !remoteSDP, trickle: true, wrtc });
 		connecting[remoteId] = new PeerConnection(remoteId, transportInstance, direction);
@@ -122,7 +123,10 @@ export class PeerStore {
 			transportInstance.on('close', () => { if (!this.isDestroy) for (const cb of this.callbacks.disconnect) cb(remoteId, direction); });
 			transportInstance.on('data', data => { if (!this.isDestroy) for (const cb of this.callbacks.data) cb(remoteId, data); });
 		});
-		transportInstance.on('signal', data => { if (!this.isDestroy) for (const cb of this.callbacks.signal) cb(remoteId, data, sCT); });
+		transportInstance.on('signal', data => { 
+			const neighbours = Object.keys(this.connected); // share our neighbours
+			if (!this.isDestroy) for (const cb of this.callbacks.signal) cb(remoteId, { signal: data, neighbours });
+		});
 		transportInstance.on('error', error => {
 			if (error.message.includes('Failed to digest')) return; // avoid logging
 			if (error.message.includes('No peer found')) return; // avoid logging
@@ -170,6 +174,15 @@ export class PeerStore {
 			if (error.message.includes('connexion is not allowed')) return; // avoid logging
 			console.error(`Error signaling ${signalData.type} for ${remoteId}:`, error.stack);
 		}
+	}
+	rejectSignal(remoteId = 'toto') { // inform remote peer that we rejected its signal
+		const neighbours = Object.keys(this.connected); // share our neighbours
+		for (const cb of this.callbacks.signal_rejected) cb(remoteId, { signal: null, neighbours });
+	}
+	/** @param {string} peerId @param {string[]} neighbours */
+	digestPeerNeighbours(peerId, neighbours = []) {
+		if (!peerId || !Array.isArray(neighbours)) return;
+		for (const p of neighbours) this.linkPeers(peerId, p);
 	}
 	/** @param {string} remoteId @param {'connected' | 'connecting'} status */
 	removePeer(remoteId = 'toto', status = 'connecting') {
@@ -233,6 +246,7 @@ export class PeerStore {
 
 		const peer = this.connecting[remoteId];
 		this.connected[remoteId] = peer;
+		
 		delete this.connecting[remoteId];
 		delete this.pendingConnections[remoteId];
 		peer.setConnectionStartTime();

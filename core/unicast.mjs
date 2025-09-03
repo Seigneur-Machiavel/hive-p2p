@@ -1,4 +1,4 @@
-import { MESSAGER } from "./global_parameters.mjs";
+import { DISCOVERY, MESSAGER } from "./global_parameters.mjs";
 import { RouteBuilder_V1, RouteBuilder_V2 } from "./route-builder.mjs";
 const RouteBuilder = RouteBuilder_V2; // temporary switch
 
@@ -93,8 +93,8 @@ export class UnicastMessager {
 		const { route, type, data, isFlexible } = message;
 		const traveledRoute = this.#extractTraveledRoute(route);
 		if (!traveledRoute) return console.warn(`Failed to extract traveled route from ${route}`);
+		if (DISCOVERY.TRAVELED_ROUTE) this.peerStore.digestValidRoute(traveledRoute);
 		
-		this.peerStore.digestValidRoute(traveledRoute); // peer discovery by the way
 		const myIdPosition = route.indexOf(this.id);
 		const [senderId, prevId, nextId, targetId] = [route[0], route[myIdPosition - 1], route[myIdPosition + 1], route[route.length - 1]];
 		if (senderId === this.id) return console.warn(`Direct message from self (${this.id}) is not allowed.`);

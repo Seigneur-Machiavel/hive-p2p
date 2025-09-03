@@ -102,7 +102,7 @@ export class Gossip {
 	}
 	/** Broadcast a message to a specific peer (TTL = 0)
 	 * @param {string} targetPeerId @param {string} senderId @param {string} topic @param {string | Uint8Array} data */
-	broadcastToPeer(targetPeerId, senderId, topic, data) {
+	broadcastToPeer(targetPeerId, senderId, topic, data) { // UNUSED
 		const message = new GossipMessage(senderId, topic, data, 0);
 		this.peerStore.sendMessageToPeer(targetPeerId, message); // verify the 0
 	}

@@ -17,7 +17,7 @@ const sVARS = { // SIMULATION VARIABLES
 	peersCount: 5,
 	bootstrapsPerPeer: 6, // will not be exact, more like a limit.
 	delayBetweenInit: 10, // 0 = faster for simulating big networks but > 0 = should be more realistic
-	randomMessagePerSecondPerPeer: .2, // capped at a total of 500msg/sec
+	randomMessagePerSecondPerPeer: .01, // capped at a total of 500msg/sec
 };
 if (sVARS.useTestTransport) {
 	sVARS.publicPeersCount = 200; // stable: 3,  medium: 100, strong: 200

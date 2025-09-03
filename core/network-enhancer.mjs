@@ -6,7 +6,14 @@ import { IDENTIFIERS, NODE, CONNECTION_ENHANCER } from './global_parameters.mjs'
  * 
  * @typedef {Object} bootstrapInfo
  * @property {string} id
- * @property {string} publicUrl */
+ * @property {string} publicUrl
+ * 
+ * @typedef {Object} SignalData
+ * @property {string} signal
+ * @property {Array<string>} neighbours
+ * */
+
+
 
 export class NetworkEnhancer {
 	id;
@@ -42,20 +49,30 @@ export class NetworkEnhancer {
 	destroy() {
 		if (this.interval) clearInterval(this.interval);
 	}
-	/** @param {string} senderId @param {object} data @param {WebSocket} [tempTransportInstance] optional WebSocket */
+	/** @param {string} senderId @param {SignalData} data @param {WebSocket} [tempTransportInstance] optional WebSocket */
 	handleIncomingSignal(senderId, data, tempTransportInstance) {
-		if (this.peerStore.isKicked(senderId)) return;
-		if (!senderId || typeof data !== 'object') return;
+		if (typeof data !== 'object') return;
+		const { signal, neighbours } = data || {};
+		if (!senderId || typeof signal !== 'object') return;
+		if (this.peerStore.isKicked(senderId)) this.peerStore.rejectSignal(senderId);
+		this.peerStore.digestPeerNeighbours(senderId, neighbours);
+
 		const conn = this.peerStore.connecting[senderId];
-		if (conn && data.type !== 'offer') this.peerStore.assignSignal(senderId, data);
-		else if (!conn && data.type === 'offer') {
+		if (conn && signal.type === 'answer') this.peerStore.assignSignal(senderId, signal);
+		else if (!conn && signal.type === 'offer') {
 			const { sharedNeighbours, overlap } = this.peerStore.getOverlap(senderId);
 			const tooManySharedPeers = overlap > NODE.MAX_OVERLAP;
 			const isTwitchUser = senderId.startsWith('f_');
 			const tooManyConnectedPeers = Object.keys(this.peerStore.connected).length >= NODE.TARGET_NEIGHBORS_COUNT - 1;
 			if (!isTwitchUser && (tooManySharedPeers || tooManyConnectedPeers)) this.peerStore.kickPeer(senderId, 30_000);
-			else this.peerStore.addConnectingPeer(senderId, tempTransportInstance, data, this.useTestTransport);
+			else this.peerStore.addConnectingPeer(senderId, tempTransportInstance, signal, this.useTestTransport);
 		}
+	}
+	/** @param {string} senderId @param {SignalData} data */
+	handleSignalRejection(senderId, data) {
+		if (typeof data !== 'object') return;
+		if (!senderId || !Array.isArray(data.neighbours)) return;
+		this.peerStore.digestPeerNeighbours(senderId, data.neighbours);
 	}
 	/** @param {string} senderId @param {Array<{senderId: string, topic: string, data: string | Uint8Array}>} gossipHistory */
 	handleIncomingGossipHistory(senderId, gossipHistory = []) {
