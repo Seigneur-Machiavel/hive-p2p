@@ -51,11 +51,11 @@ export class NetworkRendererOptions {
 		precision = "highp", // "lowp"
 		nodeRadius = 12,
 		nodeBorderRadius = 3,
-		attraction = .00001, // .0001
-		repulsion = 50_000, // 50000
-		damping = 1, // .5
+		attraction = .000001, // .0001
+		repulsion = 5_000, // 50000
+		damping = .005, // .5
 		centerForce = .05, // .0005
-		maxVelocity = 1, // .2
+		maxVelocity = 3, // .2
 		repulsionOpts = {
 			maxDistance: 400,
 		},

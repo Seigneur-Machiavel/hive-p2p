@@ -77,7 +77,8 @@ export class NetworkEnhancer {
 	/** @param {string} senderId @param {Array<{senderId: string, topic: string, data: string | Uint8Array}>} gossipHistory */
 	handleIncomingGossipHistory(senderId, gossipHistory = []) {
 		for (const msg of gossipHistory)
-			if (msg.topic === 'peer_disconnected') this.peerStore.unlinkPeers(msg.data, msg.senderId);
+			if (msg.topic === 'my_neighbours') this.peerStore.digestPeerNeighbours(msg.senderId, msg.data);
+			else if (msg.topic === 'peer_disconnected') this.peerStore.unlinkPeers(msg.data, msg.senderId);
 			else if (msg.topic === 'peer_connected') this.peerStore.handlePeerConnectedGossipEvent(msg.senderId, msg.data);
 	}
 
@@ -87,13 +88,14 @@ export class NetworkEnhancer {
 		const missingCount = (NODE.TARGET_NEIGHBORS_COUNT - connectedPeersCount);
 		return { 
 			isEnough: connectedPeersCount >= NODE.TARGET_NEIGHBORS_COUNT,
+			limitToOneBootstrap: connectedPeersCount >= NODE.MAX_BOOTSTRAPS_OUT_CONNS / 2,
 			missingCount,
 			connectedPeersCount,
 			knownPeersCount: Object.keys(this.peerStore.known).length
 		};
 	}
 	#tryConnectNextBootstrap() {
-		const { isEnough, missingCount, connectedPeersCount, knownPeersCount } = this.#getConnectionInfo();
+		const { isEnough, limitToOneBootstrap, missingCount, connectedPeersCount, knownPeersCount } = this.#getConnectionInfo();
 		if (this.bootstraps.length === 0) return;
 		if (isEnough) return; // already connected to enough peers
 		
@@ -102,6 +104,8 @@ export class NetworkEnhancer {
 		const connectedCount = this.peerStore.neighbours.filter(id => this.bootstrapsIds[id]).length;
 		if (connectedCount + connectingCount >= NODE.MAX_BOOTSTRAPS_OUT_CONNS) return; // already connected to enough bootstraps
 
+		if (limitToOneBootstrap && connectedCount) return; // already connected to one bootstrap, wait next turn
+		if (limitToOneBootstrap && connectingCount) return; // already connecting to one bootstrap, wait next turn
 		const { id, publicUrl } = this.bootstraps[this.nBI];
 		const canMakeATry = id && publicUrl && !connected[id] && !connecting[id];
 		if (canMakeATry) this.#connectToPublicNode_UsingWs_UntilWebRtcUpgrade(id, publicUrl);

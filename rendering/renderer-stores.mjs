@@ -38,11 +38,11 @@ export class NodesStore {
 }
 export class ConnectionsStore {
 	/** @type {Record<string, any>} key: id1:id2, value: "true" | THREE.line */
+	nodesStore;
+	scene;
 	store = {};
 	hovered = {};
 	repaintIgnored = {}; // frame number
-	nodesStore;
-	scene;
 
 	/** @param {NodesStore} nodesStore */
 	constructor(nodesStore, scene) {

@@ -5,6 +5,10 @@
 export class MessageQueue {
 	typesInTheQueue = [];
 	queue = [];
+	onMessage;
+
+	/** @param {Function} onMessage */
+	constructor(onMessage) { this.onMessage = onMessage; this.#start(); }
 
 	push(message, avoidMultipleMessageWithSameType = true) {
 		const typeAlreadyInQueue = this.typesInTheQueue.includes(message.type);
@@ -12,14 +16,37 @@ export class MessageQueue {
 		if (!typeAlreadyInQueue) this.typesInTheQueue.push(message.type);
 		this.queue.push(message);
 	}
-	getNextMessage() {
+	#getNextMessage() {
 		const msg = this.queue.pop();
 		this.typesInTheQueue = this.typesInTheQueue.filter(type => type !== msg.type);
 		return msg;
 	}
+	async #start() { // Message processing loop
+		while (true) {
+			await this.onMessage(this.#getNextMessage());
+			await new Promise(resolve => setTimeout(resolve, 10)); // prevent blocking the event loop
+		}
+	}
 	reset() {
 		this.typesInTheQueue = [];
 		this.queue = [];
+	}
+}
+
+export class Statician {
+	gossip = 0;
+
+	constructor(delay = 10_000) {
+		setInterval(() => {
+			console.log(`%cSTATS(/sec): ${JSON.stringify(this.#getStatsPerSecond(delay))}`, 'color: pink;');
+			for (const key in this) this[key] = 0;
+		}, delay);
+	}
+	#getStatsPerSecond(delay) {
+		const divider = delay / 1000;
+		const stats = {}
+		for (const key in this) stats[key] = Math.round(this[key] / divider);
+		return stats;
 	}
 }
 

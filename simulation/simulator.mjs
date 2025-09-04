@@ -2,7 +2,7 @@ import path from 'path';
 import express from 'express';
 import { WebSocketServer } from 'ws';
 import { NodeP2P } from '../core/node.mjs';
-import { MessageQueue, SubscriptionsManager } from './simulator-utils.mjs';
+import { MessageQueue, Statician, SubscriptionsManager } from './simulator-utils.mjs';
 import { io } from 'socket.io-client'; // used for twitch events only
 
 let initInterval = null;
@@ -15,15 +15,16 @@ const sVARS = { // SIMULATION VARIABLES
 	autoStart: true,
 	publicPeersCount: 2,
 	peersCount: 5,
-	bootstrapsPerPeer: 6, // will not be exact, more like a limit.
-	delayBetweenInit: 10, // 0 = faster for simulating big networks but > 0 = should be more realistic
+	bootstrapsPerPeer: 20, // will not be exact, more like a limit.
+	delayBetweenInit: 100, // 0 = faster for simulating big networks but > 0 = should be more realistic
 	randomMessagePerSecondPerPeer: .01, // capped at a total of 500msg/sec
 };
 if (sVARS.useTestTransport) {
-	sVARS.publicPeersCount = 200; // stable: 3,  medium: 100, strong: 200
-	sVARS.peersCount = 1600; 	  // stable: 25, medium: 800, strong: 1600
+	sVARS.publicPeersCount = 100; // stable: 3,  medium: 100, strong: 200
+	sVARS.peersCount = 4900; 	  // stable: 25, medium: 800, strong: 1600
 }
 
+const statician = new Statician();
 const peers = {
 	/** @type {Record<string, NodeP2P>} */
 	all: {},
@@ -33,12 +34,12 @@ const peers = {
 	standard: [],
 }
 
-async function destroyAllExistingPeers() {
+async function destroyAllExistingPeers(pauseDuration = 500) {
 	let totalDestroyed = 0;
 	for (const peer of peers.public) { peer.destroy(); peers.public = []; totalDestroyed ++; }
 	for (const peer of peers.standard) { peer.destroy(); peers.standard = []; totalDestroyed ++; }
-
-	return totalDestroyed;
+	if (totalDestroyed !== 0) await new Promise(resolve => setTimeout(resolve, pauseDuration)); // wait for destruction to complete
+	console.log(`%c| ° ${totalDestroyed} EXISTING PEERS DESTROYED ° |`, 'color: fuchsia; font-weight: bold;');
 }
 function pickUpRandomBootstraps(count = sVARS.bootstrapsPerPeer) {
 	const selected = [];
@@ -52,35 +53,32 @@ function pickUpRandomBootstraps(count = sVARS.bootstrapsPerPeer) {
 }
 function addPeer(type = 'public', i = 0, bootstraps = [], init = false, setPublic = false) {
 	const id = `${type === 'standard' ? 'peer' : type}_${i}`;
-	// pickup one bootstrap only for standard node
 	const selectedBootstraps = type === 'standard' ? pickUpRandomBootstraps() : bootstraps;
 	const peer = NodeP2P.createNode(id, selectedBootstraps, sVARS.useTestTransport, init);
 	peers.all[id] = peer;
 	peers[type].push(peer);
 	if (setPublic) sVARS.publicPeersCards.push(peer.setAsPublic(`localhost`, 8080 + i, 10_000));
+	peer.gossip.on('message_handle', (msg, fromId) => statician.gossip++);
 }
 async function initPeers() {
 	if (initInterval) clearInterval(initInterval);
-	const totalDestroyed = await destroyAllExistingPeers();
-	console.log(`| ° ${totalDestroyed} EXISTING PEERS DESTROYED ° |`);
-	if (totalDestroyed !== 0) await new Promise(resolve => setTimeout(resolve, 500)); // wait for destruction to complete
+	await destroyAllExistingPeers();
 
 	sVARS.publicPeersCards = [];
-	console.log('| °°° INITIALIZING PEERS... °°° |');
-
 	const d = sVARS.delayBetweenInit;
 	for (let i = 0; i < sVARS.publicPeersCount; i++) addPeer('public', i, [], true, true);
 	for (let i = 0; i < sVARS.peersCount; i++) addPeer('standard', i, sVARS.publicPeersCards, d === 0);
-
-	console.log(`Peers created: { P: ${peers.public.length}, S: ${peers.standard.length} }`);
+	
+	console.log(`%c| PEERS CREATED: { P: ${peers.public.length}, S: ${peers.standard.length} } |`, 'color: fuchsia; font-weight: bold;');
 	if (d === 0) return; // already initialized
 
 	let index = 0;
-	if (d === 0) for (const peer of peers.standard) peer.start(); // init all peers at once.
-	else initInterval = setInterval(() => { // ... Or successively
+	initInterval = setInterval(() => { // ... Or successively
+		// log every 100 (modulo)
+		if (index && index % 100 === 0) console.log(`%c| °°° INITIALIZING PEER ${index} °°° |`, 'color: fuchsia;');
 		if (peers.standard[index++]?.start()) return;
 		clearInterval(initInterval);
-		console.log('°°° ALL PEERS INITIALIZED °°°');
+		console.log(`%c| °°° ALL PEERS INITIALIZED °°° |`, 'color: fuchsia; font-weight: bold;');
 	}, d);
 }
 if (sVARS.autoStart) initPeers();
@@ -103,24 +101,20 @@ function getPeerInfo(peerId) {
 		}
 	}
 }
-function sendRandomMessage(log = false) {
-	try {
-		const peerIds = [...peers.public, ...peers.standard].map(p => p.id);
-		const sender = peers.all[peerIds[Math.floor(Math.random() * peerIds.length)]];
-		//const recipient = peers.all[peerIds[Math.floor(Math.random() * peerIds.length)]];
-		const senderKnowsPeers = sender ? Object.keys(sender.peerStore.known) : [];
-		const recipientId = senderKnowsPeers[Math.floor(Math.random() * senderKnowsPeers.length)];
-		const recipient = peers.all[recipientId];
-		if (!sender || !recipient || sender.id === recipient.id) return; // skip if sender or recipient is not found or they are the same
-		const message = { type: 'message', data: `Hello from ${sender.id}` };
-		sender.sendMessage(recipient.id, 'message', message);
-	} catch (error) { console.error('Error sending random message:', error); }
-}
-//if (sVARS.randomMessagePerSecond) setInterval(sendRandomMessage, 1000 / Math.min(sVARS.randomMessagePerSecond, 500));
-(async () => {
+(async () => { // RANDOM MESSAGE SENDER (LOOP ENABLED BY sVARS.randomMessagePerSecondPerPeer)
 	if (!sVARS.randomMessagePerSecondPerPeer) return;
 	while(true) {
-		sendRandomMessage();
+		try {
+			const peerIds = [...peers.public, ...peers.standard].map(p => p.id);
+			const sender = peers.all[peerIds[Math.floor(Math.random() * peerIds.length)]];
+			const senderKnowsPeers = sender ? Object.keys(sender.peerStore.known) : [];
+			const recipientId = senderKnowsPeers[Math.floor(Math.random() * senderKnowsPeers.length)];
+			const recipient = peers.all[recipientId];
+			if (!sender || !recipient || sender.id === recipient.id) return; // skip if sender or recipient is not found or they are the same
+			const message = { type: 'message', data: `Hello from ${sender.id}` };
+			sender.sendMessage(recipient.id, 'message', message);
+		} catch (error) { console.error('Error sending random message:', error); }
+
 		const numberOfPeers = Object.keys(peers.all).length;
 		let pauseDuration = Math.max(2, 1000 / (sVARS.randomMessagePerSecondPerPeer * numberOfPeers));
 		pauseDuration = Math.min(1000, pauseDuration);
@@ -148,20 +142,6 @@ const send = (msgObj, startTime) => {
 		if (tt > minLogTime) console.log(`Message ${msgObj.type} sent (${tt}ms)`);
 	});
 }
-
-const msgQueue = new MessageQueue();
-let sManager = new SubscriptionsManager(send, peers, sVARS);
-const wss = new WebSocketServer({ server });
-wss.on('connection', (ws) => {
-	if (clientWs) clientWs.close();
-	clientWs = ws;
-	ws.on('message', async (message) => msgQueue.push(JSON.parse(message)));
-	ws.on('close', () => { sManager.destroy(); msgQueue.reset(); });
-	ws.send(JSON.stringify({ type: 'settings', data: sVARS }));
-	const zeroPeers = peers.public.length + peers.standard.length === 0;
-	if (!zeroPeers) ws.send(JSON.stringify({ type: 'peersIds', data: peersIdsObj() }));
-});
-
 const onMessage = async (data) => {
 	if (!data) return;
 	switch (data.type) {
@@ -194,13 +174,18 @@ const onMessage = async (data) => {
 			break;
 	}
 }
-
-(async () => { // Message processing loop
-	while (true) {
-		await onMessage(msgQueue.getNextMessage());
-		await new Promise(resolve => setTimeout(resolve, 10)); // prevent blocking the event loop
-	}
-})();
+const msgQueue = new MessageQueue(onMessage);
+let sManager = new SubscriptionsManager(send, peers, sVARS);
+const wss = new WebSocketServer({ server });
+wss.on('connection', (ws) => {
+	if (clientWs) clientWs.close();
+	clientWs = ws;
+	ws.on('message', async (message) => msgQueue.push(JSON.parse(message)));
+	ws.on('close', () => { sManager.destroy(); msgQueue.reset(); });
+	ws.send(JSON.stringify({ type: 'settings', data: sVARS }));
+	const zeroPeers = peers.public.length + peers.standard.length === 0;
+	if (!zeroPeers) ws.send(JSON.stringify({ type: 'peersIds', data: peersIdsObj() }));
+});
 
 // TWITCH TCHAT COMMANDS INTERPRETER
 class TwitchChatCommandInterpreter {
@@ -229,6 +214,7 @@ class TwitchChatCommandInterpreter {
 		this.userNodes[user] = peer;
 		peers.all[peer.id] = peer;
 		peers.standard.unshift(peer);
+		peer.gossip.on('message_handle', (msg, fromId) => statician.gossip++);
 	}
 	async restart() {
 		this.ioSocket?.close();

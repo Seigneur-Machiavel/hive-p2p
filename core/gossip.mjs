@@ -82,7 +82,6 @@ export class Gossip {
 	peerStore;
 	bloomFilter = new DegenerateBloomFilter();
 
-
 	/** @param {string} peerId @param {PeerStore} peerStore */
 	constructor(peerId, peerStore) {
 		this.id = peerId;
@@ -95,8 +94,9 @@ export class Gossip {
 		else this.callbacks[callbackType].unshift(callback);
 	}
 	/** Gossip a message to all connected peers > will be forwarded to all peers
-	 * @param {string} topic @param {string | Uint8Array} data @param {number} [TTL] */
-	broadcast(topic, data, TTL = GOSSIP.TTL.default) {
+	 * @param {string} topic @param {string | Uint8Array} data @param {number} [ttl] */
+	broadcast(topic, data, ttl) {
+		const TTL = ttl || GOSSIP.TTL[topic] || GOSSIP.TTL.default;
 		const message = new GossipMessage(this.id, topic, data, TTL);
 		for (const peerId in this.peerStore.connected) this.peerStore.sendMessageToPeer(peerId, message);
 	}
@@ -110,6 +110,7 @@ export class Gossip {
 	handleGossipMessage(from, message, serializedMessage, verbose = 0) {
 		if (this.peerStore.isBanned(from)) return; // ignore messages from banned peers
 		const { senderId, topic, data, TTL } = message;
+		for (const cb of this.callbacks['message_handle'] || []) cb(senderId, data); // mainly used in debug
 		if (this.bloomFilter.addMessage(senderId, topic, data, TTL) === false) return; // already processed this message
 		for (const cb of this.callbacks[topic] || []) cb(senderId, data);
 

@@ -48,6 +48,12 @@ export class NodeP2P {
 		gossip.on('my_neighbours', (senderId, data) => peerStore.digestPeerNeighbours(senderId, data));
 
 		if (verbose > 0) console.log(`NodeP2P initialized: ${id}`);
+
+		// TEST
+		setInterval(() => {
+			this.peerStore.digestPeerNeighbours(this.id, this.peerStore.neighbours); // Self
+			if (DISCOVERY.NEIGHBOUR_GOSSIP) this.broadcast('my_neighbours', this.peerStore.neighbours);
+		}, 10_000);
 	}
 
 	// PRIVATE METHODS
@@ -56,11 +62,13 @@ export class NodeP2P {
 		if (this.peerStore.isKicked(peerId)) return;
 		if (this.verbose) console.log(`(${this.id}) ${direction === 'in' ? 'Incoming' : 'Outgoing'} connection established with peer ${peerId}`);
 		this.peerStore.linkPeers(this.id, peerId); // Add link in self store
-		
+		this.peerStore.digestPeerNeighbours(this.id, this.peerStore.neighbours); // Self
+
+		return;
 		setTimeout(() => {
-			if (DISCOVERY.GOSSIP_HISTORY)this.messager.sendMessage(peerId, 'gossip_history', this.gossip.bloomFilter.getGossipHistoryByTime());
+			if (DISCOVERY.GOSSIP_HISTORY)this.sendMessage(peerId, 'gossip_history', this.gossip.bloomFilter.getGossipHistoryByTime());
 			if (DISCOVERY.CONNECTED_EVENT) this.broadcast('peer_connected', peerId);
-			if (DISCOVERY.NEIGHBOUR_GOSSIP) this.gossip.broadcast('my_neighbours', this.peerStore.neighbours);
+			if (DISCOVERY.NEIGHBOUR_GOSSIP) this.broadcast('my_neighbours', this.peerStore.neighbours);
 		}, 400);
 	}
 	/** @param {string} peerId @param {'in' | 'out'} direction */
@@ -68,6 +76,9 @@ export class NodeP2P {
 		if (this.verbose) console.log(`(${this.id}) ${direction === 'in' ? 'Incoming' : 'Outgoing'} connection closed with peer ${peerId}`);
 		const connDuration = this.peerStore.connected[peerId]?.getConnectionDuration() || 0;
 		if (connDuration < NODE.MIN_CONNECTION_TIME_TO_DISPATCH_EVENT) return;
+		this.peerStore.digestPeerNeighbours(peerId, this.peerStore.neighbours); // Self
+
+		return;
 		setTimeout(() => {
 			this.peerStore.unlinkPeers(this.id, peerId);
 			if (DISCOVERY.DISCONNECTED_EVENT) this.broadcast('peer_disconnected', peerId);

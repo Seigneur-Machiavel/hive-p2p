@@ -545,23 +545,20 @@ export class NetworkRenderer {
         }
     }
 	#getReducedBatch = (nodeIds) => {
-		const batchSize = Math.floor(Math.min(nodeIds.length, this.updateBatchMax));
-		if (batchSize >= nodeIds.length) return { batchIds: nodeIds, forceMultiplier: 1 };
+		const nodeIdsCount = nodeIds.length;
+		const batchSize = Math.floor(Math.min(nodeIdsCount, this.updateBatchMax));
+		if (batchSize >= nodeIdsCount) return { batchIds: nodeIds, forceMultiplier: 1 };
 
-		const result = [...nodeIds];
-		for (let i = 0; i < batchSize; i++) {
-			const j = i + Math.floor(Math.random() * (result.length - i));
-			[result[i], result[j]] = [result[j], result[i]];
-		}
+		const result = [];
+		for (let i = 0; i < batchSize; i++)
+			result.push(nodeIds[i + Math.floor(Math.random() * (nodeIdsCount - i))]);
 
 		const batchIds = result.slice(0, batchSize);
-		//const forceMultiplier = Math.round(Math.sqrt(Math.max(1, nodeIds.length / batchSize)));
 		const forceMultiplier = Math.round(Math.max(1, nodeIds.length / batchSize));
 		return { batchIds, forceMultiplier };
 	}
 	#updateNodesPositions(nodeIds = [], lockCurrentNodePosition = true) {
 		const { batchIds, forceMultiplier } = this.#getReducedBatch(nodeIds);
-		console.log(`force x${forceMultiplier}`);
 		for (const id of batchIds) {
 			const [pos, vel] = [this.nodesStore.get(id)?.position, this.nodesStore.get(id)?.velocity];
             const node = this.nodesStore.get(id);
@@ -613,16 +610,16 @@ export class NetworkRenderer {
             fz += -pos.z * this.options.centerForce;
 
             // Update velocity
-            vel.x = (vel.x + fx) * this.options.damping * forceMultiplier;
-            vel.y = (vel.y + fy) * this.options.damping * forceMultiplier;
-            vel.z = (vel.z + fz) * this.options.damping * forceMultiplier;
+            vel.x = (vel.x + fx) * this.options.damping;
+            vel.y = (vel.y + fy) * this.options.damping;
+            vel.z = (vel.z + fz) * this.options.damping;
 
             // Limit velocity
             const speed = Math.sqrt(vel.x * vel.x + vel.y * vel.y + vel.z * vel.z);
             if (speed > this.options.maxVelocity) {
-                vel.x = (vel.x / speed) * this.options.maxVelocity;
-                vel.y = (vel.y / speed) * this.options.maxVelocity;
-                vel.z = (vel.z / speed) * this.options.maxVelocity;
+                vel.x = (vel.x / speed) * this.options.maxVelocity * forceMultiplier;
+                vel.y = (vel.y / speed) * this.options.maxVelocity * forceMultiplier;
+                vel.z = (vel.z / speed) * this.options.maxVelocity * forceMultiplier;
             }
 
 			// Update position

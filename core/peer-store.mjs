@@ -178,8 +178,10 @@ export class PeerStore {
 		for (const cb of this.callbacks.signal_rejected) cb(remoteId, { signal: null, neighbours: this.neighbours });
 	}
 	/** @param {string} peerId @param {string[]} neighbours */
-	digestPeerNeighbours(peerId, neighbours = []) {
+	digestPeerNeighbours(peerId, neighbours = []) { // Update known neighbours
 		if (!peerId || !Array.isArray(neighbours)) return;
+		const peerNeighbours = Object.keys(this.known[peerId]?.neighbours || {});
+		for (const p of peerNeighbours) if (!neighbours.includes(p)) this.unlinkPeers(peerId, p);
 		for (const p of neighbours) this.linkPeers(peerId, p);
 	}
 	/** @param {string} remoteId @param {'connected' | 'connecting'} status */
