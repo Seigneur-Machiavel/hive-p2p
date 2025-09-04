@@ -33,68 +33,90 @@ export class MessageQueue {
 	}
 }
 
-export class Statician {
+function statsFormating(stats) {
+	return JSON.stringify(stats).replaceAll('"','').replaceAll(':',': ').replaceAll('{', '{ ').replaceAll('}', ' }').replaceAll(',', ', ');
+}
+
+export class Statician { // DO NOT ADD VARIABLES, JUST COUNTERS !!
 	gossip = 0;
 
-	constructor(delay = 10_000) {
+	constructor(sVARS, peers, delay = 10_000) {
 		setInterval(() => {
-			console.log(`%cSTATS(/sec): ${JSON.stringify(this.#getStatsPerSecond(delay))}`, 'color: pink;');
+			console.info(`%c${Math.floor((Date.now() - sVARS.startTime) / 1000)} sec elapsed | totalNodes in simulation: ${Object.keys(peers.all).length}`, 'color: yellow;');
+			console.log(`%c~STATS/sec: ${this.#getStatsPerSecond(delay)}`, 'color: yellow;');
 			for (const key in this) this[key] = 0;
 		}, delay);
 	}
-	#getStatsPerSecond(delay) {
+	#getStatsPerSecond(delay, formating = true) {
 		const divider = delay / 1000;
 		const stats = {}
 		for (const key in this) stats[key] = Math.round(this[key] / divider);
-		return stats;
+		return !formating ? stats : statsFormating(stats);
 	}
 }
 
 export class SubscriptionsManager {
 	/** @type {Function} */ sendFnc;
 	/** @type {Record<string, Record<string, NodeP2P>} */ peers;
-	sVARS;
 	unicastCount = { session: 0, total: 0 };
 	gossipCount = { session: 0, total: 0 };
-	TMPT = {}; // Gossip "total Msg Per Topic"
-	MTP = {}; // Gossip "Msg Per Topic"
+	tmpTopic = {}; // Gossip "Msg Per Topic" (total)
+	tmpType = {}; //  Unicast "Msg Per Type" (total)
+	mpTopic = {}; //  Gossip "Msg Per Topic" (session)
+	mpType = {}; //   Unicast "Msg Per Type" (session)
+
 	onPeerMessage = null; // currently subscribed peer
 	interval;
 
-	constructor(sendFnc, peers, sVARS, delay = 10_000) {
+	constructor(sendFnc, peers, delay = 10_000) {
 		console.info('SubscriptionsManager initialized');
 		this.sendFnc = sendFnc;
 		this.peers = peers;
-		this.sVARS = sVARS;
+		const divider = delay / 1000;
 		this.interval = setInterval(() => {
-			console.info(`${Math.floor((Date.now() - this.sVARS.startTime) / 1000)} sec elapsed | totalNodes in simulation: ${Object.keys(this.peers.all).length} ----------------------`);
-			console.info(`Total gossip: ${this.gossipCount.total} (+${this.gossipCount.session}) | total unicast: ${this.unicastCount.total} (+${this.unicastCount.session})`);
-			for (const topic in this.TMPT) console.info(`Topic "${topic}" messages:  ${this.TMPT[topic]} (+${this.MTP[topic] || 0})`);
-			for (const topic in this.MTP) this.MTP[topic] = 0; // reset per topic count
-			this.gossipCount.session = 0; // reset session count
-			this.unicastCount.session = 0; // reset session count
+			const sessionGossipSec = Math.round(this.gossipCount.session / divider);
+			const sessionUnicastSec = Math.round(this.unicastCount.session / divider);
+			const [gossipLog, unicastLog] = [this.#getStatsPerSecond('gossip', divider), this.#getStatsPerSecond('unicast', divider)];
+			if (gossipLog) console.log(`%c~GOSSIP/sec (total: ${sessionGossipSec}): ${gossipLog}`, 'color: fuchsia;');
+			if (unicastLog) console.log(`%~cUNICAST/sec (total: ${sessionUnicastSec}): ${unicastLog}`, 'color: cyan;');
+
+			// RESET SESSION COUNTERS
+			this.gossipCount.session = 0;
+			this.unicastCount.session = 0;
+			for (const key in this.mpTopic) this.mpTopic[key] = 0;
+			for (const key in this.mpType) this.mpType[key] = 0;
 		}, delay);
+	}
+	/** @param {'gossip' | 'unicast'} type */
+	#getStatsPerSecond(type, divider, formating = true) {
+		const stats = {}
+		const target = type === 'gossip' ? this.mpTopic : this.mpType;
+		for (const [key, value] of Object.entries(target)) stats[key] = Math.round(value / divider);
+		if (Object.keys(stats).length === 0) return null;
+		if (Object.values(stats).every(v => v === 0)) return null;
+		return !formating ? stats : statsFormating(stats);
 	}
 	addPeerMessageListener(peerId) {
 		const peer = this.peers.all[peerId];
 		if (!peer) return false;
 		
 		this.onPeerMessage = peerId; // set flag
-		const unicastMessageHandler = (senderId, data) => {
-			this.unicastCount.total++; this.unicastCount.session++;
-		}
-		//peer.messager.on('message', (senderId, data) => unicastMessageHandler(senderId, data));
-		peer.messager.on('signal', (senderId, data) => unicastMessageHandler(senderId, data));
-
+			
 		// Listen to all GOSSIP messages from this peer
-		peer.peerStore.on('data', (remoteId, d) => {
-			const data = JSON.parse(d);
-			this.sendFnc({ type: 'peerMessage', remoteId, data: JSON.stringify(data) });
-			if (data.topic) {
-				this.TMPT[data.topic] ? this.TMPT[data.topic]++ : this.TMPT[data.topic] = 1;
-				this.MTP[data.topic] ? this.MTP[data.topic]++ : this.MTP[data.topic] = 1;
+		peer.peerStore.on('data', (remoteId, data) => {
+			const d = JSON.parse(data);
+			this.sendFnc({ type: 'peerMessage', remoteId, data });
+			if (d.topic) { // gossip message
+				this.tmpTopic[d.topic] ? this.tmpTopic[d.topic]++ : this.tmpTopic[d.topic] = 1;
+				this.mpTopic[d.topic] ? this.mpTopic[d.topic]++ : this.mpTopic[d.topic] = 1;
+				this.gossipCount.total++;
+				this.gossipCount.session++;
+			} else { // unicast message
+				this.tmpType[d.type] ? this.tmpType[d.type]++ : this.tmpType[d.type] = 1;
+				this.mpType[d.type] ? this.mpType[d.type]++ : this.mpType[d.type] = 1;
+				this.unicastCount.total++;
+				this.unicastCount.session++;
 			}
-			this.gossipCount.total++; this.gossipCount.session++;
 		});
 		return true;
 	}
@@ -106,6 +128,6 @@ export class SubscriptionsManager {
 	destroy(returnNewInstance = false) {
 		this.removePeerMessageListener();
 		if (this.interval) clearInterval(this.interval);
-		if (returnNewInstance) return new SubscriptionsManager(this.sendFnc, this.peers, this.sVARS);
+		if (returnNewInstance) return new SubscriptionsManager(this.sendFnc, this.peers);
 	}
 };

@@ -17,7 +17,7 @@ export const NODE = {
 }
 export const DISCOVERY = {
 	CONNECTED_EVENT: false,
-	DISCONNECTED_EVENT: false,
+	DISCONNECTED_EVENT: true,
 	NEIGHBOUR_GOSSIP: true,
 	TRAVELED_ROUTE: true,
 	GOSSIP_HISTORY: true

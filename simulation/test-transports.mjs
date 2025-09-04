@@ -46,10 +46,6 @@ export class TestWsConnection { // WebSocket like
 			console.error(`No WebSocket server found for URL: ${this.url}`);
 			this.close(); // disconnected, abort operation
 		}
-
-		//const serialized = JSON.stringify(message);
-		//this.remoteWs?.callbacks.message.forEach(cb => cb(message)); // emit message event
-		//if (this.remoteWs?.onmessage) this.remoteWs.onmessage({ data: message }); // emit onmessage event
 		SANDBOX.enqueueWsMessage(this.remoteWs, message);
 	}
 	#dispatchError(error) {
@@ -97,25 +93,21 @@ class TestTransportOptions {
 	wrtc;
 }
 class TransportPool {
-	inUse = new Map(); 
+	inUse = new Map();
 	/** @type {TestTransport[]} */ available = [];
 	
 	constructor(maxSize = 100) { this.maxSize = maxSize; }
 
 	get() {
-		if (this.available.length > 0) {
-			const transport = this.available.pop();
-			transport.reset();
-			return transport;
-		}
-		return new TestTransport();
+		if (this.available.length <= 0) return new TestTransport();
+		const transport = this.available.pop();
+		transport.reset();
+		return transport;
 	}
 	release(transport) {
-		if (this.available.length >= this.maxSize) transport.destroy();
-		else {
-			transport.callbacks = {};
-			this.available.push(transport);
-		}
+		if (this.available.length >= this.maxSize) return transport.destroy();
+		transport.callbacks = {};
+		this.available.push(transport);
 	}
 }
 const TRANSPORT_POOL = new TransportPool();

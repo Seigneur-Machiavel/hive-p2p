@@ -40,9 +40,9 @@ export class ConnectionsStore {
 	/** @type {Record<string, any>} key: id1:id2, value: "true" | THREE.line */
 	nodesStore;
 	scene;
-	store = {};
-	hovered = {};
-	repaintIgnored = {}; // frame number
+	/** @type {Record<string, line | any>} */ store = {};
+	/** @type {Record<string, boolean>} */ hovered = {};
+	/** @type {Record<string, number>} */ repaintIgnored = {}; // frame number
 
 	/** @param {NodesStore} nodesStore */
 	constructor(nodesStore, scene) {
@@ -50,33 +50,35 @@ export class ConnectionsStore {
 		this.scene = scene;
 	}
 
-	#getBothKeys(fromId = 'toto', toId = 'tutu') {
-		return [`${fromId}:${toId}`, `${toId}:${fromId}`];
+	#getKeys(fromId = 'toto', toId = 'tutu') {
+		const key1 = `${fromId}:${toId}`;
+		const key2 = `${toId}:${fromId}`;
+		const validKey = this.store[key1] ? key1 : this.store[key2] ? key2 : null;
+		return { key1, key2, validKey };
 	}
 	set(fromId = 'toto', toId = 'tutu') {
-		const [ key1, key2 ] = this.#getBothKeys(fromId, toId);
-		if (this.store[key1] || this.store[key2]) return { success: false, key1, key2 }; // already set
+		const { key1, key2, validKey } = this.#getKeys(fromId, toId);
+		if (validKey) return { success: false, key: validKey }; // already set
 		this.store[key1] = true;
-		this.store[key2] = true;
-		return { success: true, key1, key2 };
+		return { success: true, key: key1 };
 	}
-	unset(fromId = 'toto', toId = 'tutu') {
-		const [ key1, key2 ] = this.#getBothKeys(fromId, toId);
-		if (!this.store[key1] && !this.store[key2]) return { success: false, key1, key2 };
-		this.#disposeLineObject(this.store[key1]);
-		this.#disposeLineObject(this.store[key2]);
+	unset(fromId = 'toto', toId = 'tutu', force = false) {
+		const { key1, key2, validKey } = this.#getKeys(fromId, toId);
+		if (!validKey) return;
+		if (this.repaintIgnored[validKey] && !force) return; // still ignored
 		this.nodesStore.get(fromId)?.removeNeighbour(toId);
 		this.nodesStore.get(toId)?.removeNeighbour(fromId);
-		delete this.store[key1];
-		delete this.store[key2];
-		return { success: true, key1, key2 };
+		this.#disposeLineObject(this.store[validKey]);
+		delete this.store[validKey];
+		delete this.hovered[validKey];
+		delete this.repaintIgnored[validKey];
 	}
 
 	// VISUAL LINE
 	assignLine(fromId = 'peer_1', toId = 'peer_2', color = 0x666666, opacity = .4) {
-		const [ key1, key2 ] = this.#getBothKeys(fromId, toId);
-		// skip missing connections or already assigned line
-		if (this.store[key1] !== true || this.store[key2] !== true)
+		const { key1, key2, validKey } = this.#getKeys(fromId, toId);
+		if (!validKey) return false; // not set yet
+		if (validKey && this.store[validKey] !== true) // repaint existing line
 			return this.updateLineColor(fromId, toId, color, opacity);
 
 		const fromPos = this.nodesStore.get(fromId)?.position;
@@ -91,44 +93,36 @@ export class ConnectionsStore {
 		const line = new THREE.Line(geometry, material);
 		line.userData = { fromId, toId, type: 'connection' };
 		this.scene.add(line);
-		this.store[key1] = line;
-		this.store[key2] = line;
+		this.store[validKey] = line;
 		return 'created';
 	}
-	#updateMeshColor(mesh, colorHex, opacity) {
+	updateLineColor(fromId, toId, colorHex, opacity = .4) {
+		const { key1, key2, validKey } = this.#getKeys(fromId, toId);
+		const mesh = this.store[validKey];
+		if (!mesh || mesh === true) return false; // not assigned (physic only)
 		mesh.material.color.setHex(colorHex);
 		mesh.material.opacity = opacity;
 		mesh.material.needsUpdate = true;
-	}
-	updateLineColor(fromId, toId, colorHex, opacity = .4) {
-		const [ key1, key2 ] = this.#getBothKeys(fromId, toId);
-		const mesh1 = this.store[key1];
-		const mesh2 = this.store[key2];
-		if (!mesh1 && !mesh2) return false;
-		if (mesh1 !== true) this.#updateMeshColor(mesh1, colorHex, opacity);
-		if (mesh2 !== true) this.#updateMeshColor(mesh2, colorHex, opacity);
 		return 'updated';
 	}
-	#disposeLineObject(line) {
-		if (!line || line === true) return;
-		this.scene.remove(line);
-		line.geometry.dispose();
-		line.material.dispose();
+	#disposeLineObject(mesh) {
+		if (!mesh || mesh === true) return;
+		this.scene.remove(mesh);
+		mesh.geometry.dispose();
+		mesh.material.dispose();
 	}
 	unassignLine(fromId = 'toto', toId = 'tutu') {
-		const [ key1, key2 ] = this.#getBothKeys(fromId, toId);
-		if (!this.store[key1] && !this.store[key2]) return;
-		this.#disposeLineObject(this.store[key1]);
-		this.#disposeLineObject(this.store[key2]);
-		delete this.store[key1];
-		delete this.store[key2];
+		const { key1, key2, validKey } = this.#getKeys(fromId, toId);
+		const mesh = this.store[validKey];
+		if (!mesh || mesh === true) return;
+		this.#disposeLineObject(mesh);
+		this.store[validKey] = true; // set to "true" (physic only)
 	}
 	setHovered(fromId = 'toto', toId = 'tutu') {
-		const [ key1, key2 ] = this.#getBothKeys(fromId, toId);
-		if (!this.store[key1] && !this.store[key2]) return;
+		const { key1, key2, validKey } = this.#getKeys(fromId, toId);
+		if (!validKey) return;
 		this.assignLine(fromId, toId);
-		this.hovered[key1] = true;
-		this.hovered[key2] = true;
+		this.hovered[validKey] = true;
 	}
 	resetHovered() {
 		const hoveredKeys = Object.keys(this.hovered);
@@ -138,34 +132,24 @@ export class ConnectionsStore {
 		}
 	}
 	ignoreRepaint(fromId = 'toto', toId = 'tutu', frame = 5) {
-		const [ key1, key2 ] = this.#getBothKeys(fromId, toId);
-		if (!this.store[key1] && !this.store[key2]) return;
-		this.repaintIgnored[key1] = frame * 2;
-		this.repaintIgnored[key2] = frame * 2;
+		const { key1, key2, validKey } = this.#getKeys(fromId, toId);
+		if (!validKey) return;
+		this.repaintIgnored[validKey] = frame;
 	}
-	#countIgnoredRepaint(key1, key2) {
-		const [ val1, val2 ] = [ this.repaintIgnored[key1], this.repaintIgnored[key2] ];
-		if (val1 === undefined || val2 === undefined) return;
-		if (val1 <= 0 || val2 <= 0) {
-			delete this.repaintIgnored[key1];
-			delete this.repaintIgnored[key2];
-		} else {
-			this.repaintIgnored[key1]--;
-			this.repaintIgnored[key2]--;
-		}
+	#countIgnoredRepaint(validKey) {
+		if (this.repaintIgnored[validKey] === undefined) return;
+		if (this.repaintIgnored[validKey]-- > 0) return;
+		delete this.repaintIgnored[validKey];
 	}
-	#repaintIsToIgnore(key1, key2) {
-		return this.repaintIgnored[key1] > 0 || this.repaintIgnored[key2] > 0;
-	}
-	updateConnections(currentPeerId, hoveredNodeId, colors, mode = '3d') {
+	updateConnections(currentPeerId, hoveredNodeId, colors, mode = '3d') { // positions & colors
 		for (const [connStr, line] of Object.entries(this.store)) {
 			if (line === true) continue; // not assigned (physic only)
 
 			const [fromId, toId] = connStr.split(':');
 			const fromPos = this.nodesStore.get(fromId)?.position;
 			const toPos = this.nodesStore.get(toId)?.position;
-			if (!fromPos || !toPos || !line.geometry) continue; // skip if missing position or disposed line
-
+			if (!fromPos || !toPos || line === true) continue; // skip if missing position or disposed line
+			
 			const positionAttribute = line.geometry.attributes.position;
 			positionAttribute.array[0] = fromPos.x;
 			positionAttribute.array[1] = fromPos.y;
@@ -174,10 +158,10 @@ export class ConnectionsStore {
 			positionAttribute.array[4] = toPos.y;
 			positionAttribute.array[5] = mode === '3d' ? toPos.z : 0;
 			positionAttribute.needsUpdate = true;
-
-			const [ key1, key2 ] = this.#getBothKeys(fromId, toId);
-			this.#countIgnoredRepaint(key1, key2);
-			if (this.#repaintIsToIgnore(key1, key2)) continue;
+			
+			const { key1, key2, validKey } = this.#getKeys(fromId, toId);
+			this.#countIgnoredRepaint(validKey);
+			if (this.repaintIgnored[validKey] && this.repaintIgnored[validKey] > 0) continue;
 
 			// Update connection color
 			const { connection, currentPeerConnection, hoveredPeer } = colors;
@@ -190,20 +174,15 @@ export class ConnectionsStore {
 			this.updateLineColor(fromId, toId, color, opacity);
 		}
 	}
-	getConnectionsList() {
-		return Object.keys(this.store);
-	}
 	getConnectionsCount() {
 		const result = { connsCount: 0, linesCount: 0 };
 		for (const line of Object.values(this.store)) {
 			result.connsCount++;
 			if (line !== true) result.linesCount++;
 		}
-		result.connsCount /= 2;
-		result.linesCount /= 2;
 		return result;
 	}
 	destroy() {
-		for (const line of Object.values(this.store)) this.#disposeLineObject(line);
+		for (const key of Object.keys(this.store)) this.unset(...key.split(':'), true);
 	}
 }

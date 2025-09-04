@@ -5,6 +5,13 @@ import { NodeP2P } from '../core/node.mjs';
 import { MessageQueue, Statician, SubscriptionsManager } from './simulator-utils.mjs';
 import { io } from 'socket.io-client'; // used for twitch events only
 
+// TO ACCESS THE VISUALIZER GO TO: http://localhost:3000
+// LOGS COLORS :
+// BLUE:      SYSTEM
+// YELLOW:    SIMULATION INFO
+// FUCHSIA:   CURRENT PEER GOSSIP STATS
+// CYAN: 	  CURRENT PEER UNICAST STATS
+
 let initInterval = null;
 /** @type {TwitchChatCommandInterpreter} */ let cmdInterpreter = null;
 const sVARS = { // SIMULATION VARIABLES
@@ -24,7 +31,6 @@ if (sVARS.useTestTransport) {
 	sVARS.peersCount = 4900; 	  // stable: 25, medium: 800, strong: 1600
 }
 
-const statician = new Statician();
 const peers = {
 	/** @type {Record<string, NodeP2P>} */
 	all: {},
@@ -39,7 +45,7 @@ async function destroyAllExistingPeers(pauseDuration = 500) {
 	for (const peer of peers.public) { peer.destroy(); peers.public = []; totalDestroyed ++; }
 	for (const peer of peers.standard) { peer.destroy(); peers.standard = []; totalDestroyed ++; }
 	if (totalDestroyed !== 0) await new Promise(resolve => setTimeout(resolve, pauseDuration)); // wait for destruction to complete
-	console.log(`%c| ° ${totalDestroyed} EXISTING PEERS DESTROYED ° |`, 'color: fuchsia; font-weight: bold;');
+	console.log(`%c| ° ${totalDestroyed} EXISTING PEERS DESTROYED ° |`, 'color: yellow; font-weight: bold;');
 }
 function pickUpRandomBootstraps(count = sVARS.bootstrapsPerPeer) {
 	const selected = [];
@@ -68,21 +74,19 @@ async function initPeers() {
 	const d = sVARS.delayBetweenInit;
 	for (let i = 0; i < sVARS.publicPeersCount; i++) addPeer('public', i, [], true, true);
 	for (let i = 0; i < sVARS.peersCount; i++) addPeer('standard', i, sVARS.publicPeersCards, d === 0);
-	
-	console.log(`%c| PEERS CREATED: { P: ${peers.public.length}, S: ${peers.standard.length} } |`, 'color: fuchsia; font-weight: bold;');
+
+	console.log(`%c| PEERS CREATED: { Public: ${peers.public.length}, Standard: ${peers.standard.length} } |`, 'color: yellow; font-weight: bold;');
 	if (d === 0) return; // already initialized
 
 	let index = 0;
 	initInterval = setInterval(() => { // ... Or successively
 		// log every 100 (modulo)
-		if (index && index % 100 === 0) console.log(`%c| °°° INITIALIZING PEER ${index} °°° |`, 'color: fuchsia;');
+		if (index && index % 100 === 0) console.log(`%c| °°° INITIALIZING PEER ${index} to ${index + 100} °°° |`, 'color: yellow;');
 		if (peers.standard[index++]?.start()) return;
 		clearInterval(initInterval);
-		console.log(`%c| °°° ALL PEERS INITIALIZED °°° |`, 'color: fuchsia; font-weight: bold;');
+		console.log(`%c| °°° ALL PEERS INITIALIZED °°° |`, 'color: yellow; font-weight: bold;');
 	}, d);
 }
-if (sVARS.autoStart) initPeers();
-
 function peersIdsObj() {
 	return {
 		standard: peers.standard.map(peer => peer.id),
@@ -122,8 +126,10 @@ function getPeerInfo(peerId) {
 	}
 })();
 
-// simple server to serve texts/p2p_simulator.html
-const app = express();
+// EXPRESS SERVER + WEBSOCKET + SIMULATION MANAGEMENT
+const statician = new Statician(sVARS, peers);
+if (sVARS.autoStart) initPeers();
+const app = express(); // simple server to serve texts/p2p_simulator.html
 app.use('../rendering/visualizer.mjs', (req, res, next) => {
     res.set({ 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache', 'Expires': '0' });
     next();
@@ -147,7 +153,7 @@ const onMessage = async (data) => {
 	switch (data.type) {
 		case 'start':
 			sVARS.startTime = Date.now();
-			sManager = sManager ? sManager.destroy(true) : new SubscriptionsManager(send, peers, sVARS);
+			sManager = sManager ? sManager.destroy(true) : new SubscriptionsManager(send, peers);
 			for (const setting in data.settings) sVARS[setting] = data.settings[setting];
 			await initPeers();
 			send({ type: 'settings', data: sVARS });
@@ -160,12 +166,9 @@ const onMessage = async (data) => {
 			break;
 		case 'getPeerInfo':
 			send({ type: 'peerInfo', data: { peerId: data.peerId, peerInfo: getPeerInfo(data.peerId) } });
-			break;
-		case 'subscribeToPeerMessages':
-			if (sManager.onPeerMessage === data.peerId) return; // already subscribed
+			if (sManager.onPeerMessage === data.peerId) break;
 			sManager = sManager.destroy(true);
-			if (sManager.addPeerMessageListener(data.peerId))
-				send({ type: 'subscribeToPeerMessage', data: { success: true, peerId: data.peerId } });
+			sManager.addPeerMessageListener(data.peerId);
 			break;
 		case 'tryToConnectNode':
 			const { fromId, targetId } = data;
@@ -175,7 +178,7 @@ const onMessage = async (data) => {
 	}
 }
 const msgQueue = new MessageQueue(onMessage);
-let sManager = new SubscriptionsManager(send, peers, sVARS);
+let sManager = new SubscriptionsManager(send, peers);
 const wss = new WebSocketServer({ server });
 wss.on('connection', (ws) => {
 	if (clientWs) clientWs.close();

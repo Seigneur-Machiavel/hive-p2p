@@ -33,7 +33,6 @@ class SimulationInterface {
 			const msg = JSON.parse(event.data);
 			this.responseReceivedByType[msg.type] = true;
 
-			if (msg.type === 'simulationStarted' && this.currentPeerId) this.subscribeToPeerMessages(this.currentPeerId, true);
 			if (msg.type === 'settings') this.onSettings(msg.data);
 			if (msg.type === 'peersIds') this.onPeersIds(msg.data);
 			if (msg.type === 'peerInfo') this.onPeerInfo(msg.data);
@@ -45,17 +44,12 @@ class SimulationInterface {
 	start(settings) {
 		this.#subscriptionsPeerId = null;
 		this.#sendWsMessage({ type: 'start', settings });
-		setTimeout(() => this.subscribeToPeerMessages(this.currentPeerId), 2000);
 	}
 	getPeerInfo() {
 		this.#sendWsMessage({ type: 'getPeerInfo', peerId: this.currentPeerId });
 	}
 	getPeerIds() {
 		this.#sendWsMessage({ type: 'getPeersIds' });
-	}
-	subscribeToPeerMessages(peerId, force = false) {
-		if (!force && this.#subscriptionsPeerId === peerId) return; // avoid re-subscribing
-		this.#sendWsMessage({ type: 'subscribeToPeerMessages', peerId });
 	}
 	tryToConnectNode(fromId, targetId) {
 		if (!fromId || !targetId) return;
@@ -99,11 +93,9 @@ class NetworkVisualizer {
 			);
 
 			this.simulationInterface.onPeerMessage = (remoteId, data) => {
-				//console.log(`Received message ${data} from ${remoteId}`);
-				const msg = JSON.parse(data);
-				if (msg.isFlexible) console.warn(`Received flexible message from ${remoteId} with route: ${msg.route}`);
-				if (msg.route) this.networkRenderer.displayDirectMessageRoute(remoteId, msg.route);
-				else this.networkRenderer.displayGossipMessageRoute(remoteId, msg.senderId, msg.topic, msg.data);
+				const d = JSON.parse(data);
+				if (d.route) this.networkRenderer.displayDirectMessageRoute(remoteId, d.route);
+				else this.networkRenderer.displayGossipMessageRoute(remoteId, d.senderId, d.topic, d.data);
 			};
 
 			this.networkRenderer.onNodeLeftClick = (nodeId) => this.simulationInterface.tryToConnectNode(this.currentPeerId,nodeId);
@@ -129,7 +121,6 @@ class NetworkVisualizer {
 		this.#setCurrentPeer(peerId);
 	}
 	#setCurrentPeer(id, clearNetworkOneChange = true) {
-		if (this.currentPeerId !== id) this.simulationInterface.subscribeToPeerMessages(id);
 		this.currentPeerId = id;
 		this.simulationInterface.currentPeerId = id;
 		this.networkRenderer.setCurrentPeer(id, clearNetworkOneChange);

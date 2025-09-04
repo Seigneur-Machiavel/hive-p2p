@@ -247,10 +247,8 @@ export class NetworkRenderer {
 		const currentPeerNode = this.nodesStore.get(this.currentPeerId);
 		const cNeighbours = currentPeerNode?.neighbours || [];
 		for (const [fromId, toId] of conns) { // add new physicConnections
-			const { success, key1, key2 } = this.connectionsStore.set(fromId, toId);
-			existingConns[key1] = true; // store for control
-			existingConns[key2] = true; // store for control
-			if (!success) continue; // already exists
+			const { success, key } = this.connectionsStore.set(fromId, toId);
+			existingConns[key] = true; // store for control
 
 			const isOneOfThePeer = fromId === this.currentPeerId || toId === this.currentPeerId;
 			if (displayNeighboursDegree === 0 && !isOneOfThePeer) continue;
@@ -265,7 +263,7 @@ export class NetworkRenderer {
 			this.connectionsStore.assignLine(fromId, toId);
 		}
 
-		const connKeys = this.connectionsStore.getConnectionsList();
+		const connKeys = Object.keys(this.connectionsStore.store);
 		for (const connStr of connKeys) // remove physicConnections that are not in the array
 			if (!existingConns[connStr]) this.connectionsStore.unset(...connStr.split(':'));
 	}
@@ -282,7 +280,7 @@ export class NetworkRenderer {
 		}
 	}
 	// THIS IS A VERY FIRST IMPLEMENTATION, NEEDS REFINEMENT
-	displayGossipMessageRoute(relayerId, senderId, topic = 'peer_connected', data, frameToIgnore = 10) {
+	displayGossipMessageRoute(relayerId, senderId, topic = 'peer_connected', data, frameToIgnore = 20) {
 		// WE PREFER COLORING EXISTING LINES, NOT CREATING THEM
 		this.connectionsStore.updateLineColor(senderId, relayerId, this.colors.gossipOutgoingColor, .4);
 		this.connectionsStore.updateLineColor(relayerId, this.currentPeerId, this.colors.gossipIncomingColor, .8);
@@ -521,6 +519,7 @@ export class NetworkRenderer {
 		const json = {
 			Peer: nodeId,
 			Type: node.status,
+			NeighboursCount: node.neighbours.length,
 			Neighbours: node.neighbours.length > 0 ? node.neighbours : 'None',
 			IsPublic: node.isPublic
 		};
