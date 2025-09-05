@@ -68,6 +68,8 @@ class NetworkVisualizer {
 	lastPeerInfo;
 	networkRenderer = new NetworkRenderer();
 	simulationInterface;
+
+	peersList = {};
 	elements = {
 		peersList: document.getElementById('peersList'),
 		simulationSettings: document.getElementById('simulationSettings'),
@@ -102,7 +104,17 @@ class NetworkVisualizer {
 			}
 		}
 
-		setInterval(() => this.networkRenderer.updateStats(this.lastPeerInfo?.store?.connected?.length || 0), 200);
+		setInterval(() => {
+			const connected = this.lastPeerInfo?.store?.connected || [];
+			const neighborsCount = connected.length;
+			const publicNeighborsCount = connected.filter(id => id.startsWith(IDENTIFIERS.PUBLIC_NODE)).length;
+			this.networkRenderer.updateStats(neighborsCount, publicNeighborsCount);
+		}, 200);
+
+		window.addEventListener('keydown', (e) => {
+			if (e.key === 'ArrowUp') this.#selectPreviousPeer();
+			if (e.key === 'ArrowDown') this.#selectNextPeer();
+		});
 	}
 
 	#setSelectedPeer(peerId) {
@@ -114,6 +126,23 @@ class NetworkVisualizer {
 			else peerItem.classList.remove('selected');
 
 		this.#setCurrentPeer(peerId);
+		this.simulationInterface.getPeerInfo();
+	}
+	#selectNextPeer() {
+		const peerIds = Object.keys(this.peersList);
+		if (peerIds.length === 0) return;
+		if (!this.currentPeerId) return this.#setSelectedPeer(peerIds[0]);
+		const currentIndex = peerIds.indexOf(this.currentPeerId);
+		const nextIndex = (currentIndex + 1) % peerIds.length;
+		this.#setSelectedPeer(peerIds[nextIndex]);
+	}
+	#selectPreviousPeer() {
+		const peerIds = Object.keys(this.peersList);
+		if (peerIds.length === 0) return;
+		if (!this.currentPeerId) return this.#setSelectedPeer(peerIds[0]);
+		const currentIndex = peerIds.indexOf(this.currentPeerId);
+		const previousIndex = (currentIndex - 1 + peerIds.length) % peerIds.length;
+		this.#setSelectedPeer(peerIds[previousIndex]);
 	}
 	#setCurrentPeer(id, clearNetworkOneChange = true) {
 		this.currentPeerId = id;
@@ -176,23 +205,28 @@ class NetworkVisualizer {
 		if (settings.peersCount) this.elements.peersCount.value = settings.peersCount;
 		if (settings.autoStart) this.simulationInterface.getPeerIds();
 	}
+	#createPeerItem(peerId) {
+		const peerItem = document.createElement('div');
+		peerItem.dataset.peerId = peerId;
+		peerItem.textContent = peerId;
+		peerItem.onclick = () => this.#setSelectedPeer(peerId);
+		return peerItem;
+	}
 	#updatePeersList(peersData, element = this.elements.peersList) {
-		element.innerHTML = '<h3>Peers list</h3>';
+		//element.innerHTML = '<h3>Peers list</h3>';
 
-		for (const [category, peerIds] of Object.entries(peersData)) {
-			for (const peerId of peerIds) {
-				const peerItem = document.createElement('div');
-				peerItem.dataset.peerId = peerId;
-				peerItem.textContent = peerId;
-				peerItem.onclick = () => {
-					this.#setSelectedPeer(peerId);
-					this.simulationInterface.getPeerInfo(peerId);
-				};
+		const peerIds = {};
+		for (const [category, ids] of Object.entries(peersData))
+			for (const peerId of ids) {
+				peerIds[peerId] = true;
+				if (this.peersList[peerId]) continue; // already listed
+				const peerItem = this.#createPeerItem(peerId);
 				element.appendChild(peerItem);
+				this.peersList[peerId] = peerItem;
 			}
-			if (this.currentPeerId || peerIds.length === 0) continue; // Skip if current peer is set or no peers in this category
-			//if (this.autoSelectCurrentPeerCategory.includes(category)) this.#setSelectedPeer(peerIds[0]);
-		}
+		
+		for (const peerId of Object.keys(this.peersList)) // remove absent peers
+			if (!peerIds[peerId]) { this.peersList[peerId].remove(); delete this.peersList[peerId]; }
 
 		if (this.currentPeerId) return this.#setSelectedPeer(this.currentPeerId); // Auto-select current peer
 
@@ -202,5 +236,7 @@ class NetworkVisualizer {
 }
 
 const networkVisualizer = new NetworkVisualizer(true);
-window.networkVisualizer = networkVisualizer; // Expose for debugging
-window.networkRenderer = networkVisualizer.networkRenderer; // Expose for debugging
+if (typeof window !== 'undefined') {
+	window.networkVisualizer = networkVisualizer; // Expose for debugging
+	window.networkRenderer = networkVisualizer.networkRenderer; // Expose for debugging
+}

@@ -43,11 +43,41 @@ export class NetworkEnhancer {
 		this.interval = setInterval(() => {
 			phase = phase ? 0 : 1;
 			if (phase) this.#tryConnectNextBootstrap();
-			else this.#tryConnectMoreNodes();
+			else this.tryConnectMoreNodes();
 		}, ecd);
 	}
 	destroy() {
 		if (this.interval) clearInterval(this.interval);
+	}
+	tryConnectMoreNodes() {
+		const { isEnough, missingCount, connectedPeersCount, knownPeersCount } = this.#getConnectionInfo();
+		if (isEnough || !connectedPeersCount) return;
+
+		const connectedFactor = connectedPeersCount;
+		const knowsFactor = Math.ceil(Math.sqrt(knownPeersCount) / NODE.TARGET_NEIGHBORS_COUNT);
+		const ratePow = Math.max(1, Math.min(knowsFactor + connectedFactor, 8));
+		const enhancedConnectionRate = Math.pow(NODE.ENHANCE_CONNECTION_RATE_BASIS, ratePow);
+		const maxAttempts = CONNECTION_ENHANCER.MAX_ATTEMPTS_BASED_ON_CONNECTED[connectedPeersCount];
+		const entries = Object.entries(this.peerStore.known);
+		const nbEntries = entries.length;
+		let index = Math.floor(Math.random() * nbEntries);
+		let attempts = 0;
+		for (let i = 0; i < nbEntries; i++) {
+			index = (index + 1) % nbEntries;
+			const [peerId, peerInfo] = entries[index];
+			if (peerId.startsWith(IDENTIFIERS.PUBLIC_NODE)) continue; // ignore bootstrap peers
+			if (Math.random() > enhancedConnectionRate) continue; // apply rate (useful at startup)
+			if (this.peerStore.isKicked(peerId) || this.peerStore.isBanned(peerId)) continue;
+			if (this.peerStore.connected[peerId]) continue; // skip connected peers
+			if (this.peerStore.connecting[peerId]) continue; // skip connecting peers
+			if (peerInfo.connectionsCount >= NODE.TARGET_NEIGHBORS_COUNT) continue; // skip if target already connected to enough peers
+			if (peerId === this.id) continue; // skip self
+
+			const { sharedNeighbours, overlap } = this.peerStore.getOverlap(peerId);
+			if (overlap > NODE.MAX_OVERLAP) continue; // avoid overlap
+			this.peerStore.addConnectingPeer(peerId, undefined, undefined, this.useTestTransport);
+			if (attempts++ >= maxAttempts) break; // limit to one new connection attempt
+		}
 	}
 	/** @param {string} senderId @param {SignalData} data @param {WebSocket} [tempTransportInstance] optional WebSocket */
 	handleIncomingSignal(senderId, data, tempTransportInstance) {
@@ -88,24 +118,25 @@ export class NetworkEnhancer {
 		const missingCount = (NODE.TARGET_NEIGHBORS_COUNT - connectedPeersCount);
 		return { 
 			isEnough: connectedPeersCount >= NODE.TARGET_NEIGHBORS_COUNT,
-			limitToOneBootstrap: connectedPeersCount >= NODE.MAX_BOOTSTRAPS_OUT_CONNS / 2,
+			limitToOneBootstrap: connectedPeersCount >= NODE.TARGET_NEIGHBORS_COUNT / 3,
+			limitToZeroBootstrap: connectedPeersCount >= NODE.TARGET_NEIGHBORS_COUNT / 2,
 			missingCount,
 			connectedPeersCount,
 			knownPeersCount: Object.keys(this.peerStore.known).length
 		};
 	}
 	#tryConnectNextBootstrap() {
-		const { isEnough, limitToOneBootstrap, missingCount, connectedPeersCount, knownPeersCount } = this.#getConnectionInfo();
+		const { isEnough, limitToOneBootstrap, limitToZeroBootstrap } = this.#getConnectionInfo();
 		if (this.bootstraps.length === 0) return;
-		if (isEnough) return; // already connected to enough peers
+		if (isEnough || limitToZeroBootstrap) return; // already connected to enough peers
 		
 		const [connected, connecting] = [this.peerStore.connected, this.peerStore.connecting];
 		const connectingCount = Object.keys(connecting).filter(id => this.bootstrapsIds[id]).length;
 		const connectedCount = this.peerStore.neighbours.filter(id => this.bootstrapsIds[id]).length;
 		if (connectedCount + connectingCount >= NODE.MAX_BOOTSTRAPS_OUT_CONNS) return; // already connected to enough bootstraps
-
 		if (limitToOneBootstrap && connectedCount) return; // already connected to one bootstrap, wait next turn
 		if (limitToOneBootstrap && connectingCount) return; // already connecting to one bootstrap, wait next turn
+		
 		const { id, publicUrl } = this.bootstraps[this.nBI];
 		const canMakeATry = id && publicUrl && !connected[id] && !connecting[id];
 		if (canMakeATry) this.#connectToPublicNode_UsingWs_UntilWebRtcUpgrade(id, publicUrl);
@@ -125,38 +156,5 @@ export class NetworkEnhancer {
 			} catch (error) { console.error(`Error handling incoming signal for ${remoteId}:`, error.stack); }
 		}
 		return ws;
-	}
-	#tryConnectMoreNodes() {
-		const { isEnough, missingCount, connectedPeersCount, knownPeersCount } = this.#getConnectionInfo();
-		if (isEnough || !connectedPeersCount) return;
-
-		const connectedFactor = connectedPeersCount;
-		const knowsFactor = Math.ceil(Math.sqrt(knownPeersCount) / NODE.TARGET_NEIGHBORS_COUNT);
-		const ratePow = Math.max(1, Math.min(knowsFactor + connectedFactor, 8));
-		const enhancedConnectionRate = Math.pow(NODE.ENHANCE_CONNECTION_RATE_BASIS, ratePow);
-		// if (this.id === 'peer_0') // DEBUG
-		// 	 console.log(`ECR: ${enhancedConnectionRate.toFixed(6)}`)
-
-		const maxAttempts = CONNECTION_ENHANCER.MAX_ATTEMPTS_BASED_ON_CONNECTED[connectedPeersCount];
-		const entries = Object.entries(this.peerStore.known);
-		const nbEntries = entries.length;
-		let index = Math.floor(Math.random() * nbEntries);
-		let attempts = 0;
-		for (let i = 0; i < nbEntries; i++) {
-			index = (index + 1) % nbEntries;
-			const [peerId, peerInfo] = entries[index];
-			if (peerId.startsWith(IDENTIFIERS.PUBLIC_NODE)) continue; // ignore bootstrap peers
-			if (Math.random() > enhancedConnectionRate) continue; // apply rate (useful at startup)
-			if (this.peerStore.isKicked(peerId) || this.peerStore.isBanned(peerId)) continue;
-			if (this.peerStore.connected[peerId]) continue; // skip connected peers
-			if (this.peerStore.connecting[peerId]) continue; // skip connecting peers
-			if (peerInfo.connectionsCount >= NODE.TARGET_NEIGHBORS_COUNT) continue; // skip if target already connected to enough peers
-			if (peerId === this.id) continue; // skip self
-
-			const { sharedNeighbours, overlap } = this.peerStore.getOverlap(peerId);
-			if (overlap > NODE.MAX_OVERLAP) continue; // avoid overlap
-			this.peerStore.addConnectingPeer(peerId, undefined, undefined, this.useTestTransport);
-			if (attempts++ >= maxAttempts) break; // limit to one new connection attempt
-		}
 	}
 }

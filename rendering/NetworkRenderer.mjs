@@ -49,12 +49,13 @@ export class NetworkRenderer {
 	/** @type {NodesStore} */ nodesStore;
 	/** @type {ConnectionsStore} */ connectionsStore;
 
-	updateBatchMax = 250;
+	updateBatchMax = 200;
 
 	// State
 	currentPeerId = null;
 	hoveredNodeId = null;
 	isAnimating = false;
+	isPhysicPaused = false;
 
 	/** This class is responsible for rendering the network visualization.
 	 * @param {string} containerId
@@ -249,7 +250,7 @@ export class NetworkRenderer {
 		const cNeighbours = currentPeerNode?.neighbours || [];
 		for (const [fromId, toId] of conns) { // add new physicConnections
 			const { success, key } = this.connectionsStore.set(fromId, toId);
-			//if (existingConnsKeys[key]) continue; // already processed
+			if (existingConnsKeys[key]) continue; // already processed
 			existingConnsKeys[key] = true; // store for control
 
 			const isOneOfThePeer = fromId === this.currentPeerId || toId === this.currentPeerId;
@@ -257,21 +258,19 @@ export class NetworkRenderer {
 
 			const [fromNode, toNode] = [this.nodesStore.get(fromId), this.nodesStore.get(toId)];
 			const [fNeighbours, tNeighbours] = [fromNode?.neighbours || [], toNode?.neighbours || []];
-
 			let isFirstDegree = cNeighbours.includes(fromId) || cNeighbours.includes(toId);
 			isFirstDegree = isFirstDegree || fNeighbours.includes(this.currentPeerId)
 			isFirstDegree = isFirstDegree || tNeighbours.includes(this.currentPeerId);
 			if (displayNeighboursDegree === 1 && !isFirstDegree) continue;
-			this.connectionsStore.assignLine(fromId, toId);
+			this.connectionsStore.updateOrAssignLineColor(fromId, toId);
 			drawLinesKeys[key] = true; // store for control
 		}
 		
 		// remove physicConnections that are not in the array
 		// remove visual lines that are not in the array
-		const conns = this.connectionsStore.store;
-		for (const [connStr, line] of Object.entries(conns))
+		for (const [connStr, peerConn] of Object.entries(this.connectionsStore.store))
 			if (!existingConnsKeys[connStr]) this.connectionsStore.unset(...connStr.split(':'));
-			else if (!drawLinesKeys[connStr] && line !== true) this.connectionsStore.unassignLine(...connStr.split(':'));
+			else if (!drawLinesKeys[connStr] && peerConn.line) this.connectionsStore.unassignLine(...connStr.split(':'));
 	}
 	displayDirectMessageRoute(relayerId, route = [], frameToIgnore = 30) {
 		const maxTraveledColorIndex = this.colors.traveledConnection.length - 1;
@@ -279,25 +278,15 @@ export class NetworkRenderer {
 		let isRelayerIdPassed = false;
 		for (let i = 1; i < route.length; i++) {
 			const color = isRelayerIdPassed ? this.colors.toTravelConnection : this.colors.traveledConnection[traveledIndex];
-			this.connectionsStore.assignLine(route[i - 1], route[i], color, .5);
-			this.connectionsStore.ignoreRepaint(route[i - 1], route[i], frameToIgnore);
+			this.connectionsStore.updateOrAssignLineColor(route[i - 1], route[i], color, .5, frameToIgnore);
 			traveledIndex = Math.min(traveledIndex + 1, maxTraveledColorIndex);
 			if (route[i - 1] === relayerId) isRelayerIdPassed = true;
 		}
 	}
 	// THIS IS A VERY FIRST IMPLEMENTATION, NEEDS REFINEMENT
 	displayGossipMessageRoute(relayerId, senderId, topic = 'peer_connected', data, frameToIgnore = 20) {
-		// WE PREFER COLORING EXISTING LINES, NOT CREATING THEM
-		/*this.connectionsStore.updateLineColor(senderId, relayerId, this.colors.gossipOutgoingColor, .4);
-		this.connectionsStore.updateLineColor(relayerId, this.currentPeerId, this.colors.gossipIncomingColor, .8);
-		this.connectionsStore.ignoreRepaint(relayerId, senderId, frameToIgnore);
-		this.connectionsStore.ignoreRepaint(this.currentPeerId, relayerId, frameToIgnore + 5);*/
-
-		// IF WE WANT TO CREATE LINES
-		const outResult = this.connectionsStore.assignLine(senderId, relayerId, this.colors.gossipOutgoingColor, .4);
-		const inResult = this.connectionsStore.assignLine(relayerId, this.currentPeerId, this.colors.gossipIncomingColor, .8);
-		if (outResult !== false) this.connectionsStore.ignoreRepaint(senderId, relayerId, frameToIgnore);
-		if (inResult !== false) this.connectionsStore.ignoreRepaint(relayerId, this.currentPeerId, frameToIgnore + 5);
+		this.connectionsStore.updateOrAssignLineColor(senderId, relayerId, this.colors.gossipOutgoingColor, .4, frameToIgnore);
+		this.connectionsStore.updateOrAssignLineColor(relayerId, this.currentPeerId, this.colors.gossipIncomingColor, .8, frameToIgnore + 5);
 	}
     setCurrentPeer(peerId, clearNetworkOneChange = true) {
 		if (clearNetworkOneChange && peerId !== this.currentPeerId) this.clearNetwork();
@@ -307,13 +296,14 @@ export class NetworkRenderer {
         if (peerId && this.nodesStore.has(peerId)) this.nodesStore.get(peerId).status = 'current';
 		this.currentPeerId = peerId;
     }
-	updateStats(neighborsCount = 0) {
+	updateStats(neighborsCount = 0, publicNeighborsCount = 0) {
 		const nodeCount = this.nodesStore.getNodesIds().length;
 		this.elements.nodeCountElement.textContent = nodeCount;
 		const { connsCount, linesCount } = this.connectionsStore.getConnectionsCount();
 		this.elements.connectionsCountElement.textContent = connsCount;
 		this.elements.linesCountElement.textContent = linesCount;
 		this.elements.neighborCountElement.textContent = neighborsCount;
+		this.elements.publicNeighborCountElement.textContent = publicNeighborsCount;
     }
 	switchMode() {
 		this.options.mode = this.options.mode === '2d' ? '3d' : '2d';
@@ -469,7 +459,10 @@ export class NetworkRenderer {
 			if (domElement.style.cursor === 'grabbing') return;
 			this.onNodeRightClick?.(this.hoveredNodeId)
 		});
-    }
+		window.addEventListener('keydown', (e) => {
+			if (e.code === 'Space') this.isPhysicPaused = !this.isPhysicPaused;
+		});
+	}
 	#handleMouseMove(event) {
 		if (this.renderer.domElement.style.cursor === 'grabbing') return;
 		this.mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
@@ -655,20 +648,23 @@ export class NetworkRenderer {
 	}
 	#animate() {
 		if (!this.isAnimating) return;
-		this.fpsStabilizer.updateFPS(performance.now());
+		
+		const currentTime = performance.now();
+		this.fpsStabilizer.updateFPS(currentTime);
+		
+		if (!this.fpsStabilizer.shouldRender(currentTime)) {
+			requestAnimationFrame(() => this.#animate());
+			return;
+		}
+		
 		this.#autoRotate();
-
 		this.instancedMesh.instanceMatrix.needsUpdate = true;
 		this.instancedMesh.instanceColor.needsUpdate = true;
+		
 		const nodeIds = this.nodesStore.getNodesIds();
-		this.#updateNodesPositions(nodeIds);
+		if (!this.isPhysicPaused) this.#updateNodesPositions(nodeIds);
 		this.connectionsStore.updateConnections(this.currentPeerId, this.hoveredNodeId, this.colors, this.options.mode);
 		this.renderer.render(this.scene, this.camera);
-
-		const schedule = this.fpsStabilizer.scheduleNextFrameStrict(performance.now());
-		setTimeout(() => requestAnimationFrame(() => this.#animate()), schedule);
+		requestAnimationFrame(() => this.#animate());
 	}
 }
-
-if (typeof module !== 'undefined' && module.exports) module.exports = NetworkRenderer;
-else window.NetworkRenderer = NetworkRenderer;

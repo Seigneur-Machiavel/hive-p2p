@@ -3,11 +3,11 @@ export const IDENTIFIERS = {
 }
 export const NODE = {
 	SERVICE_PORT: 8080,
-	PUBLIC_AUTO_BAN_DELAY: { min: 20_000, max: 30_000 },
+	PUBLIC_AUTO_BAN_DELAY: { min: 15_000, max: 30_000 },
 	PUBLIC_AUTO_BAN_DURATION: 120_000,
 
 	CONNECTION_UPGRADE_TIMEOUT: 5_000, // delay before SDP failure | default: 5_000 (5 seconds)
-	ENHANCE_CONNECTION_DELAY: 5_000, // delay between connection attempts | default: 2_500 (2.5 seconds)
+	ENHANCE_CONNECTION_DELAY: 2_500, // delay between connection attempts | default: 2_500 (2.5 seconds)
 	ENHANCE_CONNECTION_RATE_BASIS: .618, // default: .618 (61.8%) (PONDERATION)
 	MAX_BOOTSTRAPS_IN_CONNS: 10, // default: 10
 	MAX_BOOTSTRAPS_OUT_CONNS: 2, // prod: 2, simulation we can set: 0
@@ -23,7 +23,7 @@ export const DISCOVERY = {
 	GOSSIP_HISTORY: true
 }
 export const CONNECTION_ENHANCER = {
-	MAX_ATTEMPTS_BASED_ON_CONNECTED: [0, 4, 2, 1]
+	MAX_ATTEMPTS_BASED_ON_CONNECTED: [0, 2, 1, 1]
 }
 export const MESSAGER = {
 	MAX_HOPS: 6,
@@ -43,6 +43,6 @@ export const GOSSIP = {
 	TRANSMISSION_RATE: {
 		default: 1, // .51 === 50%
 		peer_connected: .618, // we can reduce this, but lowering the map quality
-		peer_disconnected: .618
+		//peer_disconnected: .618
 	},
 }

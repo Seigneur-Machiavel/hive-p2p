@@ -15,6 +15,7 @@ import { io } from 'socket.io-client'; // used for twitch events only
 let initInterval = null;
 /** @type {TwitchChatCommandInterpreter} */ let cmdInterpreter = null;
 const sVARS = { // SIMULATION VARIABLES
+	nextPeerToInit: 0,
 	avoidFollowersNodes: false,
 	publicPeersCards: [],
 	startTime: Date.now(),
@@ -22,8 +23,8 @@ const sVARS = { // SIMULATION VARIABLES
 	autoStart: true,
 	publicPeersCount: 2,
 	peersCount: 5,
-	bootstrapsPerPeer: 20, // will not be exact, more like a limit.
-	delayBetweenInit: 100, // 0 = faster for simulating big networks but > 0 = should be more realistic
+	bootstrapsPerPeer: null, // will not be exact, more like a limit. null = all of them
+	delayBetweenInit: 20, // 0 = faster for simulating big networks but > 0 = should be more realistic
 	randomMessagePerSecondPerPeer: .01, // capped at a total of 500msg/sec
 };
 if (sVARS.useTestTransport) {
@@ -48,6 +49,8 @@ async function destroyAllExistingPeers(pauseDuration = 500) {
 	console.log(`%c| ° ${totalDestroyed} EXISTING PEERS DESTROYED ° |`, 'color: yellow; font-weight: bold;');
 }
 function pickUpRandomBootstraps(count = sVARS.bootstrapsPerPeer) {
+	if (count === null) return sVARS.publicPeersCards; // all of them
+
 	const selected = [];
 	for (let i = 0; i < count; i++) {
 		const randomBootstrapIndex = Math.floor(Math.random() * sVARS.publicPeersCards.length);
@@ -78,19 +81,20 @@ async function initPeers() {
 	console.log(`%c| PEERS CREATED: { Public: ${peers.public.length}, Standard: ${peers.standard.length} } |`, 'color: yellow; font-weight: bold;');
 	if (d === 0) return; // already initialized
 
-	let index = 0;
+	sVARS.nextPeerToInit = 0;
+	const initInfo = { started: 0, failed: 0 };
 	initInterval = setInterval(() => { // ... Or successively
-		// log every 100 (modulo)
-		if (index && index % 100 === 0) console.log(`%c| °°° INITIALIZING PEER ${index} to ${index + 100} °°° |`, 'color: yellow;');
-		if (peers.standard[index++]?.start()) return;
+		if (peers.standard[sVARS.nextPeerToInit++]?.start()) return initInfo.started++;
+		else initInfo.failed++;
 		clearInterval(initInterval);
 		console.log(`%c| °°° ALL PEERS INITIALIZED °°° |`, 'color: yellow; font-weight: bold;');
+		console.log(`%c| STARTED: ${initInfo.started} | FAILED: ${initInfo.failed} |`, 'color: yellow; font-weight: bold;');
 	}, d);
 }
 function peersIdsObj() {
 	return {
-		standard: peers.standard.map(peer => peer.id),
-		public: peers.public.map(peer => peer.id)
+		public: peers.public.map(peer => peer.id),
+		standard: peers.standard.map(peer => peer.id)
 	};
 }
 function getPeerInfo(peerId) {

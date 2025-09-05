@@ -36,13 +36,54 @@ export class NodesStore {
 	remove(id = 'toto') { delete this.store[id]; }
 	getNodesIds() { return Object.keys(this.store); }
 }
+
+class PeerConnection {
+	/** @type {THREE.Line} */ line;
+	/** @type {number} in frames */ repaintIgnored = 0;
+	/** @type {boolean} */ isHovered = false;
+
+	#updateLineColor(colorHex = 0x666666, opacity = .4) {
+		if (!this.line || this.line === true) return false; // not assigned (physic only)
+		this.line.material.color.setHex(colorHex);
+		this.line.material.opacity = opacity;
+		this.line.material.needsUpdate = true;
+		return 'updated';
+	}
+	disposeLine(scene) {
+		if (!this.line || this.line === true) return;
+		scene.remove(this.line);
+		this.line.geometry.dispose();
+		this.line.material.dispose();
+		this.isHovered = false;
+		this.repaintIgnored = 0;
+	}
+	countIgnoredRepaint() {
+		if (this.repaintIgnored-- > 0) return true;
+		this.repaintIgnored = 0;
+		return false;
+	}
+	assignOrUpdateLineColor(scene, fromPos = {}, toPos = {}, color = 0x666666, opacity = .4) {
+		if (this.line) return this.#updateLineColor(color, opacity);
+		if (!fromPos || !toPos) return false; // skip if missing position
+
+		const geometry = new THREE.BufferGeometry();
+		const p = new Float32Array([fromPos.x, fromPos.y, fromPos.z, toPos.x, toPos.y, toPos.z]);
+		geometry.setAttribute('position', new THREE.BufferAttribute(p, 3));
+
+		const material = new THREE.LineBasicMaterial({ color, transparent: true, opacity });
+		const line = new THREE.Line(geometry, material);
+		scene.add(line);
+		this.line = line;
+		return 'created';
+	}
+}
+
 export class ConnectionsStore {
-	/** @type {Record<string, any>} key: id1:id2, value: "true" | THREE.line */
+	/** @type {Record<string, PeerConnection>} */ store = {};
 	nodesStore;
 	scene;
-	/** @type {Record<string, line | any>} */ store = {};
-	/** @type {Record<string, boolean>} */ hovered = {};
-	/** @type {Record<string, number>} */ repaintIgnored = {}; // frame number
+	updateBatchMax = 500;
+	peerConnsWithLines = {};
 
 	/** @param {NodesStore} nodesStore */
 	constructor(nodesStore, scene) {
@@ -59,94 +100,75 @@ export class ConnectionsStore {
 	set(fromId = 'toto', toId = 'tutu') {
 		const { key1, key2, validKey } = this.#getKeys(fromId, toId);
 		if (validKey) return { success: false, key: validKey }; // already set
-		this.store[key1] = true;
-		return { success: true, key: key1 };
+		this.store[key1] = new PeerConnection();
+		return { success: true, key: key1, peerConn: this.store[key1] };
 	}
 	unset(fromId = 'toto', toId = 'tutu', force = false) {
 		const { key1, key2, validKey } = this.#getKeys(fromId, toId);
 		if (!validKey) return;
-		if (this.repaintIgnored[validKey] && !force) return; // still ignored
+
+		const peerConn = this.store[validKey];
+		if (peerConn.repaintIgnored && !force) return; // still ignored
+
+		delete this.peerConnsWithLines[validKey];
+		delete this.store[validKey];
+		peerConn.disposeLine(this.scene);
+
+		// unlink from nodes <> neighbours
 		this.nodesStore.get(fromId)?.removeNeighbour(toId);
 		this.nodesStore.get(toId)?.removeNeighbour(fromId);
-		this.#disposeLineObject(validKey);
-		delete this.store[validKey];
 	}
 
 	// VISUAL LINE
-	assignLine(fromId = 'peer_1', toId = 'peer_2', color = 0x666666, opacity = .4) {
-		const { key1, key2, validKey } = this.#getKeys(fromId, toId);
-		if (!validKey) return false; // not set yet
-		if (validKey && this.store[validKey] !== true) // repaint existing line
-			return this.updateLineColor(fromId, toId, color, opacity);
-
-		const fromPos = this.nodesStore.get(fromId)?.position;
-		const toPos = this.nodesStore.get(toId)?.position;
-		if (!fromPos || !toPos) return false; // skip if missing position
-
-		const geometry = new THREE.BufferGeometry();
-		const p = new Float32Array([fromPos.x, fromPos.y, fromPos.z, toPos.x, toPos.y, toPos.z]);
-		geometry.setAttribute('position', new THREE.BufferAttribute(p, 3));
-
-		const material = new THREE.LineBasicMaterial({ color, transparent: true, opacity });
-		const line = new THREE.Line(geometry, material);
-		line.userData = { fromId, toId, type: 'connection' };
-		this.scene.add(line);
-		this.store[validKey] = line;
-		return 'created';
-	}
 	unassignLine(fromId = 'peer_1', toId = 'peer_2') {
 		const { key1, key2, validKey } = this.#getKeys(fromId, toId);
-		if (!validKey || validKey === true) return false; // not set yet
-		this.#disposeLineObject(validKey);
-	}
-	updateLineColor(fromId, toId, colorHex, opacity = .4) {
-		const { key1, key2, validKey } = this.#getKeys(fromId, toId);
-		const mesh = this.store[validKey];
-		if (!mesh || mesh === true) return false; // not assigned (physic only)
-		mesh.material.color.setHex(colorHex);
-		mesh.material.opacity = opacity;
-		mesh.material.needsUpdate = true;
-		return 'updated';
-	}
-	#disposeLineObject(validKey) {
-		const mesh = this.store[validKey];
-		if (!mesh || mesh === true) return;
-		this.scene.remove(mesh);
-		mesh.geometry.dispose();
-		mesh.material.dispose();
-		delete this.hovered[validKey];
-		delete this.repaintIgnored[validKey];
+		if (!validKey) return;
+		this.store[validKey]?.disposeLine(this.scene);
+		delete this.peerConnsWithLines[validKey];
 	}
 	setHovered(fromId = 'toto', toId = 'tutu') {
 		const { key1, key2, validKey } = this.#getKeys(fromId, toId);
 		if (!validKey) return;
-		this.assignLine(fromId, toId);
-		this.hovered[validKey] = true;
+
+		const [ fromPos, toPos ] = [ this.nodesStore.get(fromId)?.position, this.nodesStore.get(toId)?.position ];
+		const result = this.store[validKey].assignOrUpdateLineColor(this.scene, fromPos, toPos);
+		if (result === false) return;
+
+		this.peerConnsWithLines[validKey] = this.store[validKey];
+		this.store[validKey].isHovered = true;
+		if (result !== 'updated') return;
+		this.store[validKey].line.userData = { fromId, toId, type: 'connection' };
 	}
 	resetHovered() {
-		const hoveredKeys = Object.keys(this.hovered);
-		for (const key of hoveredKeys) this.unset(...key.split(':'), true);
+		for (const [key, peerConn] of Object.entries(this.store))
+			if (peerConn.isHovered) this.unset(...key.split(':'), true);
 	}
-	ignoreRepaint(fromId = 'toto', toId = 'tutu', frame = 5) {
+	updateOrAssignLineColor(fromId = 'toto', toId = 'tutu', color = 0x666666, opacity = .4, ignoreRepaintFrames) {
 		const { key1, key2, validKey } = this.#getKeys(fromId, toId);
-		if (!validKey || this.store[validKey] === true) return;
-		this.repaintIgnored[validKey] = frame;
-	}
-	#countIgnoredRepaint(validKey) {
-		if (this.repaintIgnored[validKey] === undefined) return;
-		if (this.repaintIgnored[validKey]-- > 0) return;
-		delete this.repaintIgnored[validKey];
-	}
-	updateConnections(currentPeerId, hoveredNodeId, colors, mode = '3d') { // positions & colors
-		for (const [connStr, line] of Object.entries(this.store)) {
-			if (line === true) continue; // not assigned (physic only)
+		const peerConn = validKey ? this.store[validKey] : null;
+		if (!peerConn) return false;
 
+		// assign line  HERE HERE HERE
+		const [ fromPos, toPos ] = [ this.nodesStore.get(fromId)?.position, this.nodesStore.get(toId)?.position ];
+		const result = peerConn.assignOrUpdateLineColor(this.scene, fromPos, toPos, color, opacity);
+		if (result === 'created') peerConn.line.userData = { fromId, toId, type: 'connection' };
+		if (result && ignoreRepaintFrames) peerConn.repaintIgnored = ignoreRepaintFrames;
+		if (result) this.peerConnsWithLines[validKey] = peerConn;
+		return result;
+	}
+
+	updateConnections(currentPeerId, hoveredNodeId, colors, mode = '3d') { // positions & colors
+		/*const nodeIdsCount = nodeIds.length;
+		const batchSize = Math.floor(Math.min(nodeIdsCount, this.updateBatchMax));
+		if (batchSize >= nodeIdsCount) return { batchIds: nodeIds, forceMultiplier: 1 };*/
+
+		for (const [connStr, peerConn] of Object.entries(this.peerConnsWithLines)) {
 			const [fromId, toId] = connStr.split(':');
 			const fromPos = this.nodesStore.get(fromId)?.position;
 			const toPos = this.nodesStore.get(toId)?.position;
-			if (!fromPos || !toPos || line === true) continue; // skip if missing position or disposed line
-			
-			const positionAttribute = line.geometry.attributes.position;
+			if (!fromPos || !toPos) continue; // skip if missing position
+
+			const positionAttribute = peerConn.line.geometry.attributes.position;
 			positionAttribute.array[0] = fromPos.x;
 			positionAttribute.array[1] = fromPos.y;
 			positionAttribute.array[2] = mode === '3d' ? fromPos.z : 0;
@@ -154,28 +176,23 @@ export class ConnectionsStore {
 			positionAttribute.array[4] = toPos.y;
 			positionAttribute.array[5] = mode === '3d' ? toPos.z : 0;
 			positionAttribute.needsUpdate = true;
-			
-			//const { key1, key2, validKey } = this.#getKeys(fromId, toId);
-			this.#countIgnoredRepaint(connStr);
-			if (this.repaintIgnored[connStr] && this.repaintIgnored[connStr] > 0) continue;
+
+			if (this.store[connStr].countIgnoredRepaint()) continue;
 
 			// Update connection color
 			const { connection, currentPeerConnection, hoveredPeer } = colors;
-			let color = connection;
 			const isCurrentPeer = fromId === currentPeerId || toId === currentPeerId;
 			const isHoveredPeer = fromId === hoveredNodeId || toId === hoveredNodeId;
-			if (isCurrentPeer) color = currentPeerConnection;
-			if (isHoveredPeer) color = hoveredPeer;
+
+			const color = isCurrentPeer ? currentPeerConnection : isHoveredPeer ? hoveredPeer : connection;
 			const opacity = color === connection ? .33 : .5;
-			this.updateLineColor(fromId, toId, color, opacity);
+			const result = peerConn.assignOrUpdateLineColor(this.scene, fromPos, toPos, color, opacity);
+			if (result) this.peerConnsWithLines[connStr] = peerConn;
 		}
 	}
 	getConnectionsCount() {
-		const result = { connsCount: 0, linesCount: 0 };
-		for (const line of Object.values(this.store)) {
-			result.connsCount++;
-			if (line !== true) result.linesCount++;
-		}
+		const result = { connsCount: Object.keys(this.store).length, linesCount: 0 };
+		for (const peerConn of Object.values(this.store)) if (peerConn.line) result.linesCount++;
 		return result;
 	}
 	destroy() {

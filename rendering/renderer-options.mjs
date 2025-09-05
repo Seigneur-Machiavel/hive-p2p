@@ -2,6 +2,7 @@ export class NetworkRendererElements {
 	modeSwitchBtn;
 	nodeCountElement;
 	neighborCountElement;
+	publicNeighborCountElement;
 	connectionsCountElement;
 	linesCountElement;
 
@@ -9,12 +10,14 @@ export class NetworkRendererElements {
 		modeSwitchBtn = document.getElementById('modeSwitchBtn'),
 		nodeCountElement = document.getElementById('nodeCount'),
 		neighborCountElement = document.getElementById('neighborCount'),
+		publicNeighborCountElement = document.getElementById('publicNeighborCount'),
 		connectionsCountElement = document.getElementById('connectionsCount'),
 		linesCountElement = document.getElementById('linesCount'),
 	) {
 		this.modeSwitchBtn = modeSwitchBtn;
 		this.nodeCountElement = nodeCountElement;
 		this.neighborCountElement = neighborCountElement;
+		this.publicNeighborCountElement = publicNeighborCountElement;
 		this.connectionsCountElement = connectionsCountElement;
 		this.linesCountElement = linesCountElement;
 	}

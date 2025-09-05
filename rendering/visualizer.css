@@ -10,6 +10,20 @@ button {
 	cursor: pointer;
 }
 
+::-webkit-scrollbar {
+	width: 8px;
+}
+::-webkit-scrollbar-track {
+	background: #353535;
+	border-radius: 6px;
+}
+::-webkit-scrollbar-thumb {
+	cursor: pointer;
+	background: rgba(76, 175, 80, .5);
+	border-radius: 6px;
+}
+
+
 #peersList {
 	position: fixed;
 	top: 10px;
@@ -19,6 +33,7 @@ button {
 	padding: 10px;
 	max-height: 50vh;
 	overflow-y: auto;
+	overflow-x: hidden;
 	min-width: 130px;
 	max-width: 200px;
 	z-index: 1000;
@@ -28,6 +43,7 @@ button {
 	color: #4CAF50;
 }
 #peersList div[data-peer-id] {
+	max-width: 100px;
 	padding: 6px 10px;
 	margin: 2px 0;
 	background: rgba(76, 175, 80, 0.2);

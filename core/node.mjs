@@ -4,7 +4,7 @@ import { PeerStore } from './peer-store.mjs';
 import { NetworkEnhancer } from './network-enhancer.mjs';
 import { UnicastMessager } from './unicast.mjs';
 import { Gossip } from './gossip.mjs';
-import { DISCOVERY, NODE } from './global_parameters.mjs';
+import { IDENTIFIERS, DISCOVERY, NODE } from './global_parameters.mjs';
 
 export class NodeP2P {
 	verbose;
@@ -64,12 +64,16 @@ export class NodeP2P {
 		this.peerStore.linkPeers(this.id, peerId); // Add link in self store
 		this.peerStore.digestPeerNeighbours(this.id, this.peerStore.neighbours); // Self
 
-		return;
-		setTimeout(() => {
+		const isPublic = peerId.startsWith(IDENTIFIERS.PUBLIC_NODE);
+		if (isPublic && direction === 'out') if (DISCOVERY.NEIGHBOUR_GOSSIP) this.broadcast('my_neighbours', this.peerStore.neighbours);
+		// this one cost a bit more in simulation because of timeout
+		if (isPublic && direction === 'in') setTimeout(() => this.networkEnhancer.tryConnectMoreNodes(), 1_000);
+
+		/*setTimeout(() => {
 			if (DISCOVERY.GOSSIP_HISTORY)this.sendMessage(peerId, 'gossip_history', this.gossip.bloomFilter.getGossipHistoryByTime());
 			if (DISCOVERY.CONNECTED_EVENT) this.broadcast('peer_connected', peerId);
 			if (DISCOVERY.NEIGHBOUR_GOSSIP) this.broadcast('my_neighbours', this.peerStore.neighbours);
-		}, 400);
+		}, 400);*/
 	}
 	/** @param {string} peerId @param {'in' | 'out'} direction */
 	#onDisconnect = (peerId, direction) => {

@@ -1,44 +1,58 @@
-
 export class FpsStabilizer {
 	fpsCountElement;
 	targetMaxFPS;
+	targetFrameTime;
 
-	lastFrameTime = null;
-	nextFrameTime = null;
+	lastFrameTime = 0;
 	frameTimes = [];
 	frameCount = 0;
-	FPS;
+	FPS = 60;
+	
+	// Stabilisation
+	accumulator = 0;
+	maxDelta = 50; // Évite les gros pics
 
-	/** @param {HTMLElement} fpsCountElement */
-	constructor(fpsCountElement, targetMaxFPS = 60) {
+	constructor(fpsCountElement, targetMaxFPS = 120) {
 		this.fpsCountElement = fpsCountElement;
 		this.targetMaxFPS = targetMaxFPS;
-		this.FPS = targetMaxFPS;
+		this.targetFrameTime = 1000 / targetMaxFPS;
 	}
 
-	scheduleNextFrameStrict(currentTime) {
-		const targetFrameTime = 1000 / this.targetMaxFPS;
-		if (!this.nextFrameTime) this.nextFrameTime = currentTime + targetFrameTime;
-		while (this.nextFrameTime <= currentTime) this.nextFrameTime += targetFrameTime;
-		return this.nextFrameTime - currentTime;
+	shouldRender(currentTime) {
+		if (this.lastFrameTime === 0) {
+			this.lastFrameTime = currentTime;
+			return true;
+		}
+
+		const deltaTime = Math.min(currentTime - this.lastFrameTime, this.maxDelta);
+		this.accumulator += deltaTime;
+
+		if (this.accumulator >= this.targetFrameTime) {
+			this.accumulator -= this.targetFrameTime;
+			this.lastFrameTime = currentTime;
+			return true;
+		}
+
+		return false;
 	}
+
 	updateFPS(currentTime) {
 		this.frameCount++;
-		if (!this.frameTimes) { this.frameTimes = []; this.lastFrameTime = currentTime; }
 		
 		const deltaTime = currentTime - this.lastFrameTime;
-		this.lastFrameTime = currentTime;
 		this.frameTimes.push(deltaTime);
 		if (this.frameTimes.length > 30) this.frameTimes.shift();
 
 		const avgDelta = this.frameTimes.reduce((sum, dt) => sum + dt, 0) / this.frameTimes.length;
 		this.FPS = Math.round(1000 / avgDelta);
+		
 		if (this.frameCount % 30 === 0) this.fpsCountElement.textContent = this.FPS;
 	}
+
 	reset() {
 		this.frameTimes = [];
-		this.lastFrameTime = null;
-		this.nextFrameTime = null;
+		this.lastFrameTime = 0;
 		this.frameCount = 0;
+		this.accumulator = 0;
 	}
 }

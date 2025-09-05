@@ -42,7 +42,8 @@ export class Statician { // DO NOT ADD VARIABLES, JUST COUNTERS !!
 
 	constructor(sVARS, peers, delay = 10_000) {
 		setInterval(() => {
-			console.info(`%c${Math.floor((Date.now() - sVARS.startTime) / 1000)} sec elapsed | totalNodes in simulation: ${Object.keys(peers.all).length}`, 'color: yellow;');
+			const nextPeerToInit = sVARS.nextPeerToInit >= 0 ? sVARS.nextPeerToInit : 0;
+			console.info(`%c${Math.floor((Date.now() - sVARS.startTime) / 1000)} sec elapsed | Active nodes: ${nextPeerToInit}/${Object.keys(peers.all).length}`, 'color: yellow;');
 			console.log(`%c~STATS/sec: ${this.#getStatsPerSecond(delay)}`, 'color: yellow;');
 			for (const key in this) this[key] = 0;
 		}, delay);
