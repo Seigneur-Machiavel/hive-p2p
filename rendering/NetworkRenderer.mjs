@@ -243,12 +243,14 @@ export class NetworkRenderer {
 		this.nodesStore.remove(id);
 	}
 	digestConnectionsArray(conns = [], displayNeighboursDegree = 1) {
-		const existingConns = {};
+		const existingConnsKeys = {};
+		const drawLinesKeys = {};
 		const currentPeerNode = this.nodesStore.get(this.currentPeerId);
 		const cNeighbours = currentPeerNode?.neighbours || [];
 		for (const [fromId, toId] of conns) { // add new physicConnections
 			const { success, key } = this.connectionsStore.set(fromId, toId);
-			existingConns[key] = true; // store for control
+			//if (existingConnsKeys[key]) continue; // already processed
+			existingConnsKeys[key] = true; // store for control
 
 			const isOneOfThePeer = fromId === this.currentPeerId || toId === this.currentPeerId;
 			if (displayNeighboursDegree === 0 && !isOneOfThePeer) continue;
@@ -261,11 +263,15 @@ export class NetworkRenderer {
 			isFirstDegree = isFirstDegree || tNeighbours.includes(this.currentPeerId);
 			if (displayNeighboursDegree === 1 && !isFirstDegree) continue;
 			this.connectionsStore.assignLine(fromId, toId);
+			drawLinesKeys[key] = true; // store for control
 		}
-
-		const connKeys = Object.keys(this.connectionsStore.store);
-		for (const connStr of connKeys) // remove physicConnections that are not in the array
-			if (!existingConns[connStr]) this.connectionsStore.unset(...connStr.split(':'));
+		
+		// remove physicConnections that are not in the array
+		// remove visual lines that are not in the array
+		const conns = this.connectionsStore.store;
+		for (const [connStr, line] of Object.entries(conns))
+			if (!existingConnsKeys[connStr]) this.connectionsStore.unset(...connStr.split(':'));
+			else if (!drawLinesKeys[connStr] && line !== true) this.connectionsStore.unassignLine(...connStr.split(':'));
 	}
 	displayDirectMessageRoute(relayerId, route = [], frameToIgnore = 30) {
 		const maxTraveledColorIndex = this.colors.traveledConnection.length - 1;
@@ -282,16 +288,16 @@ export class NetworkRenderer {
 	// THIS IS A VERY FIRST IMPLEMENTATION, NEEDS REFINEMENT
 	displayGossipMessageRoute(relayerId, senderId, topic = 'peer_connected', data, frameToIgnore = 20) {
 		// WE PREFER COLORING EXISTING LINES, NOT CREATING THEM
-		this.connectionsStore.updateLineColor(senderId, relayerId, this.colors.gossipOutgoingColor, .4);
+		/*this.connectionsStore.updateLineColor(senderId, relayerId, this.colors.gossipOutgoingColor, .4);
 		this.connectionsStore.updateLineColor(relayerId, this.currentPeerId, this.colors.gossipIncomingColor, .8);
 		this.connectionsStore.ignoreRepaint(relayerId, senderId, frameToIgnore);
-		this.connectionsStore.ignoreRepaint(this.currentPeerId, relayerId, frameToIgnore + 5);
+		this.connectionsStore.ignoreRepaint(this.currentPeerId, relayerId, frameToIgnore + 5);*/
 
 		// IF WE WANT TO CREATE LINES
-		/*const outResult = this.connectionsStore.assignLine(senderId, relayerId, this.colors.gossipOutgoingColor, .4);
+		const outResult = this.connectionsStore.assignLine(senderId, relayerId, this.colors.gossipOutgoingColor, .4);
 		const inResult = this.connectionsStore.assignLine(relayerId, this.currentPeerId, this.colors.gossipIncomingColor, .8);
-		if (outResult === 'created') setTimeout(() => this.connectionsStore.unassignLine([senderId, relayerId]), 500);
-		if (inResult === 'created') setTimeout(() => this.connectionsStore.unassignLine([relayerId, this.currentPeerId]), 500);*/
+		if (outResult !== false) this.connectionsStore.ignoreRepaint(senderId, relayerId, frameToIgnore);
+		if (inResult !== false) this.connectionsStore.ignoreRepaint(relayerId, this.currentPeerId, frameToIgnore + 5);
 	}
     setCurrentPeer(peerId, clearNetworkOneChange = true) {
 		if (clearNetworkOneChange && peerId !== this.currentPeerId) this.clearNetwork();
@@ -300,6 +306,14 @@ export class NetworkRenderer {
         if (this.currentPeerId && this.nodesStore.has(this.currentPeerId)) this.nodesStore.get(this.currentPeerId).status = 'known';
         if (peerId && this.nodesStore.has(peerId)) this.nodesStore.get(peerId).status = 'current';
 		this.currentPeerId = peerId;
+    }
+	updateStats(neighborsCount = 0) {
+		const nodeCount = this.nodesStore.getNodesIds().length;
+		this.elements.nodeCountElement.textContent = nodeCount;
+		const { connsCount, linesCount } = this.connectionsStore.getConnectionsCount();
+		this.elements.connectionsCountElement.textContent = connsCount;
+		this.elements.linesCountElement.textContent = linesCount;
+		this.elements.neighborCountElement.textContent = neighborsCount;
     }
 	switchMode() {
 		this.options.mode = this.options.mode === '2d' ? '3d' : '2d';
@@ -329,7 +343,6 @@ export class NetworkRenderer {
 			border.material.dispose();
 		}
 		this.nodeBorders = {};
-		this.updateStats();
 	}
 	destroy() {
         this.isAnimating = false;
@@ -655,14 +668,6 @@ export class NetworkRenderer {
 		const schedule = this.fpsStabilizer.scheduleNextFrameStrict(performance.now());
 		setTimeout(() => requestAnimationFrame(() => this.#animate()), schedule);
 	}
-    updateStats(neighborsCount = 0) {
-		const nodeCount = this.nodesStore.getNodesIds().length;
-		this.elements.nodeCountElement.textContent = nodeCount;
-		const { connsCount, linesCount } = this.connectionsStore.getConnectionsCount();
-		this.elements.connectionsCountElement.textContent = connsCount;
-		this.elements.linesCountElement.textContent = linesCount;
-		this.elements.neighborCountElement.textContent = neighborsCount;
-    }
 }
 
 if (typeof module !== 'undefined' && module.exports) module.exports = NetworkRenderer;

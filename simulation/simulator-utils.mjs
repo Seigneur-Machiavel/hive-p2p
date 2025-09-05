@@ -78,7 +78,7 @@ export class SubscriptionsManager {
 			const sessionUnicastSec = Math.round(this.unicastCount.session / divider);
 			const [gossipLog, unicastLog] = [this.#getStatsPerSecond('gossip', divider), this.#getStatsPerSecond('unicast', divider)];
 			if (gossipLog) console.log(`%c~GOSSIP/sec (total: ${sessionGossipSec}): ${gossipLog}`, 'color: fuchsia;');
-			if (unicastLog) console.log(`%~cUNICAST/sec (total: ${sessionUnicastSec}): ${unicastLog}`, 'color: cyan;');
+			if (unicastLog) console.log(`%c~UNICAST/sec (total: ${sessionUnicastSec}): ${unicastLog}`, 'color: cyan;');
 
 			// RESET SESSION COUNTERS
 			this.gossipCount.session = 0;

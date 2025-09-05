@@ -68,10 +68,8 @@ export class ConnectionsStore {
 		if (this.repaintIgnored[validKey] && !force) return; // still ignored
 		this.nodesStore.get(fromId)?.removeNeighbour(toId);
 		this.nodesStore.get(toId)?.removeNeighbour(fromId);
-		this.#disposeLineObject(this.store[validKey]);
+		this.#disposeLineObject(validKey);
 		delete this.store[validKey];
-		delete this.hovered[validKey];
-		delete this.repaintIgnored[validKey];
 	}
 
 	// VISUAL LINE
@@ -96,6 +94,11 @@ export class ConnectionsStore {
 		this.store[validKey] = line;
 		return 'created';
 	}
+	unassignLine(fromId = 'peer_1', toId = 'peer_2') {
+		const { key1, key2, validKey } = this.#getKeys(fromId, toId);
+		if (!validKey || validKey === true) return false; // not set yet
+		this.#disposeLineObject(validKey);
+	}
 	updateLineColor(fromId, toId, colorHex, opacity = .4) {
 		const { key1, key2, validKey } = this.#getKeys(fromId, toId);
 		const mesh = this.store[validKey];
@@ -105,18 +108,14 @@ export class ConnectionsStore {
 		mesh.material.needsUpdate = true;
 		return 'updated';
 	}
-	#disposeLineObject(mesh) {
+	#disposeLineObject(validKey) {
+		const mesh = this.store[validKey];
 		if (!mesh || mesh === true) return;
 		this.scene.remove(mesh);
 		mesh.geometry.dispose();
 		mesh.material.dispose();
-	}
-	unassignLine(fromId = 'toto', toId = 'tutu') {
-		const { key1, key2, validKey } = this.#getKeys(fromId, toId);
-		const mesh = this.store[validKey];
-		if (!mesh || mesh === true) return;
-		this.#disposeLineObject(mesh);
-		this.store[validKey] = true; // set to "true" (physic only)
+		delete this.hovered[validKey];
+		delete this.repaintIgnored[validKey];
 	}
 	setHovered(fromId = 'toto', toId = 'tutu') {
 		const { key1, key2, validKey } = this.#getKeys(fromId, toId);
@@ -126,14 +125,11 @@ export class ConnectionsStore {
 	}
 	resetHovered() {
 		const hoveredKeys = Object.keys(this.hovered);
-		for (const key of hoveredKeys) {
-			this.unassignLine(...key.split(':'));
-			delete this.hovered[key];
-		}
+		for (const key of hoveredKeys) this.unset(...key.split(':'), true);
 	}
 	ignoreRepaint(fromId = 'toto', toId = 'tutu', frame = 5) {
 		const { key1, key2, validKey } = this.#getKeys(fromId, toId);
-		if (!validKey) return;
+		if (!validKey || this.store[validKey] === true) return;
 		this.repaintIgnored[validKey] = frame;
 	}
 	#countIgnoredRepaint(validKey) {
@@ -159,9 +155,9 @@ export class ConnectionsStore {
 			positionAttribute.array[5] = mode === '3d' ? toPos.z : 0;
 			positionAttribute.needsUpdate = true;
 			
-			const { key1, key2, validKey } = this.#getKeys(fromId, toId);
-			this.#countIgnoredRepaint(validKey);
-			if (this.repaintIgnored[validKey] && this.repaintIgnored[validKey] > 0) continue;
+			//const { key1, key2, validKey } = this.#getKeys(fromId, toId);
+			this.#countIgnoredRepaint(connStr);
+			if (this.repaintIgnored[connStr] && this.repaintIgnored[connStr] > 0) continue;
 
 			// Update connection color
 			const { connection, currentPeerConnection, hoveredPeer } = colors;

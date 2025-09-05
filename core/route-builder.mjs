@@ -4,7 +4,6 @@
  * @typedef {Object} RouteInfo
  * @property {string[]} path - Array of peer IDs forming the route [from, ..., remoteId]
  * @property {number} hops - Number of hops/relays in the route (path.length - 1)
- * @property {number} score - Quality score (0-1, higher is better)
  *
  * @typedef {Object} RouteResult
  * @property {RouteInfo[]} routes - Array of found routes, sorted by quality (best first)
@@ -88,19 +87,20 @@ export class RouteBuilder_V2 {
 	 * @param {number} maxHops - Maximum relays allowed (default: 3)
 	 * @param {number} maxNodes - Maximum nodes to explore (default: 1728)
 	 * @param {boolean} sortByScore - Whether to sort routes by score (default: true)
-	 * @param {number} goodEnoughScore - Stop early if route score >= this (default: 0.8)
+	 * @param {number} goodEnoughHops - Early stop threshold (default: 3 hops)
 	 * @returns {RouteResult} Result containing found routes and metadata */
-	buildRoutes(remoteId, maxRoutes = 5, maxHops = 3, maxNodes = 1728, sortByScore = true, goodEnoughScore = 0.8) {
+	buildRoutes(remoteId, maxRoutes = 5, maxHops = 3, maxNodes = 1728, sortByHops = true, goodEnoughHops = 3) {
 		if (this.id === remoteId) throw new Error('Cannot build route to self');
 		if (this.peerStore.connected[remoteId]) return { routes: [{ path: [this.id, remoteId]}], success: true, nodesExplored: 1 };
 		if (!this.peerStore.known[remoteId]) return this.#buildBlindRoutes(remoteId);
 
-		const result = this.#bidirectionalSearch(remoteId, maxHops, maxNodes, goodEnoughScore);
+		const result = this.#bidirectionalSearch(remoteId, maxHops, maxNodes, goodEnoughHops);
 		if (!result.success) return { routes: [], success: false, nodesExplored: result.nodesExplored };
-
-		const scoredRoutes = this.#calculateScores(result.paths);
-		if (sortByScore) scoredRoutes.sort((a, b) => b.score - a.score);
-		return { routes: scoredRoutes.slice(0, maxRoutes), success: true, nodesExplored: result.nodesExplored };
+		
+		const routes = [];
+		for (const path of result.paths) routes.push({ path, hops: path.length - 1 });
+		if (sortByHops) routes.sort((a, b) => a.hops - b.hops);
+		return { routes: routes.slice(0, maxRoutes), success: true, nodesExplored: result.nodesExplored };
 	}
 
 	#buildBlindRoutes(remoteId, randomizeOrder = true) {
@@ -116,9 +116,9 @@ export class RouteBuilder_V2 {
 	 * @param {string} remoteId - Target peer
 	 * @param {number} maxHops - Max hops allowed
 	 * @param {number} maxNodes - Max nodes to explore
-	 * @param {number} goodEnoughScore - Early stop threshold
+	 * @param {number} goodEnoughHops - Early stop threshold
 	 * @returns {{success: boolean, paths: string[][], nodesExplored: number}} */
-	#bidirectionalSearch(remoteId, maxHops, maxNodes, goodEnoughScore) {
+	#bidirectionalSearch(remoteId, maxHops, maxNodes, goodEnoughHops) {
 		const foundPaths = [];
 		let nodesExplored = 0;
 
@@ -139,7 +139,7 @@ export class RouteBuilder_V2 {
 				for (const meetingNode of meetings) {
 					const completePath = this.#buildCompletePath(forwardVisited.get(meetingNode), backwardVisited.get(meetingNode));
 					foundPaths.push(completePath);
-					if (this.#calculateScore(completePath) < goodEnoughScore) continue;
+					if (completePath.length - 1 > goodEnoughHops) continue;
 					return { success: true, paths: foundPaths, nodesExplored };
 				}
 				nodesExplored++;
@@ -150,7 +150,7 @@ export class RouteBuilder_V2 {
 				for (const meetingNode of meetings) {
 					const completePath = this.#buildCompletePath(forwardVisited.get(meetingNode), backwardVisited.get(meetingNode));
 					foundPaths.push(completePath);
-					if (this.#calculateScore(completePath) < goodEnoughScore) continue;
+					if (completePath.length - 1 > goodEnoughHops) continue;
 					return { success: true, paths: foundPaths, nodesExplored };
 				}
 				nodesExplored++;
@@ -203,19 +203,5 @@ export class RouteBuilder_V2 {
 		for (const node of forwardPath) result[index++] = node;
 		for (let i = backwardPath.length - 2; i >= 0; i--) result[index++] = backwardPath[i];
 		return result;
-	}
-
-	/** Calculate score for a single path
-	 * @param {string[]} path - Route path
-	 * @returns {number} Score between 0 and 1 */
-	#calculateScore(path) { return Math.max(0, 1 - (path.length * 0.1)); }
-
-	/** Calculate scores for multiple paths
-	 * @param {string[][]} paths - Array of paths
-	 * @returns {RouteInfo[]} Routes with scores */
-	#calculateScores(paths) {
-		const routes = [];
-		for (const path of paths) routes.push({ path, hops: path.length - 1, score: this.#calculateScore(path) });
-		return routes;
 	}
 }

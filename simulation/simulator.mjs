@@ -105,30 +105,30 @@ function getPeerInfo(peerId) {
 		}
 	}
 }
-(async () => { // RANDOM MESSAGE SENDER (LOOP ENABLED BY sVARS.randomMessagePerSecondPerPeer)
-	if (!sVARS.randomMessagePerSecondPerPeer) return;
+async function randomMessagesLoop() {
+	const numberOfSender = Math.max(1, Math.floor(sVARS.randomMessagePerSecondPerPeer * (peers.public.length + peers.standard.length) / 10));
 	while(true) {
-		try {
-			const peerIds = [...peers.public, ...peers.standard].map(p => p.id);
-			const sender = peers.all[peerIds[Math.floor(Math.random() * peerIds.length)]];
+		const peerIds = Object.keys(peers.all);
+		const peersCount = peerIds.length;
+		try { for (let i = 0; i < numberOfSender; i++) {
+			const senderId = peerIds[Math.floor(Math.random() * peersCount)];
+			const sender = peers.all[senderId];
 			const senderKnowsPeers = sender ? Object.keys(sender.peerStore.known) : [];
+			if (!sender || senderKnowsPeers.length === 0) continue;
+
 			const recipientId = senderKnowsPeers[Math.floor(Math.random() * senderKnowsPeers.length)];
-			const recipient = peers.all[recipientId];
-			if (!sender || !recipient || sender.id === recipient.id) return; // skip if sender or recipient is not found or they are the same
 			const message = { type: 'message', data: `Hello from ${sender.id}` };
-			sender.sendMessage(recipient.id, 'message', message);
-		} catch (error) { console.error('Error sending random message:', error); }
+			sender.sendMessage(recipientId, 'message', message);
+		} } catch (error) { console.error('Error selecting random sender:', error); }
 
-		const numberOfPeers = Object.keys(peers.all).length;
-		let pauseDuration = Math.max(2, 1000 / (sVARS.randomMessagePerSecondPerPeer * numberOfPeers));
-		pauseDuration = Math.min(1000, pauseDuration);
-		await new Promise(resolve => setTimeout(resolve, Math.round(pauseDuration)));
+		await new Promise(resolve => setTimeout(resolve, 1000));
 	}
-})();
+};
 
-// EXPRESS SERVER + WEBSOCKET + SIMULATION MANAGEMENT
+// INIT SIMULATION
 const statician = new Statician(sVARS, peers);
 if (sVARS.autoStart) initPeers();
+if (sVARS.randomMessagePerSecondPerPeer) randomMessagesLoop();
 const app = express(); // simple server to serve texts/p2p_simulator.html
 app.use('../rendering/visualizer.mjs', (req, res, next) => {
     res.set({ 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache', 'Expires': '0' });

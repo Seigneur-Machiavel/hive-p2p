@@ -69,11 +69,8 @@ export class Sandbox {
 
 		this.connections[id]?.close(); // close remote instance
 		this.transportInstances[id]?.close(); // close local instance
-
-		setTimeout(() => { // cleanup after short delay to digest close events
-			delete this.connections[id];
-			delete this.transportInstances[id];
-		}, 1000);
+		delete this.connections[id];
+		delete this.transportInstances[id];
 	}
 	PENDING_OFFERS = {}; // key: id, value: signalData
 	OFFERS_EMITTERS = {}; // key: signalId, value: id

@@ -2,7 +2,6 @@ import { NetworkRenderer } from './NetworkRenderer.mjs';
 import { IDENTIFIERS } from '../core/global_parameters.mjs';
 
 class SimulationInterface {
-	#subscriptionsPeerId = null;
 	#connectingWs = false;
 	#ws;
 	currentPeerId;
@@ -37,14 +36,10 @@ class SimulationInterface {
 			if (msg.type === 'peersIds') this.onPeersIds(msg.data);
 			if (msg.type === 'peerInfo') this.onPeerInfo(msg.data);
 			if (msg.type === 'peerMessage' && this.onPeerMessage) this.onPeerMessage(msg.remoteId, msg.data);
-			if (msg.type === 'subscribeToPeerMessage' && msg.data.success) this.#subscriptionsPeerId = msg.data.peerId;
 		};
 		this.#connectingWs = false;
 	}
-	start(settings) {
-		this.#subscriptionsPeerId = null;
-		this.#sendWsMessage({ type: 'start', settings });
-	}
+	start(settings) { this.#sendWsMessage({ type: 'start', settings }); }
 	getPeerInfo() {
 		this.#sendWsMessage({ type: 'getPeerInfo', peerId: this.currentPeerId });
 	}
@@ -107,7 +102,7 @@ class NetworkVisualizer {
 			}
 		}
 
-		window.networkRenderer = this.networkRenderer; // Expose for debugging
+		setInterval(() => this.networkRenderer.updateStats(this.lastPeerInfo?.store?.connected?.length || 0), 200);
 	}
 
 	#setSelectedPeer(peerId) {
@@ -174,7 +169,6 @@ class NetworkVisualizer {
 
 		//console.log(`Updated network map: ${Object.keys(nodes).length} nodes | ${Object.keys(connections).length} connections`);
 		this.networkRenderer.digestConnectionsArray(connections);
-		this.networkRenderer.updateStats(peerInfo.store.connected.length);
 	}
 	// SIMULATION METHODS
 	#handleSettings(settings = { publicPeersCount: 2, peersCount: 5 }) {
@@ -209,3 +203,4 @@ class NetworkVisualizer {
 
 const networkVisualizer = new NetworkVisualizer(true);
 window.networkVisualizer = networkVisualizer; // Expose for debugging
+window.networkRenderer = networkVisualizer.networkRenderer; // Expose for debugging

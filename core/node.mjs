@@ -97,7 +97,7 @@ export class NodeP2P {
 	start() { this.networkEnhancer.init(); return true; }
 	/** @param {string} topic @param {string | Uint8Array} data @param {number} [TTL] */
 	broadcast(topic, data, TTL) { this.gossip.broadcast(topic, data, TTL); }
-	/** @param {string} remoteId @param {string | Uint8Array} data */
+	/** @param {string} remoteId @param {string} type @param {string | Uint8Array} data */
 	sendMessage(remoteId, type, data, spread = 1) { this.messager.sendMessage(remoteId, type, data, spread); }
 	tryConnectToPeer(targetId = 'toto') { this.peerStore.addConnectingPeer(targetId, undefined, undefined, this.useTestTransport); }
 	setAsPublic(domain = 'localhost', port = NODE.SERVICE_PORT) {

@@ -1,6 +1,34 @@
 import { Sandbox } from './tranports-sandbox.mjs';
 const SANDBOX = new Sandbox();
 
+class TestWsEventManager { // manage init() and close() to avoid timeout usage
+	/** @type {Array<{ conn: TestWsConnection, clientWsConnection: any, time: number }> } */ toInit = [];
+	/** @type {Array<{ remoteWs: TestWsConnection, time: number }> } */ toClose = [];
+
+	initInterval = setInterval(() => {
+		if (this.toInit.length <= 0) return;
+		const n = Date.now();
+		const toInit = this.toInit;
+		this.toInit = [];
+		for (const { conn, clientWsConnection, time } of toInit)
+			if (time > n) this.toInit.push({ conn, clientWsConnection, time }); // not yet
+			else conn?.init(clientWsConnection); // init connection
+	}, 500);
+	closeInterval = setInterval(() => {
+		if (this.toClose.length <= 0) return;
+		const n = Date.now();
+		const toClose = this.toClose;
+		this.toClose = [];
+		for (const { remoteWs, time } of toClose)
+			if (time > n) this.toClose.push({ remoteWs, time }); // not yet
+			else remoteWs?.close(); // close connection
+	}, 500);
+
+	scheduleInit(conn, clientWsConnection, delay = 500) { this.toInit.push({ conn, clientWsConnection, time: Date.now() + delay }); }
+	scheduleClose(remoteWs, delay = 100) { this.toClose.push({ remoteWs, time: Date.now() + delay }); }
+}
+const TEST_WS_EVENT_MANAGER = new TestWsEventManager();
+
 // // HERE WE ARE BASICALLY COPYING THE PRINCIPLE OF "WebSocket"
 export class TestWsConnection { // WebSocket like
 	/** @type {TestWsConnection} */
@@ -15,9 +43,9 @@ export class TestWsConnection { // WebSocket like
 
 	constructor(url = 'ws://...', clientWsConnection) {
 		if (!clientWsConnection) this.url = url;
-		setTimeout(() => this.#init(clientWsConnection), this.delayBeforeConnectionTry);
+		TEST_WS_EVENT_MANAGER.scheduleInit(this, clientWsConnection, this.delayBeforeConnectionTry);
 	}
-	#init(clientWsConnection) {
+	init(clientWsConnection) {
 		if (clientWsConnection) this.remoteWs = clientWsConnection;
 		else this.remoteWs = SANDBOX.connectToWebSocketServer(this.url, this, TestWsConnection);
 
@@ -39,7 +67,7 @@ export class TestWsConnection { // WebSocket like
 
 		this.callbacks.close.forEach(cb => cb()); // emit close event
 		if (this.onclose) this.onclose();
-		setTimeout(() => { if (this.remoteWs) this.remoteWs.close(); }, 100);
+		TEST_WS_EVENT_MANAGER.scheduleClose(this.remoteWs, 100);
 	}
 	send(message) {
 		if (!this.remoteWs) {
@@ -93,8 +121,31 @@ class TestTransportOptions {
 	wrtc;
 }
 class TransportPool {
-	inUse = new Map();
+	maxSize;
 	/** @type {TestTransport[]} */ available = [];
+	/** @type {Array<{ transport: TestTransport, time: number }>} */ toRelease = [];
+	/** @type {Array<{ transport: TestTransport, SDP: string, time: number }>} */ sdpToEmit = [];
+
+	releaseInterval = setInterval(() => {
+		if (this.toRelease.length <= 0) return;
+		const n = Date.now();
+		const toRelease = this.toRelease;
+		this.toRelease = [];
+		for (const { transport, time } of toRelease)
+			if (time > n) this.toRelease.push({ transport, time }); // not yet
+			else if (this.available.length >= this.maxSize) transport.destroy(); // pool full
+			else { transport.callbacks = {}; this.available.push(transport); } // release to pool
+	}, 1_000);
+
+	sdpEmitInterval = setInterval(() => {
+		if (this.sdpToEmit.length <= 0) return;
+		const n = Date.now();
+		const toEmit = this.sdpToEmit;
+		this.sdpToEmit = [];
+		for (const { transport, SDP, time } of toEmit)
+			if (time > n) this.sdpToEmit.push({ transport, SDP, time }); // not yet
+			else transport?.callbacks?.signal?.forEach(cb => cb(SDP)); // emit signal event
+	}, 500);
 	
 	constructor(maxSize = 100) { this.maxSize = maxSize; }
 
@@ -104,14 +155,16 @@ class TransportPool {
 		transport.reset();
 		return transport;
 	}
-	release(transport) {
-		if (this.available.length >= this.maxSize) return transport.destroy();
-		transport.callbacks = {};
-		this.available.push(transport);
+	release(transport, delay = 1_000) {
+		this.toRelease.push({ transport, time: Date.now() + delay });
+	}
+	emitSDP(transport, SDP, delay = TestTransportOptions.defaultSignalCreationDelay) {
+		this.sdpToEmit.push({ transport, SDP, time: Date.now() + delay });
 	}
 }
 const TRANSPORT_POOL = new TransportPool();
 export class TestTransport { // SimplePeer like
+	destroyed = false;
 	id = 0;
 	remoteId = null;
 	// SimplePeer.Options: { initiator: !remoteSDP, trickle: true, wrtc }
@@ -130,7 +183,7 @@ export class TestTransport { // SimplePeer like
 
 		if (!this.initiator) return; // standby
 		const SDP = SANDBOX.buildSDP(this.id, 'offer'); // emit signal event 'offer'
-		setTimeout(() => this.callbacks.signal.forEach(cb => cb(SDP)), this.signalCreationDelay);
+		TRANSPORT_POOL.emitSDP(this, SDP, this.signalCreationDelay);
 	}
 
 	reset() {
@@ -144,7 +197,8 @@ export class TestTransport { // SimplePeer like
 		if (!errorMsg) this.callbacks.close?.forEach(cb => cb());
 		else this.dispatchError(errorMsg);
 		SANDBOX.destroyTransport(this.id);
-		setTimeout(() => TRANSPORT_POOL.release(this), 1000);
+		TRANSPORT_POOL.release(this);
+		this.destroyed = true;
 	}
 	static create(opts) {
 		const transport = TRANSPORT_POOL.get();
