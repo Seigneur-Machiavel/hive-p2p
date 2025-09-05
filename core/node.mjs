@@ -62,18 +62,23 @@ export class NodeP2P {
 		if (this.peerStore.isKicked(peerId)) return;
 		if (this.verbose) console.log(`(${this.id}) ${direction === 'in' ? 'Incoming' : 'Outgoing'} connection established with peer ${peerId}`);
 		this.peerStore.linkPeers(this.id, peerId); // Add link in self store
-		this.peerStore.digestPeerNeighbours(this.id, this.peerStore.neighbours); // Self
+		//this.peerStore.digestPeerNeighbours(this.id, this.peerStore.neighbours); // Self
 
-		const isPublic = peerId.startsWith(IDENTIFIERS.PUBLIC_NODE);
-		if (isPublic && direction === 'out') if (DISCOVERY.NEIGHBOUR_GOSSIP) this.broadcast('my_neighbours', this.peerStore.neighbours);
+		const [selfIsPublic, remoteIsPublic] = [this.publicUrl, peerId.startsWith(IDENTIFIERS.PUBLIC_NODE)];
+		//if (selfIsPublic && direction === 'out') if (DISCOVERY.NEIGHBOUR_GOSSIP) this.broadcast('my_neighbours', this.peerStore.neighbours);
 		// this one cost a bit more in simulation because of timeout
-		if (isPublic && direction === 'in') setTimeout(() => this.networkEnhancer.tryConnectMoreNodes(), 1_000);
+		//if (isPublic && direction === 'in') setTimeout(() => this.networkEnhancer.tryConnectMoreNodes(), 1_000);
 
-		/*setTimeout(() => {
-			if (DISCOVERY.GOSSIP_HISTORY)this.sendMessage(peerId, 'gossip_history', this.gossip.bloomFilter.getGossipHistoryByTime());
-			if (DISCOVERY.CONNECTED_EVENT) this.broadcast('peer_connected', peerId);
-			if (DISCOVERY.NEIGHBOUR_GOSSIP) this.broadcast('my_neighbours', this.peerStore.neighbours);
-		}, 400);*/
+		setTimeout(() => {
+			if (selfIsPublic && direction === 'in') this.broadcast('my_neighbours', this.peerStore.neighbours);
+			else this.gossip.broadcastToPeer(peerId, this.id, 'my_neighbours', this.peerStore.neighbours);
+
+			if (!selfIsPublic && direction === 'out' && remoteIsPublic) this.networkEnhancer.tryConnectMoreNodes();
+
+			//if (DISCOVERY.GOSSIP_HISTORY) this.sendMessage(peerId, 'gossip_history', this.gossip.bloomFilter.getGossipHistoryByTime());
+			//if (DISCOVERY.CONNECTED_EVENT) this.broadcast('peer_connected', peerId);
+			//if (DISCOVERY.NEIGHBOUR_GOSSIP) this.broadcast('my_neighbours', this.peerStore.neighbours);
+		}, 800);
 	}
 	/** @param {string} peerId @param {'in' | 'out'} direction */
 	#onDisconnect = (peerId, direction) => {

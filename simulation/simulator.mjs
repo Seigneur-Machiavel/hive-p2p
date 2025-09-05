@@ -15,6 +15,7 @@ import { io } from 'socket.io-client'; // used for twitch events only
 let initInterval = null;
 /** @type {TwitchChatCommandInterpreter} */ let cmdInterpreter = null;
 const sVARS = { // SIMULATION VARIABLES
+	publicInit: 0,
 	nextPeerToInit: 0,
 	avoidFollowersNodes: false,
 	publicPeersCards: [],
@@ -28,8 +29,8 @@ const sVARS = { // SIMULATION VARIABLES
 	randomMessagePerSecondPerPeer: .01, // capped at a total of 500msg/sec
 };
 if (sVARS.useTestTransport) {
-	sVARS.publicPeersCount = 100; // stable: 3,  medium: 100, strong: 200
-	sVARS.peersCount = 4900; 	  // stable: 25, medium: 800, strong: 1600
+	sVARS.publicPeersCount = 400; // stable: 3,  medium: 100, strong: 200
+	sVARS.peersCount = 4600; 	  // stable: 25, medium: 800, strong: 1600
 }
 
 const peers = {
@@ -75,20 +76,17 @@ async function initPeers() {
 
 	sVARS.publicPeersCards = [];
 	const d = sVARS.delayBetweenInit;
-	for (let i = 0; i < sVARS.publicPeersCount; i++) addPeer('public', i, [], true, true);
+	for (sVARS.publicInit; sVARS.publicInit < sVARS.publicPeersCount; sVARS.publicInit++) addPeer('public', sVARS.publicInit, [], true, true);
 	for (let i = 0; i < sVARS.peersCount; i++) addPeer('standard', i, sVARS.publicPeersCards, d === 0);
 
 	console.log(`%c| PEERS CREATED: { Public: ${peers.public.length}, Standard: ${peers.standard.length} } |`, 'color: yellow; font-weight: bold;');
 	if (d === 0) return; // already initialized
 
 	sVARS.nextPeerToInit = 0;
-	const initInfo = { started: 0, failed: 0 };
 	initInterval = setInterval(() => { // ... Or successively
-		if (peers.standard[sVARS.nextPeerToInit++]?.start()) return initInfo.started++;
-		else initInfo.failed++;
+		if (peers.standard[sVARS.nextPeerToInit++]?.start()) return;
 		clearInterval(initInterval);
 		console.log(`%c| °°° ALL PEERS INITIALIZED °°° |`, 'color: yellow; font-weight: bold;');
-		console.log(`%c| STARTED: ${initInfo.started} | FAILED: ${initInfo.failed} |`, 'color: yellow; font-weight: bold;');
 	}, d);
 }
 function peersIdsObj() {
