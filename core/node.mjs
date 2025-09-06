@@ -23,7 +23,7 @@ export class NodeP2P {
 	constructor(id = 'toto', bootstraps = [], useTestTransport = false, verbose = 0) {
 		this.verbose = verbose;
 		this.id = id;
-		this.peerStore = new PeerStore(id, NODE.CONNECTION_UPGRADE_TIMEOUT);
+		this.peerStore = new PeerStore(id);
 		this.networkEnhancer = new NetworkEnhancer(id, this.peerStore, bootstraps, useTestTransport);
 		this.messager = new UnicastMessager(id, this.peerStore);
 		this.gossip = new Gossip(id, this.peerStore);
@@ -51,7 +51,7 @@ export class NodeP2P {
 
 		// TEST
 		setInterval(() => {
-			this.peerStore.digestPeerNeighbours(this.id, this.peerStore.neighbours); // Self
+			this.peerStore.digestPeerNeighbours(this.id, this.peerStore.neighbours); // Self 'known' update
 			if (DISCOVERY.NEIGHBOUR_GOSSIP) this.broadcast('my_neighbours', this.peerStore.neighbours);
 		}, 10_000);
 	}
@@ -61,8 +61,8 @@ export class NodeP2P {
 	#onConnect = (peerId, direction) => {
 		if (this.peerStore.isKicked(peerId)) return;
 		if (this.verbose) console.log(`(${this.id}) ${direction === 'in' ? 'Incoming' : 'Outgoing'} connection established with peer ${peerId}`);
-		this.peerStore.linkPeers(this.id, peerId); // Add link in self store
-		//this.peerStore.digestPeerNeighbours(this.id, this.peerStore.neighbours); // Self
+		//this.peerStore.linkPeers(this.id, peerId); // Add link in self store | useless ?
+		this.peerStore.digestPeerNeighbours(this.id, this.peerStore.neighbours); // Self 'known' update
 
 		const [selfIsPublic, remoteIsPublic] = [this.publicUrl, peerId.startsWith(IDENTIFIERS.PUBLIC_NODE)];
 		//if (selfIsPublic && direction === 'out') if (DISCOVERY.NEIGHBOUR_GOSSIP) this.broadcast('my_neighbours', this.peerStore.neighbours);
@@ -77,7 +77,7 @@ export class NodeP2P {
 
 			//if (DISCOVERY.GOSSIP_HISTORY) this.sendMessage(peerId, 'gossip_history', this.gossip.bloomFilter.getGossipHistoryByTime());
 			//if (DISCOVERY.CONNECTED_EVENT) this.broadcast('peer_connected', peerId);
-			//if (DISCOVERY.NEIGHBOUR_GOSSIP) this.broadcast('my_neighbours', this.peerStore.neighbours);
+			if (DISCOVERY.NEIGHBOUR_GOSSIP) this.broadcast('my_neighbours', this.peerStore.neighbours);
 		}, 800);
 	}
 	/** @param {string} peerId @param {'in' | 'out'} direction */
@@ -109,12 +109,12 @@ export class NodeP2P {
 	/** @param {string} remoteId @param {string} type @param {string | Uint8Array} data */
 	sendMessage(remoteId, type, data, spread = 1) { this.messager.sendMessage(remoteId, type, data, spread); }
 	tryConnectToPeer(targetId = 'toto') { this.peerStore.addConnectingPeer(targetId, undefined, undefined, this.useTestTransport); }
-	setAsPublic(domain = 'localhost', port = NODE.SERVICE_PORT) {
+	setAsPublic(domain = 'localhost', port = NODE.SERVICE.PORT) {
 		// public node kick peer after 1min and ban it for 1min to improve network consistency
-		const [banDelays, banDuration] = [NODE.PUBLIC_AUTO_BAN_DELAY, NODE.PUBLIC_AUTO_BAN_DURATION];
+		const [{min, max}, kickDuration] = [NODE.SERVICE.AUTO_KICK_DELAY, NODE.SERVICE.AUTO_KICK_DURATION];
 		this.peerStore.on('connect', (peerId, direction) => {
-			const banDelay = Math.random() * (banDelays.max - banDelays.min) + banDelays.min;
-			if (direction === 'in') setTimeout(() => this.peerStore.kickPeer(peerId, banDuration), banDelay);
+			const kickDelay = Math.random() * (max - min) + min;
+			if (direction === 'in') setTimeout(() => this.peerStore.kickPeer(peerId, kickDuration), kickDelay);
 		});
 		// create simple ws server to accept incoming connections (Require to open port)
 		this.publicUrl = `ws://${domain}:${port}`;
@@ -122,7 +122,7 @@ export class NodeP2P {
 		this.wsServer = new Transport({ port, host: domain });
 		this.wsServer.on('error', (error) => console.error(`WebSocket error on Node #${this.id}:`, error));
 		this.wsServer.on('connection', (ws) => {
-			if (this.wsServer.clients.size > NODE.MAX_BOOTSTRAPS_IN_CONNS) ws.close();
+			if (this.wsServer.clients.size > NODE.SERVICE.MAX_WS_IN_CONNS) ws.close();
 
 			let remoteId;
 			ws.on('message', (message) => {
@@ -139,7 +139,8 @@ export class NodeP2P {
 				} catch (error) { if (this.verbose > 1) console.error(`Error handling incoming signal for ${remoteId}:`, error.stack); }
 			});
 			ws.on('close', () => remoteId ? this.peerStore.removePeer(remoteId, 'connecting') : null);
-			setTimeout(() => ws.readyState === ws.OPEN ? ws.close() : null, NODE.CONNECTION_UPGRADE_TIMEOUT * 2);
+			// PEER SHOULD UPGRADE WEBSOCKET TO WRTC -> RELEASING WS FOR OTHERS
+			setTimeout(() => ws.readyState === ws.OPEN ? ws.close() : null, NODE.WRTC.CONNECTION_UPGRADE_TIMEOUT * 2);
 		});
 
 		return { id: this.id, publicUrl: this.publicUrl };

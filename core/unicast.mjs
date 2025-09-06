@@ -1,4 +1,4 @@
-import { DISCOVERY, MESSAGER } from "./global_parameters.mjs";
+import { DISCOVERY, UNICAST } from "./global_parameters.mjs";
 import { RouteBuilder_V1, RouteBuilder_V2 } from "./route-builder.mjs";
 const RouteBuilder = RouteBuilder_V2; // temporary switch
 
@@ -31,9 +31,9 @@ export class UnicastMessager {
 	id;
 	peerStore;
 	pathFinder;
-	maxHops = MESSAGER.MAX_HOPS;
-	maxRoutes = MESSAGER.MAX_ROUTES;
-	maxNodes = MESSAGER.MAX_NODES;
+	maxHops = UNICAST.MAX_HOPS;
+	maxRoutes = UNICAST.MAX_ROUTES;
+	maxNodes = UNICAST.MAX_NODES;
 
 	/** @param {string} selfId @param {PeerStore} peerStore */
 	constructor(selfId, peerStore) {

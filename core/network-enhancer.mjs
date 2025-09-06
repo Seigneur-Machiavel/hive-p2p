@@ -1,5 +1,5 @@
 import { TestWsConnection } from '../simulation/test-transports.mjs';
-import { IDENTIFIERS, NODE, CONNECTION_ENHANCER } from './global_parameters.mjs';
+import { IDENTIFIERS, ENHANCER } from './global_parameters.mjs';
 
 /**
  * @typedef {import('./peer-store.mjs').PeerStore} PeerStore
@@ -12,8 +12,6 @@ import { IDENTIFIERS, NODE, CONNECTION_ENHANCER } from './global_parameters.mjs'
  * @property {string} signal
  * @property {Array<string>} neighbours
  * */
-
-
 
 export class NetworkEnhancer {
 	id;
@@ -38,13 +36,12 @@ export class NetworkEnhancer {
 	// PUBLIC METHODS
 	init() {
 		this.#tryConnectNextBootstrap(); // first shot ASAP
-		const ecd = NODE.ENHANCE_CONNECTION_DELAY;
 		let phase = 0;
 		this.interval = setInterval(() => {
 			phase = phase ? 0 : 1;
 			if (phase) this.#tryConnectNextBootstrap();
 			else this.tryConnectMoreNodes();
-		}, ecd);
+		}, ENHANCER.LOOP_DELAY);
 	}
 	destroy() {
 		if (this.interval) clearInterval(this.interval);
@@ -54,10 +51,10 @@ export class NetworkEnhancer {
 		if (isEnough || !connectedPeersCount) return;
 
 		const connectedFactor = connectedPeersCount;
-		const knowsFactor = Math.ceil(Math.sqrt(knownPeersCount) / NODE.TARGET_NEIGHBORS_COUNT);
+		const knowsFactor = Math.ceil(Math.sqrt(knownPeersCount) / ENHANCER.TARGET_NEIGHBORS_COUNT);
 		const ratePow = Math.max(1, Math.min(knowsFactor + connectedFactor, 8));
-		const enhancedConnectionRate = Math.pow(NODE.ENHANCE_CONNECTION_RATE_BASIS, ratePow);
-		const maxAttempts = CONNECTION_ENHANCER.MAX_ATTEMPTS_BASED_ON_CONNECTED[connectedPeersCount];
+		const enhancedConnectionRate = Math.pow(ENHANCER.RATE_BASIS, ratePow);
+		const maxAttempts = ENHANCER.MAX_ATTEMPTS_BASED_ON_CONNECTED[connectedPeersCount];
 		const entries = Object.entries(this.peerStore.known);
 		const nbEntries = entries.length;
 		let index = Math.floor(Math.random() * nbEntries);
@@ -70,11 +67,11 @@ export class NetworkEnhancer {
 			if (this.peerStore.isKicked(peerId) || this.peerStore.isBanned(peerId)) continue;
 			if (this.peerStore.connected[peerId]) continue; // skip connected peers
 			if (this.peerStore.connecting[peerId]) continue; // skip connecting peers
-			if (peerInfo.connectionsCount >= NODE.TARGET_NEIGHBORS_COUNT) continue; // skip if target already connected to enough peers
+			if (peerInfo.connectionsCount >= ENHANCER.TARGET_NEIGHBORS_COUNT) continue; // skip if target already connected to enough peers
 			if (peerId === this.id) continue; // skip self
 
 			const { sharedNeighbours, overlap } = this.peerStore.getOverlap(peerId);
-			if (overlap > NODE.MAX_OVERLAP) continue; // avoid overlap
+			if (overlap > ENHANCER.MAX_OVERLAP) continue; // avoid overlap
 			this.peerStore.addConnectingPeer(peerId, undefined, undefined, this.useTestTransport);
 			if (attempts++ >= maxAttempts) break; // limit to one new connection attempt
 		}
@@ -91,9 +88,9 @@ export class NetworkEnhancer {
 		if (conn && signal.type === 'answer') this.peerStore.assignSignal(senderId, signal);
 		else if (!conn && signal.type === 'offer') {
 			const { sharedNeighbours, overlap } = this.peerStore.getOverlap(senderId);
-			const tooManySharedPeers = overlap > NODE.MAX_OVERLAP;
+			const tooManySharedPeers = overlap > ENHANCER.MAX_OVERLAP;
 			const isTwitchUser = senderId.startsWith('f_');
-			const tooManyConnectedPeers = this.peerStore.neighbours.length >= NODE.TARGET_NEIGHBORS_COUNT - 1;
+			const tooManyConnectedPeers = this.peerStore.neighbours.length >= ENHANCER.TARGET_NEIGHBORS_COUNT - 1;
 			if (!isTwitchUser && (tooManySharedPeers || tooManyConnectedPeers)) this.peerStore.kickPeer(senderId, 30_000);
 			else this.peerStore.addConnectingPeer(senderId, tempTransportInstance, signal, this.useTestTransport);
 		}
@@ -115,11 +112,11 @@ export class NetworkEnhancer {
 	// INTERNAL METHODS
 	#getConnectionInfo() {
 		const connectedPeersCount = this.peerStore.neighbours.length;
-		const missingCount = (NODE.TARGET_NEIGHBORS_COUNT - connectedPeersCount);
+		const missingCount = (ENHANCER.TARGET_NEIGHBORS_COUNT - connectedPeersCount);
 		return { 
-			isEnough: connectedPeersCount >= NODE.TARGET_NEIGHBORS_COUNT,
-			limitToOneBootstrap: connectedPeersCount >= NODE.TARGET_NEIGHBORS_COUNT / 3,
-			limitToZeroBootstrap: connectedPeersCount >= NODE.TARGET_NEIGHBORS_COUNT / 2,
+			isEnough: connectedPeersCount >= ENHANCER.TARGET_NEIGHBORS_COUNT,
+			limitToOneBootstrap: connectedPeersCount >= ENHANCER.TARGET_NEIGHBORS_COUNT / 3,
+			limitToZeroBootstrap: connectedPeersCount >= ENHANCER.TARGET_NEIGHBORS_COUNT / 2,
 			missingCount,
 			connectedPeersCount,
 			knownPeersCount: Object.keys(this.peerStore.known).length
@@ -133,7 +130,7 @@ export class NetworkEnhancer {
 		const [connected, connecting] = [this.peerStore.connected, this.peerStore.connecting];
 		const connectingCount = Object.keys(connecting).filter(id => this.bootstrapsIds[id]).length;
 		const connectedCount = this.peerStore.neighbours.filter(id => this.bootstrapsIds[id]).length;
-		if (connectedCount + connectingCount >= NODE.MAX_BOOTSTRAPS_OUT_CONNS) return; // already connected to enough bootstraps
+		if (connectedCount + connectingCount >= ENHANCER.MAX_SERVICE_OUT_CONNS) return; // already connected to enough bootstraps
 		if (limitToOneBootstrap && connectedCount) return; // already connected to one bootstrap, wait next turn
 		if (limitToOneBootstrap && connectingCount) return; // already connecting to one bootstrap, wait next turn
 		

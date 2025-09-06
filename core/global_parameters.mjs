@@ -1,20 +1,33 @@
+// THIS FILE IS TEMPORARY, BUILDING IT OVER TIME
+// TO HOLD GLOBAL PARAMETERS FOR THE LIBRARY
+// AND AVOID CIRCULAR DEPENDENCIES
+
 export const IDENTIFIERS = {
 	PUBLIC_NODE: 'public_',
 }
-export const NODE = {
-	SERVICE_PORT: 8080,
-	PUBLIC_AUTO_BAN_DELAY: { min: 15_000, max: 30_000 },
-	PUBLIC_AUTO_BAN_DURATION: 120_000,
 
-	CONNECTION_UPGRADE_TIMEOUT: 5_000, // delay before SDP failure | default: 5_000 (5 seconds)
-	ENHANCE_CONNECTION_DELAY: 2_500, // delay between connection attempts | default: 2_500 (2.5 seconds)
-	ENHANCE_CONNECTION_RATE_BASIS: .618, // default: .618 (61.8%) (PONDERATION)
-	MAX_BOOTSTRAPS_IN_CONNS: 10, // default: 10
-	MAX_BOOTSTRAPS_OUT_CONNS: 2, // prod: 2, simulation we can set: 0
+export const NODE = {
+	SERVICE: {
+		PORT: 8080,
+		AUTO_KICK_DELAY: { min: 15_000, max: 30_000 },
+		AUTO_KICK_DURATION: 120_000,
+		MAX_WS_IN_CONNS: 10, // default: 10
+	},
+	WRTC: {
+		CONNECTION_UPGRADE_TIMEOUT: 5_000, // delay before SDP failure | default: 5_000 (5 seconds)	
+	},
 	MIN_CONNECTION_TIME_TO_DISPATCH_EVENT: 2_500,
-	TARGET_NEIGHBORS_COUNT: 12, // default: 12
-	MAX_OVERLAP: 3 // Max of shared neighbours | default: 5, strict: 2
 }
+
+export const ENHANCER = { 
+	LOOP_DELAY: 2_500, // delay between connection attempts | default: 2_500 (2.5 seconds)
+	RATE_BASIS: .618, // default: .618 (61.8%) (PONDERATION)
+	MAX_SERVICE_OUT_CONNS: 2, // prod: 2, simulation we can set: 0
+	MAX_OVERLAP: 3, // Max of shared neighbours | default: 5, strict: 2
+	TARGET_NEIGHBORS_COUNT: 12, // default: 12
+	MAX_ATTEMPTS_BASED_ON_CONNECTED: [0, 2, 1, 1], // DEPRECATING ?
+}
+
 export const DISCOVERY = {
 	CONNECTED_EVENT: false,
 	DISCONNECTED_EVENT: true,
@@ -22,14 +35,13 @@ export const DISCOVERY = {
 	TRAVELED_ROUTE: true,
 	GOSSIP_HISTORY: true
 }
-export const CONNECTION_ENHANCER = {
-	MAX_ATTEMPTS_BASED_ON_CONNECTED: [0, 2, 1, 1]
-}
-export const MESSAGER = {
+
+export const UNICAST = {
 	MAX_HOPS: 6,
 	MAX_NODES: 144, // 512, // default: 1728 (12³), light: 512 (8³), super-light: 144 (8²)
 	MAX_ROUTES: 5
 }
+
 export const GOSSIP = {
 	TTL: {
 		default: 10,

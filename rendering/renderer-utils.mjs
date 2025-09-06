@@ -12,7 +12,7 @@ export class FpsStabilizer {
 	accumulator = 0;
 	maxDelta = 50; // Évite les gros pics
 
-	constructor(fpsCountElement, targetMaxFPS = 120) {
+	constructor(fpsCountElement, targetMaxFPS = 60) {
 		this.fpsCountElement = fpsCountElement;
 		this.targetMaxFPS = targetMaxFPS;
 		this.targetFrameTime = 1000 / targetMaxFPS;
@@ -41,12 +41,12 @@ export class FpsStabilizer {
 		
 		const deltaTime = currentTime - this.lastFrameTime;
 		this.frameTimes.push(deltaTime);
-		if (this.frameTimes.length > 30) this.frameTimes.shift();
+		if (this.frameTimes.length > 120) this.frameTimes.shift();
 
 		const avgDelta = this.frameTimes.reduce((sum, dt) => sum + dt, 0) / this.frameTimes.length;
 		this.FPS = Math.round(1000 / avgDelta);
 		
-		if (this.frameCount % 30 === 0) this.fpsCountElement.textContent = this.FPS;
+		this.fpsCountElement.textContent = this.FPS;
 	}
 
 	reset() {

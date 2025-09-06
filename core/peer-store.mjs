@@ -1,7 +1,7 @@
 import wrtc from 'wrtc';
 import SimplePeer from 'simple-peer';
 import { TestTransport } from '../simulation/test-transports.mjs';
-import { IDENTIFIERS } from './global_parameters.mjs';
+import { IDENTIFIERS, NODE } from './global_parameters.mjs';
 
 /**
  * @typedef {import('ws').WebSocket} WebSocket
@@ -65,7 +65,6 @@ class Punisher {
 }
 export class PeerStore {
 	id;
-	connUpgradeTimeout;
 	punisher = new Punisher();
 	/** @type {string[]} The neighbours IDs */    neighbours = []; // faster access
 	/** @type {Record<string, PeerConnection>} */ connected = {};
@@ -86,10 +85,7 @@ export class PeerStore {
 		'data': []
 	};
 
-	constructor(selfId = 'toto', connectionUpgradeTimeout = 1000) {
-		this.id = selfId;
-		this.connUpgradeTimeout = connectionUpgradeTimeout;
-	}
+	constructor(selfId = 'toto') { this.id = selfId; }
 
 	// API
 	/** @param {string} callbackType @param {Function} callback */
@@ -134,7 +130,7 @@ export class PeerStore {
 		});
 
 		if (remoteSDP) try { transportInstance.signal(remoteSDP); } catch (error) { console.error(`Error signaling remote SDP for ${remoteId}:`, error.message); }
-		this.pendingConnections[remoteId] = Date.now() + this.connUpgradeTimeout;
+		this.pendingConnections[remoteId] = Date.now() + NODE.WRTC.CONNECTION_UPGRADE_TIMEOUT;
 	}
 	/** Link two peers if both declared the connection in a short delay(10s), trigger on:
 	 * - 'peer_connected' gossip message
