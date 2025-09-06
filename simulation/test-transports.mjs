@@ -19,9 +19,11 @@ class TestWsEventManager { // manage init() and close() to avoid timeout usage
 		const n = Date.now();
 		const toClose = this.toClose;
 		this.toClose = [];
-		for (const { remoteWs, time } of toClose)
-			if (time > n) this.toClose.push({ remoteWs, time }); // not yet
+		for (const { remoteWs, time } of toClose) {
+			const closeHandlerReady = remoteWs.onclose || remoteWs.callbacks.close.length;
+			if (!closeHandlerReady || time > n) this.toClose.push({ remoteWs, time }); // not yet
 			else remoteWs?.close(); // close connection
+		}
 	}, 500);
 
 	scheduleInit(conn, clientWsConnection, delay = 500) { this.toInit.push({ conn, clientWsConnection, time: Date.now() + delay }); }
@@ -37,7 +39,7 @@ export class TestWsConnection { // WebSocket like
 	readyState = 0;
 	url; // outgoing connection only
 	// SERVER CALLBACKS
-	callbacks = { message: [], close: [] }
+	callbacks = { message: [], close: [], error: [] }
 	// CLIENT CALLBACKS
 	onmessage; onopen; onclose; onerror;
 
@@ -64,10 +66,9 @@ export class TestWsConnection { // WebSocket like
 		if (this.closing) return;
 		this.closing = true;
 		this.readyState = 3; // CLOSED
-
 		this.callbacks.close.forEach(cb => cb()); // emit close event
 		if (this.onclose) this.onclose();
-		TEST_WS_EVENT_MANAGER.scheduleClose(this.remoteWs, 100);
+		if (this.remoteWs) TEST_WS_EVENT_MANAGER.scheduleClose(this.remoteWs, 100);
 	}
 	send(message) {
 		if (!this.remoteWs) {
@@ -86,16 +87,23 @@ export class TestWsServer { // WebSocket like
 	clients = new Set();
 	maxClients = 10;
 	callbacks = {
-		connection: [ (conn) => this.clients.size < this.maxClients ? this.clients.add(conn) : conn.close() ],
-		close: [ (conn) => this.clients.delete(conn) ],
+		connection: [(conn) => {
+			if (this.closing) return TEST_WS_EVENT_MANAGER.scheduleClose(conn, 100);
+			if (this.clients.size < this.maxClients) this.clients.add(conn);
+			else TEST_WS_EVENT_MANAGER.scheduleClose(conn, 100); // max clients reached, close connection
+		}],
+		close: [],
 		error: []
 	};
+	cleanerInterval = setInterval(() => this.cleaner(), 2_000);
 
 	constructor(opts = { port, host: domain }) {
 		this.url = `ws://${opts.host}:${opts.port}`;
 		SANDBOX.inscribeWebSocketServer(this.url, this);
 	}
-
+	cleaner() {
+		for (const client of this.clients) if (client.readyState === 3) this.clients.delete(client);
+	}
 	on(event, callback) {
 		if (!this.callbacks[event]) return console.error(`Unknown event: ${event}`);
 		this.callbacks[event].push(callback);
@@ -111,8 +119,7 @@ export class TestWsServer { // WebSocket like
 // HERE WE ARE BASICALLY COPYING THE PRINCIPLE OF "SimplePeer"
 class TestTransportOptions {
 	/** @type {number} */
-	signalCreationDelay = 250;
-	static defaultSignalCreationDelay = 1000;
+	static signalCreationDelay = { min: 100, max: 200 }; // truly random between 100 and 200ms
 	/** @type {boolean} */
 	initiator;
 	/** @type {boolean} */
@@ -120,24 +127,10 @@ class TestTransportOptions {
 	/** @type {any} */
 	wrtc;
 }
-class TransportPool {
-	maxSize;
-	/** @type {TestTransport[]} */ available = [];
-	/** @type {Array<{ transport: TestTransport, time: number }>} */ toRelease = [];
+class ICECandidateEmitter {
 	/** @type {Array<{ transport: TestTransport, SDP: string, time: number }>} */ sdpToEmit = [];
 
-	releaseInterval = setInterval(() => {
-		if (this.toRelease.length <= 0) return;
-		const n = Date.now();
-		const toRelease = this.toRelease;
-		this.toRelease = [];
-		for (const { transport, time } of toRelease)
-			if (time > n) this.toRelease.push({ transport, time }); // not yet
-			else if (this.available.length >= this.maxSize) transport.destroy(); // pool full
-			else { transport.callbacks = {}; this.available.push(transport); } // release to pool
-	}, 1_000);
-
-	sdpEmitInterval = setInterval(() => {
+	emitInterval = setInterval(() => {
 		if (this.sdpToEmit.length <= 0) return;
 		const n = Date.now();
 		const toEmit = this.sdpToEmit;
@@ -146,66 +139,42 @@ class TransportPool {
 			if (time > n) this.sdpToEmit.push({ transport, SDP, time }); // not yet
 			else transport?.callbacks?.signal?.forEach(cb => cb(SDP)); // emit signal event
 	}, 500);
-	
-	constructor(maxSize = 100) { this.maxSize = maxSize; }
 
-	get() {
-		if (this.available.length <= 0) return new TestTransport();
-		const transport = this.available.pop();
-		transport.reset();
-		return transport;
-	}
-	release(transport, delay = 1_000) {
-		this.toRelease.push({ transport, time: Date.now() + delay });
-	}
-	emitSDP(transport, SDP, delay = TestTransportOptions.defaultSignalCreationDelay) {
+	emit(transport, SDP) {
+		const delayRange = TestTransportOptions.signalCreationDelay;
+		const delay = Math.floor(Math.random() * (delayRange.max - delayRange.min + 1)) + delayRange.min;
 		this.sdpToEmit.push({ transport, SDP, time: Date.now() + delay });
 	}
 }
-const TRANSPORT_POOL = new TransportPool();
+const ICE_CANDIDATE_EMITTER = new ICECandidateEmitter();
+
 export class TestTransport { // SimplePeer like
-	destroyed = false;
 	id = 0;
-	remoteId = null;
-	// SimplePeer.Options: { initiator: !remoteSDP, trickle: true, wrtc }
+	remoteId = null; // used to double-check the connection while sending data
 	callbacks = { connect: [], close: [], data: [], signal: [], error: [] };
-	signalCreationDelay;
-	initiator;
-	trickle;
-	wrtc;
+	initiator; 	// SimplePeer.Options
+	trickle; 	// SimplePeer.Options
+	wrtc; 		// SimplePeer.Options
 	/** @param {TestTransportOptions} opts */
 	constructor(opts = { initiator: false, trickle: true, wrtc: null, timeout: 5000 }) {
 		this.id = SANDBOX.inscribeInstance(this);
-		this.signalCreationDelay = opts.signalCreationDelay || TestTransportOptions.defaultSignalCreationDelay;
 		this.initiator = opts.initiator;
 		this.trickle = opts.trickle;
 		this.wrtc = opts.wrtc;
 
 		if (!this.initiator) return; // standby
-		const SDP = SANDBOX.buildSDP(this.id, 'offer'); // emit signal event 'offer'
-		TRANSPORT_POOL.emitSDP(this, SDP, this.signalCreationDelay);
+		const signalData = SANDBOX.buildSDP(this.id, 'offer'); // emit signal event 'offer'
+		ICE_CANDIDATE_EMITTER.emit(this, signalData);
 	}
 
-	reset() {
-		this.remoteId = null;
-		this.closing = false;
-		this.callbacks = { connect: [], close: [], data: [], signal: [], error: [] };
-	}
 	destroy(errorMsg = null) {
 		if (this.closing) return;
 		this.closing = true;
-		if (!errorMsg) this.callbacks.close?.forEach(cb => cb());
-		else this.dispatchError(errorMsg);
-		SANDBOX.destroyTransport(this.id);
-		TRANSPORT_POOL.release(this);
-		this.destroyed = true;
-	}
-	static create(opts) {
-		const transport = TRANSPORT_POOL.get();
-		transport.constructor.call(transport, opts);
-		return transport;
-	}
+		if (errorMsg) this.dispatchError(errorMsg);
 
+		this.callbacks.close?.forEach(cb => cb());
+		SANDBOX.destroyTransport(this.id);
+	}
 	on(event, callbacks) {
 		if (this.callbacks[event]) this.callbacks[event].push(callbacks);
 	}
@@ -213,23 +182,20 @@ export class TestTransport { // SimplePeer like
 		this.callbacks.error.forEach(cb => cb(new Error(message)));
 	}
 	signal(remoteSDP) {
-		if (remoteSDP.type === 'offer' && SANDBOX.PENDING_OFFERS[this.id])
-			return this.dispatchError(`Signal with ID ${remoteSDP.sdp.id} already exists.`);
 		if (!remoteSDP.sdp || !remoteSDP.sdp.id || remoteSDP.type !== 'offer' && remoteSDP.type !== 'answer')
 			return this.dispatchError('Invalid remote SDP:', remoteSDP);
+		if (remoteSDP.type === 'offer' && SANDBOX.PENDING_OFFERS[this.id])
+			return this.dispatchError(`Signal with ID ${this.id} already exists.`);
 
-		const result = SANDBOX.digestSignal(remoteSDP, this.id);
-		if (!result) return this.dispatchError(`Failed to digest signal for peer: ${this.id}`);
-
-		const { success, remoteId, signalData } = result;
-		if (!success) return this.dispatchError(`No peer found with signal ID: ${remoteSDP.sdp.id}`);
-
-		this.remoteId = remoteId;
-		if (signalData) this.callbacks.signal.forEach(cb => cb(signalData)); // emit signal event 'answer'
+		const { success, signalData, reason } = SANDBOX.digestSignal(remoteSDP, this.id);
+		if (!success) return this.dispatchError(reason || `Failed to digest signal for peer: ${this.id}`);
+		
+		if (signalData) ICE_CANDIDATE_EMITTER.emit(this, signalData);
 	}
 	/** @param {string | Uint8Array} message */
 	send(message) {
 		const { success, reason } = SANDBOX.sendData(this.id, this.remoteId, message);
+		if (!success) console.warn(reason);
 		//if (!success) this.destroy(reason);
 	}
 	close() {

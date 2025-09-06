@@ -61,7 +61,8 @@ export class NodeP2P {
 	#onConnect = (peerId, direction) => {
 		if (this.peerStore.isKicked(peerId)) return;
 		if (this.verbose) console.log(`(${this.id}) ${direction === 'in' ? 'Incoming' : 'Outgoing'} connection established with peer ${peerId}`);
-		//this.peerStore.linkPeers(this.id, peerId); // Add link in self store | useless ?
+		
+		this.peerStore.linkPeers(this.id, peerId); // Add link in self store | useless ?
 		this.peerStore.digestPeerNeighbours(this.id, this.peerStore.neighbours); // Self 'known' update
 
 		const [selfIsPublic, remoteIsPublic] = [this.publicUrl, peerId.startsWith(IDENTIFIERS.PUBLIC_NODE)];
@@ -83,9 +84,9 @@ export class NodeP2P {
 	/** @param {string} peerId @param {'in' | 'out'} direction */
 	#onDisconnect = (peerId, direction) => {
 		if (this.verbose) console.log(`(${this.id}) ${direction === 'in' ? 'Incoming' : 'Outgoing'} connection closed with peer ${peerId}`);
+		this.peerStore.digestPeerNeighbours(peerId, this.peerStore.neighbours); // Self
 		const connDuration = this.peerStore.connected[peerId]?.getConnectionDuration() || 0;
 		if (connDuration < NODE.MIN_CONNECTION_TIME_TO_DISPATCH_EVENT) return;
-		this.peerStore.digestPeerNeighbours(peerId, this.peerStore.neighbours); // Self
 
 		this.peerStore.unlinkPeers(this.id, peerId);
 		if (DISCOVERY.DISCONNECTED_EVENT) this.broadcast('peer_disconnected', peerId);
@@ -113,7 +114,7 @@ export class NodeP2P {
 		// public node kick peer after 1min and ban it for 1min to improve network consistency
 		const [{min, max}, kickDuration] = [NODE.SERVICE.AUTO_KICK_DELAY, NODE.SERVICE.AUTO_KICK_DURATION];
 		this.peerStore.on('connect', (peerId, direction) => {
-			const kickDelay = Math.random() * (max - min) + min;
+			const kickDelay = Math.round(Math.random() * (max - min) + min);
 			if (direction === 'in') setTimeout(() => this.peerStore.kickPeer(peerId, kickDuration), kickDelay);
 		});
 		// create simple ws server to accept incoming connections (Require to open port)
@@ -139,6 +140,7 @@ export class NodeP2P {
 				} catch (error) { if (this.verbose > 1) console.error(`Error handling incoming signal for ${remoteId}:`, error.stack); }
 			});
 			ws.on('close', () => remoteId ? this.peerStore.removePeer(remoteId, 'connecting') : null);
+			ws.on('error', (error) => console.error(`WebSocket error on Node #${this.id} with peer ${remoteId}:`, error.stack));
 			// PEER SHOULD UPGRADE WEBSOCKET TO WRTC -> RELEASING WS FOR OTHERS
 			setTimeout(() => ws.readyState === ws.OPEN ? ws.close() : null, NODE.WRTC.CONNECTION_UPGRADE_TIMEOUT * 2);
 		});

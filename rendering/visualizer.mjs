@@ -127,6 +127,15 @@ class NetworkVisualizer {
 
 		this.#setCurrentPeer(peerId);
 		this.simulationInterface.getPeerInfo();
+
+		const selectedItem = document.querySelector(`#peersList div[data-peer-id="${peerId}"]`);
+		if (selectedItem) {
+			const listRect = this.elements.peersList.getBoundingClientRect();
+			const itemRect = selectedItem.getBoundingClientRect();
+			if (itemRect.top < listRect.top || itemRect.bottom > listRect.bottom) {
+				this.elements.peersList.scrollTop = selectedItem.offsetTop - this.elements.peersList.offsetTop - this.elements.peersList.clientHeight / 2 + selectedItem.clientHeight / 2;
+			}
+		}
 	}
 	#selectNextPeer() {
 		const peerIds = Object.keys(this.peersList);

@@ -81,31 +81,31 @@ export class UnicastMessager {
 	}
 	#extractTraveledRoute(route = []) {
 		const traveledRoute = [];
-		for (const peerId of route) {
-			traveledRoute.push(peerId);
-			if (peerId === this.id) return traveledRoute;
+		for (let i = 0; i < route.length; i++) {
+			traveledRoute.push(route[i]);
+			if ( route[i] === this.id) return { traveledRoute, selfPosition: i };
 		}
-		return null;
+		return { traveledRoute, selfPosition: -1 };
 	}
 	/** @param {string} from @param {DirectMessage} message */
 	handleDirectMessage(from, message, log = false) {
 		if (this.peerStore.isBanned(from)) return;
-		const { route, type, data, isFlexible } = message;
-		const traveledRoute = this.#extractTraveledRoute(route);
-		if (!traveledRoute) return console.warn(`Failed to extract traveled route from ${route}`);
+		const { route, type, data, isFlexible, isRerouted } = message;
+		const { traveledRoute, selfPosition } = this.#extractTraveledRoute(route);
+		if (selfPosition === -1)
+			return console.warn(`Failed to extract traveled route from ${JSON.stringify(route).replaceAll('"', '').replaceAll(',', ' > ')}`);
 		if (DISCOVERY.TRAVELED_ROUTE) this.peerStore.digestValidRoute(traveledRoute);
 		
-		const myIdPosition = route.indexOf(this.id);
-		const [senderId, prevId, nextId, targetId] = [route[0], route[myIdPosition - 1], route[myIdPosition + 1], route[route.length - 1]];
+		const [senderId, prevId, nextId, targetId] = [route[0], route[selfPosition - 1], route[selfPosition + 1], route[route.length - 1]];
 		if (senderId === this.id) return console.warn(`Direct message from self (${this.id}) is not allowed.`);
 		if (from !== prevId) return; // console.warn(`Direct message from ${from} to ${this.id} is not routed correctly. Expected previous ID: ${prevId}, but got: ${from}`);
 
 		const selfIsDestination = this.id === targetId;
 		if (!selfIsDestination) { // forward to next
 			const { success, reason } = this.peerStore.sendMessageToPeer(nextId, message);
-			if (!success && isFlexible) { // try to patch the route
+			if (!success && isFlexible && !isRerouted) { // try to patch the route
 				const patchedRoute = this.#patchRouteToReachTarget(traveledRoute, targetId);
-				const newMsg = { route: patchedRoute, type, data, isFlexible: false };
+				const newMsg = { route: patchedRoute, type, data, isFlexible, isRerouted: true };
 				if (patchedRoute) this.peerStore.sendMessageToPeer(nextId, newMsg);
 			}
 		}

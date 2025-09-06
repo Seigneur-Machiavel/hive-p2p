@@ -33,12 +33,14 @@ export class KnownPeer {
 	id;
 	neighbours;
 	connectionsCount;
+
 	/** @param {string} id @param {Record<string, number>} neighbours key: peerId, value: timestamp */
 	constructor(id, neighbours = {}) {
 		this.id = id;
 		this.neighbours = neighbours;
 		this.connectionsCount = Object.keys(neighbours).length;
 	}
+	
 	setNeighbour(peerId, timestamp = Date.now()) {
 		if (!this.neighbours[peerId]) this.connectionsCount++;
 		this.neighbours[peerId] = timestamp;
@@ -123,13 +125,15 @@ export class PeerStore {
 			if (!this.isDestroy) for (const cb of this.callbacks.signal) cb(remoteId, { signal: data, neighbours: this.neighbours });
 		});
 		transportInstance.on('error', error => {
+			if (error.message.includes('Transport instance')) return console.warn(error.message);
+			if (error.message.includes('Simulated failure')) return; // avoid logging
 			if (error.message.includes('Failed to digest')) return; // avoid logging
 			if (error.message.includes('No peer found')) return; // avoid logging
 			if (error.message === 'cannot signal after peer is destroyed') return; // avoid logging
 			console.error(`transportInstance error for ${remoteId}:`, error.stack);
 		});
 
-		if (remoteSDP) try { transportInstance.signal(remoteSDP); } catch (error) { console.error(`Error signaling remote SDP for ${remoteId}:`, error.message); }
+		if (remoteSDP) try { transportInstance.signal(remoteSDP); } catch (error) { console.error(`Error signaling remote SDP for ${remoteId}:`, error.stack); }
 		this.pendingConnections[remoteId] = Date.now() + NODE.WRTC.CONNECTION_UPGRADE_TIMEOUT;
 	}
 	/** Link two peers if both declared the connection in a short delay(10s), trigger on:

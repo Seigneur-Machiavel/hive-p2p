@@ -72,7 +72,6 @@ export class RouteBuilder_V1 {
 /** Optimized route finder using bidirectional BFS and early stopping
  * Much more efficient than V1 for longer paths by searching from both ends */
 export class RouteBuilder_V2 {
-	selfId;
 	peerStore;
 
 	/** @param {string} selfId @param {PeerStore} peerStore */

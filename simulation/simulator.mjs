@@ -20,17 +20,18 @@ const sVARS = { // SIMULATION VARIABLES
 	avoidFollowersNodes: false,
 	publicPeersCards: [],
 	startTime: Date.now(),
+	// SETTINGS
 	useTestTransport: true,
 	autoStart: true,
 	publicPeersCount: 2,
 	peersCount: 5,
 	bootstrapsPerPeer: null, // will not be exact, more like a limit. null = all of them
-	delayBetweenInit: 20, // 0 = faster for simulating big networks but > 0 = should be more realistic
+	delayBetweenInit: 10, // 0 = faster for simulating big networks but > 0 = should be more realistic
 	randomMessagePerSecondPerPeer: .01, // capped at a total of 500msg/sec
 };
 if (sVARS.useTestTransport) {
-	sVARS.publicPeersCount = 400; // stable: 3,  medium: 100, strong: 200
-	sVARS.peersCount = 4600; 	  // stable: 25, medium: 800, strong: 1600
+	sVARS.publicPeersCount = 4; // stable: 3,  medium: 100, strong: 200
+	sVARS.peersCount = 360;	  	// stable: 25, medium: 800, strong: 1600
 }
 
 const peers = {
@@ -42,10 +43,10 @@ const peers = {
 	standard: [],
 }
 
-async function destroyAllExistingPeers(pauseDuration = 500) {
+async function destroyAllExistingPeers(pauseDuration = 2000) {
 	let totalDestroyed = 0;
-	for (const peer of peers.public) { peer.destroy(); peers.public = []; totalDestroyed ++; }
-	for (const peer of peers.standard) { peer.destroy(); peers.standard = []; totalDestroyed ++; }
+	for (const peer of peers.public) { peer.destroy(); totalDestroyed ++; }
+	for (const peer of peers.standard) { peer.destroy(); totalDestroyed ++; }
 	if (totalDestroyed !== 0) await new Promise(resolve => setTimeout(resolve, pauseDuration)); // wait for destruction to complete
 	console.log(`%c| ° ${totalDestroyed} EXISTING PEERS DESTROYED ° |`, 'color: yellow; font-weight: bold;');
 }
@@ -73,8 +74,8 @@ function addPeer(type = 'public', i = 0, bootstraps = [], init = false, setPubli
 async function initPeers() {
 	if (initInterval) clearInterval(initInterval);
 	await destroyAllExistingPeers();
-
-	sVARS.publicPeersCards = [];
+	peers.public = []; peers.standard = []; peers.all = {};
+	sVARS.publicPeersCards = []; sVARS.nextPeerToInit = 0; sVARS.publicInit = 0;
 	const d = sVARS.delayBetweenInit;
 	for (sVARS.publicInit; sVARS.publicInit < sVARS.publicPeersCount; sVARS.publicInit++) addPeer('public', sVARS.publicInit, [], true, true);
 	for (let i = 0; i < sVARS.peersCount; i++) addPeer('standard', i, sVARS.publicPeersCards, d === 0);
