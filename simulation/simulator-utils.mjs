@@ -1,3 +1,5 @@
+import { GossipMessage } from '../core/gossip.mjs';
+import { DirectMessage } from '../core/unicast.mjs';
 /**
  * @typedef {import('../core/node.mjs').NodeP2P} NodeP2P
  */
@@ -105,7 +107,9 @@ export class SubscriptionsManager {
 			
 		// Listen to all GOSSIP messages from this peer
 		peer.peerStore.on('data', (remoteId, data) => {
-			const d = JSON.parse(data);
+			//const d = JSON.parse(data);
+			const identifier = data[0];
+			const d = identifier === 'U' ? DirectMessage.deserialize(data) : GossipMessage.deserialize(data);
 			this.sendFnc({ type: 'peerMessage', remoteId, data });
 			if (d.topic) { // gossip message
 				this.tmpTopic[d.topic] ? this.tmpTopic[d.topic]++ : this.tmpTopic[d.topic] = 1;

@@ -1,7 +1,9 @@
 import { TestWsConnection } from '../simulation/test-transports.mjs';
-import { IDENTIFIERS, ENHANCER } from './global_parameters.mjs';
+import { IDENTIFIERS, NODE, ENHANCER } from './global_parameters.mjs';
+import { PeerConnection } from './peer-store.mjs';
 
 /**
+ * @typedef {import('./gossip.mjs').Gossip} Gossip
  * @typedef {import('./peer-store.mjs').PeerStore} PeerStore
  * 
  * @typedef {Object} bootstrapInfo
@@ -9,28 +11,32 @@ import { IDENTIFIERS, ENHANCER } from './global_parameters.mjs';
  * @property {string} publicUrl
  * 
  * @typedef {Object} SignalData
- * @property {string} signal
+ * @property {Object} signal
+ * @property {'offer' | 'answer'} signal.type
+ * @property {string} signal.sdp
  * @property {Array<string>} neighbours
  * */
 
 export class NetworkEnhancer {
 	id;
+	gossip;
 	peerStore;
-	/** @type {NodeJS.Timeout | null} optimized nodes connexions interval */ interval = null;
+	isPublicNode;
 
+	/** @type {NodeJS.Timeout | null} optimized nodes connexions interval */ interval = null;
 	/** @type {Array<bootstrapInfo>} */ bootstraps = [];
 	/** @type {Record<string, string>} */ bootstrapsIds = {};
 	/** @type {number} next Bootstrap Index */ nBI = 0;
-	/** @type {boolean} specify to use test transport (useful for simulator) */ useTestTransport;
+	/** @type {number} */ noSpreadUntil = 0;
 
-	/** @param {string} selfId @param {PeerStore} peerStore @param {Array<bootstrapInfo>} bootstraps */
-	constructor(selfId, peerStore, bootstraps, useTestTransport = false) {
+	/** @param {string} selfId @param {Gossip} gossip @param {PeerStore} peerStore @param {Array<bootstrapInfo>} bootstraps */
+	constructor(selfId, gossip, peerStore, bootstraps) {
 		this.id = selfId;
+		this.gossip = gossip;
 		this.peerStore = peerStore;
 		this.bootstraps = bootstraps.sort(() => Math.random() - 0.5);
 		for (const b of bootstraps) this.bootstrapsIds[b.id] = b.publicUrl;
 		this.nBI = Math.random() * bootstraps.length | 0;
-		this.useTestTransport = useTestTransport;
 	}
 
 	// PUBLIC METHODS
@@ -40,60 +46,46 @@ export class NetworkEnhancer {
 		this.interval = setInterval(() => {
 			phase = phase ? 0 : 1;
 			if (phase) this.#tryConnectNextBootstrap();
-			else this.tryConnectMoreNodes();
+			else this.tryToSpreadSDP();
 		}, ENHANCER.LOOP_DELAY);
 	}
+	stopAutoEnhancement() { if (this.interval) clearInterval(this.interval); this.interval = null; }
 	destroy() {
 		if (this.interval) clearInterval(this.interval);
 	}
-	tryConnectMoreNodes() {
-		const { isEnough, missingCount, connectedPeersCount, knownPeersCount } = this.#getConnectionInfo();
+	tryToSpreadSDP() {
+		if (this.noSpreadUntil > Date.now()) return;
+		const { isEnough, connectedPeersCount } = this.#getConnectionInfo();
 		if (isEnough || !connectedPeersCount) return;
 
-		const connectedFactor = connectedPeersCount;
-		const knowsFactor = Math.ceil(Math.sqrt(knownPeersCount) / ENHANCER.TARGET_NEIGHBORS_COUNT);
-		const ratePow = Math.max(1, Math.min(knowsFactor + connectedFactor, 8));
-		const enhancedConnectionRate = Math.pow(ENHANCER.RATE_BASIS, ratePow);
-		const maxAttempts = ENHANCER.MAX_ATTEMPTS_BASED_ON_CONNECTED[connectedPeersCount];
-		const entries = Object.entries(this.peerStore.known);
-		const nbEntries = entries.length;
-		let index = Math.floor(Math.random() * nbEntries);
-		let attempts = 0;
-		for (let i = 0; i < nbEntries; i++) {
-			index = (index + 1) % nbEntries;
-			const [peerId, peerInfo] = entries[index];
-			if (peerId.startsWith(IDENTIFIERS.PUBLIC_NODE)) continue; // ignore bootstrap peers
-			if (Math.random() > enhancedConnectionRate) continue; // apply rate (useful at startup)
-			if (this.peerStore.isKicked(peerId) || this.peerStore.isBanned(peerId)) continue;
-			if (this.peerStore.connected[peerId]) continue; // skip connected peers
-			if (this.peerStore.connecting[peerId]) continue; // skip connecting peers
-			if (peerInfo.connectionsCount >= ENHANCER.TARGET_NEIGHBORS_COUNT) continue; // skip if target already connected to enough peers
-			if (peerId === this.id) continue; // skip self
+		const offer = this.peerStore.sdpOfferBuilder.offer;
+		if (!offer) return;
 
-			const { sharedNeighbours, overlap } = this.peerStore.getOverlap(peerId);
-			if (overlap > ENHANCER.MAX_OVERLAP) continue; // avoid overlap
-			this.peerStore.addConnectingPeer(peerId, undefined, undefined, this.useTestTransport);
-			if (attempts++ >= maxAttempts) break; // limit to one new connection attempt
-		}
+		this.gossip.broadcast('signal', { signal: offer, neighbours: this.peerStore.neighbours });
+		this.noSpreadUntil = Date.now() + ENHANCER.DELAY_BETWEEN_SDP_SPREAD;
 	}
-	/** @param {string} senderId @param {SignalData} data @param {WebSocket} [tempTransportInstance] optional WebSocket */
-	handleIncomingSignal(senderId, data, tempTransportInstance) {
+	/** @param {string} senderId @param {SignalData} data */
+	handleIncomingSignal(senderId, data) {
 		if (typeof data !== 'object') return;
 		const { signal, neighbours } = data || {};
-		if (!senderId || typeof signal !== 'object') return;
-		if (this.peerStore.isKicked(senderId)) this.peerStore.rejectSignal(senderId);
+		if (!senderId || typeof signal !== 'object' || !Array.isArray(neighbours)) return;
 		this.peerStore.digestPeerNeighbours(senderId, neighbours);
 
-		const conn = this.peerStore.connecting[senderId];
-		if (conn && signal.type === 'answer') this.peerStore.assignSignal(senderId, signal);
-		else if (!conn && signal.type === 'offer') {
-			const { sharedNeighbours, overlap } = this.peerStore.getOverlap(senderId);
-			const tooManySharedPeers = overlap > ENHANCER.MAX_OVERLAP;
-			const isTwitchUser = senderId.startsWith('f_');
-			const tooManyConnectedPeers = this.peerStore.neighbours.length >= ENHANCER.TARGET_NEIGHBORS_COUNT - 1;
-			if (!isTwitchUser && (tooManySharedPeers || tooManyConnectedPeers)) this.peerStore.kickPeer(senderId, 30_000);
-			else this.peerStore.addConnectingPeer(senderId, tempTransportInstance, signal, this.useTestTransport);
-		}
+		if (this.isPublicNode || this.peerStore.isKicked(senderId)) return;
+		if (this.peerStore.connected[senderId]) return; // already connected
+
+		const { overlap } = this.peerStore.getOverlap(senderId);
+		const tooManySharedPeers = overlap > ENHANCER.MAX_OVERLAP;
+		const isTwitchUser = senderId.startsWith('f_');
+		const tooManyConnectedPeers = this.peerStore.neighbours.length >= ENHANCER.TARGET_NEIGHBORS_COUNT - 1;
+		if (!isTwitchUser && (tooManySharedPeers || tooManyConnectedPeers)) this.peerStore.kickPeer(senderId, 30_000);
+		
+		const isConnecting = !!this.peerStore.connecting[senderId];
+		if (!isConnecting)
+			if (signal.type === 'offer') this.peerStore.addConnectingPeer(senderId, signal);
+			else if (signal.type === 'answer') this.peerStore.addConnectingPeer(senderId, signal);
+
+		this.peerStore.assignSignal(senderId, data);
 	}
 	/** @param {string} senderId @param {SignalData} data */
 	handleSignalRejection(senderId, data) {
@@ -136,22 +128,24 @@ export class NetworkEnhancer {
 		
 		const { id, publicUrl } = this.bootstraps[this.nBI];
 		const canMakeATry = id && publicUrl && !connected[id] && !connecting[id];
-		if (canMakeATry) this.#connectToPublicNode_UsingWs_UntilWebRtcUpgrade(id, publicUrl);
+		if (canMakeATry) this.#connectToPublicNode(id, publicUrl);
 		this.nBI = (this.nBI + 1) % this.bootstraps.length;
 	}
-	#connectToPublicNode_UsingWs_UntilWebRtcUpgrade(remoteId = 'toto', publicUrl = 'localhost:8080') {
-		const Transport = this.useTestTransport ? TestWsConnection : WebSocket;
+	#connectToPublicNode(remoteId = 'toto', publicUrl = 'localhost:8080') {
+		this.peerStore.pendingConnections[remoteId] = Date.now() + 2000; // timeout
+		
+		const Transport = NODE.USE_TEST_TRANSPORT ? TestWsConnection : WebSocket;
 		const ws = new Transport(publicUrl);
-		ws.onopen = () => this.peerStore.addConnectingPeer(remoteId, ws, undefined, this.useTestTransport);
-		ws.onclose = () => this.peerStore.removePeer(remoteId, 'connecting');
+		this.peerStore.connecting[remoteId] = new PeerConnection(remoteId, ws, 'out', true);
 		ws.onerror = (error) => console.error(`WebSocket error:`, error.stack);
-		ws.onmessage = (event) => {
-			try {
-				const parsed = JSON.parse(event.data);
-				if (parsed.type !== 'signal') return console.error(`Received message is not a signal (type: ${parsed.type})`);
-				this.handleIncomingSignal(remoteId, parsed.data);
-			} catch (error) { console.error(`Error handling incoming signal for ${remoteId}:`, error.stack); }
-		}
-		return ws;
+		ws.onclose = () => { for (const cb of this.peerStore.callbacks.disconnect) cb(remoteId, 'out'); }
+		ws.onopen = () => {
+			ws.onmessage = (data) => {
+				if (typeof data.data !== 'string') // debug
+					console.warn(`Unexpected data event on WebSocket:`, data);
+				for (const cb of this.peerStore.callbacks.data) cb(remoteId, data.data);
+			};
+			for (const cb of this.peerStore.callbacks.connect) cb(remoteId, 'out');
+		};
 	}
 }

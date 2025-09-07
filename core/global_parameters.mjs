@@ -7,25 +7,26 @@ export const IDENTIFIERS = {
 }
 
 export const NODE = {
+	USE_TEST_TRANSPORT: false, // useful for simulator
 	SERVICE: {
 		PORT: 8080,
-		AUTO_KICK_DELAY: { min: 15_000, max: 30_000 },
+		AUTO_KICK_DELAY: { min: 30_000, max: 60_000 },
 		AUTO_KICK_DURATION: 120_000,
 		MAX_WS_IN_CONNS: 10, // default: 10
 	},
 	WRTC: {
-		CONNECTION_UPGRADE_TIMEOUT: 5_000, // delay before SDP failure | default: 5_000 (5 seconds)	
+		CONNECTION_UPGRADE_TIMEOUT: 30_000, // delay before SDP failure | default: 5_000 (5 seconds)	
 	},
 	MIN_CONNECTION_TIME_TO_DISPATCH_EVENT: 2_500,
 }
 
-export const ENHANCER = { 
-	LOOP_DELAY: 2_500, // delay between connection attempts | default: 2_500 (2.5 seconds)
-	RATE_BASIS: .618, // default: .618 (61.8%) (PONDERATION)
+export const ENHANCER = {
+	LOOP_DELAY: 500, // delay between connection attempts | default: 2_500 (2.5 seconds)
+	DELAY_BETWEEN_SDP_SPREAD: 10_000, // delay between spreading SDP | default: 15_000 (15 seconds)
+	RATE_BASIS: .618, // default: .618 (61.8%) (PONDERATION) // DEPRECATED
 	MAX_SERVICE_OUT_CONNS: 2, // prod: 2, simulation we can set: 0
 	MAX_OVERLAP: 3, // Max of shared neighbours | default: 5, strict: 2
 	TARGET_NEIGHBORS_COUNT: 12, // default: 12
-	MAX_ATTEMPTS_BASED_ON_CONNECTED: [0, 2, 1, 1], // DEPRECATING ?
 }
 
 export const DISCOVERY = {
@@ -37,12 +38,16 @@ export const DISCOVERY = {
 }
 
 export const UNICAST = {
+	SERIALIZER: JSON.stringify,
+	DESERIALIZER: JSON.parse,
 	MAX_HOPS: 6,
 	MAX_NODES: 144, // 512, // default: 1728 (12³), light: 512 (8³), super-light: 144 (8²)
 	MAX_ROUTES: 5
 }
 
 export const GOSSIP = {
+	SERIALIZER: JSON.stringify,
+	DESERIALIZER: JSON.parse,
 	TTL: {
 		default: 10,
 		//peer_connected: 3,

@@ -4,6 +4,7 @@ import { WebSocketServer } from 'ws';
 import { NodeP2P } from '../core/node.mjs';
 import { MessageQueue, Statician, SubscriptionsManager } from './simulator-utils.mjs';
 import { io } from 'socket.io-client'; // used for twitch events only
+import { NODE } from '../core/global_parameters.mjs';
 
 // TO ACCESS THE VISUALIZER GO TO: http://localhost:3000
 // LOGS COLORS :
@@ -11,6 +12,8 @@ import { io } from 'socket.io-client'; // used for twitch events only
 // YELLOW:    SIMULATION INFO
 // FUCHSIA:   CURRENT PEER GOSSIP STATS
 // CYAN: 	  CURRENT PEER UNICAST STATS
+
+NODE.USE_TEST_TRANSPORT = true; // force test transport for simulator
 
 let initInterval = null;
 /** @type {TwitchChatCommandInterpreter} */ let cmdInterpreter = null;
@@ -21,17 +24,16 @@ const sVARS = { // SIMULATION VARIABLES
 	publicPeersCards: [],
 	startTime: Date.now(),
 	// SETTINGS
-	useTestTransport: true,
 	autoStart: true,
 	publicPeersCount: 2,
 	peersCount: 5,
 	bootstrapsPerPeer: null, // will not be exact, more like a limit. null = all of them
-	delayBetweenInit: 10, // 0 = faster for simulating big networks but > 0 = should be more realistic
-	randomMessagePerSecondPerPeer: .01, // capped at a total of 500msg/sec
+	delayBetweenInit: 100, // 0 = faster for simulating big networks but > 0 = should be more realistic
+	randomMessagePerSecondPerPeer: 0 // .1, // capped at a total of 500msg/sec
 };
-if (sVARS.useTestTransport) {
-	sVARS.publicPeersCount = 4; // stable: 3,  medium: 100, strong: 200
-	sVARS.peersCount = 360;	  	// stable: 25, medium: 800, strong: 1600
+if (NODE.USE_TEST_TRANSPORT) {
+	sVARS.publicPeersCount = 2; // stable: 3,  medium: 100, strong: 200
+	sVARS.peersCount = 12;	  	// stable: 25, medium: 800, strong: 1600
 }
 
 const peers = {
@@ -65,7 +67,7 @@ function pickUpRandomBootstraps(count = sVARS.bootstrapsPerPeer) {
 function addPeer(type = 'public', i = 0, bootstraps = [], init = false, setPublic = false) {
 	const id = `${type === 'standard' ? 'peer' : type}_${i}`;
 	const selectedBootstraps = type === 'standard' ? pickUpRandomBootstraps() : bootstraps;
-	const peer = NodeP2P.createNode(id, selectedBootstraps, sVARS.useTestTransport, init);
+	const peer = NodeP2P.createNode(id, selectedBootstraps, init);
 	peers.all[id] = peer;
 	peers[type].push(peer);
 	if (setPublic) sVARS.publicPeersCards.push(peer.setAsPublic(`localhost`, 8080 + i, 10_000));
@@ -216,7 +218,7 @@ class TwitchChatCommandInterpreter {
 	#createUserNode(user) {
 		if (this.userNodes[user]?.peerStore?.isDestroy) this.userNodes[user] = undefined;
 		if (this.userNodes[user]) return;
-		const peer = NodeP2P.createNode(`f_${user}`, pickUpRandomBootstraps(), sVARS.useTestTransport);
+		const peer = NodeP2P.createNode(`f_${user}`, pickUpRandomBootstraps());
 		this.userNodes[user] = peer;
 		peers.all[peer.id] = peer;
 		peers.standard.unshift(peer);

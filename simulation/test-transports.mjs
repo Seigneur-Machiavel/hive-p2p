@@ -2,39 +2,44 @@ import { Sandbox } from './tranports-sandbox.mjs';
 const SANDBOX = new Sandbox();
 
 class TestWsEventManager { // manage init() and close() to avoid timeout usage
-	/** @type {Array<{ conn: TestWsConnection, clientWsConnection: any, time: number }> } */ toInit = [];
-	/** @type {Array<{ remoteWs: TestWsConnection, time: number }> } */ toClose = [];
+	/** @type {Array<{ connId: string, clientWsId: string, time: number }> } */ toInit = [];
+	/** @type {Array<{ remoteWsId: string, time: number }> } */ toClose = [];
 
 	initInterval = setInterval(() => {
 		if (this.toInit.length <= 0) return;
 		const n = Date.now();
 		const toInit = this.toInit;
 		this.toInit = [];
-		for (const { conn, clientWsConnection, time } of toInit)
-			if (time > n) this.toInit.push({ conn, clientWsConnection, time }); // not yet
-			else conn?.init(clientWsConnection); // init connection
+		for (const { connId, clientWsId, time } of toInit)
+			if (time > n) this.toInit.push({ connId, clientWsId, time }); // not yet
+			else {
+				const conn = SANDBOX.wsConnections[connId];
+				if (!conn) continue;
+				conn?.init(clientWsId); // init connection
+			}
 	}, 500);
 	closeInterval = setInterval(() => {
 		if (this.toClose.length <= 0) return;
 		const n = Date.now();
 		const toClose = this.toClose;
 		this.toClose = [];
-		for (const { remoteWs, time } of toClose) {
-			const closeHandlerReady = remoteWs.onclose || remoteWs.callbacks.close.length;
-			if (!closeHandlerReady || time > n) this.toClose.push({ remoteWs, time }); // not yet
+		for (const { remoteWsId, time } of toClose) {
+			const remoteWs = SANDBOX.wsConnections[remoteWsId];
+			const closeHandlerReady = remoteWs?.onclose || (remoteWs?.callbacks?.close || []).length;
+			if (!closeHandlerReady || time > n) this.toClose.push({ remoteWsId, time }); // not yet
 			else remoteWs?.close(); // close connection
 		}
 	}, 500);
 
-	scheduleInit(conn, clientWsConnection, delay = 500) { this.toInit.push({ conn, clientWsConnection, time: Date.now() + delay }); }
-	scheduleClose(remoteWs, delay = 100) { this.toClose.push({ remoteWs, time: Date.now() + delay }); }
+	scheduleInit(connId, clientWsId, delay = 500) { this.toInit.push({ connId, clientWsId, time: Date.now() + delay }); }
+	scheduleClose(remoteWsId, delay = 100) { this.toClose.push({ remoteWsId, time: Date.now() + delay }); }
 }
 const TEST_WS_EVENT_MANAGER = new TestWsEventManager();
 
 // // HERE WE ARE BASICALLY COPYING THE PRINCIPLE OF "WebSocket"
 export class TestWsConnection { // WebSocket like
-	/** @type {TestWsConnection} */
-	remoteWs;
+	id;
+	remoteWsId;
 	delayBeforeConnectionTry = 500;
 	readyState = 0;
 	url; // outgoing connection only
@@ -45,18 +50,20 @@ export class TestWsConnection { // WebSocket like
 
 	constructor(url = 'ws://...', clientWsConnection) {
 		if (!clientWsConnection) this.url = url;
-		TEST_WS_EVENT_MANAGER.scheduleInit(this, clientWsConnection, this.delayBeforeConnectionTry);
+		SANDBOX.inscribeWsConnection(this);
+		TEST_WS_EVENT_MANAGER.scheduleInit(this.id, clientWsConnection?.id, this.delayBeforeConnectionTry);
 	}
-	init(clientWsConnection) {
-		if (clientWsConnection) this.remoteWs = clientWsConnection;
-		else this.remoteWs = SANDBOX.connectToWebSocketServer(this.url, this, TestWsConnection);
+	init(clientWsId) {
+		if (this.readyState === 3) return; // already closed
+		if (this.remoteWsId) return; // already initialized
+		if (clientWsId) this.remoteWsId = clientWsId;
+		else this.remoteWsId = SANDBOX.connectToWebSocketServer(this.url, this, TestWsConnection);
 
-		//if (!this.remoteWs) console.error(`Failed to connect to WebSocket server at ${this.url}`);
-		if (!this.remoteWs && clientWsConnection)
-			setTimeout(() => this.#dispatchError(new Error(`Failed to connect to WebSocket server at ${this.url}`)), 10_000);
+		if (!this.remoteWsId && clientWsId)
+			setTimeout(() => this.#dispatchError(new Error(`Failed to connect to WebSocket server at ${this.url}`)), 5_000);
 
-		if (this.remoteWs) this.readyState = 1; // OPEN
-		if (this.remoteWs && this.onopen) this.onopen();
+		if (this.remoteWsId) this.readyState = 1; // OPEN
+		if (this.remoteWsId && this.onopen) this.onopen();
 	}
 	on(event, callback) {
 		if (!this.callbacks[event]) return console.error(`Unknown event: ${event}`);
@@ -68,14 +75,15 @@ export class TestWsConnection { // WebSocket like
 		this.readyState = 3; // CLOSED
 		this.callbacks.close.forEach(cb => cb()); // emit close event
 		if (this.onclose) this.onclose();
-		if (this.remoteWs) TEST_WS_EVENT_MANAGER.scheduleClose(this.remoteWs, 100);
+		if (this.remoteWsId) TEST_WS_EVENT_MANAGER.scheduleClose(this.remoteWsId, 100);
 	}
 	send(message) {
-		if (!this.remoteWs) {
+		if (!this.remoteWsId) {
 			console.error(`No WebSocket server found for URL: ${this.url}`);
 			this.close(); // disconnected, abort operation
+			return;
 		}
-		SANDBOX.enqueueWsMessage(this.remoteWs, message);
+		SANDBOX.enqueueWsMessage(this.remoteWsId, message);
 	}
 	#dispatchError(error) {
 		this.callbacks.error.forEach(cb => cb(error));
@@ -119,7 +127,7 @@ export class TestWsServer { // WebSocket like
 // HERE WE ARE BASICALLY COPYING THE PRINCIPLE OF "SimplePeer"
 class TestTransportOptions {
 	/** @type {number} */
-	static signalCreationDelay = { min: 100, max: 200 }; // truly random between 100 and 200ms
+	static signalCreationDelay = { min: 100, max: 500 }; // truly random between 100 and 500ms
 	/** @type {boolean} */
 	initiator;
 	/** @type {boolean} */
@@ -149,15 +157,15 @@ class ICECandidateEmitter {
 const ICE_CANDIDATE_EMITTER = new ICECandidateEmitter();
 
 export class TestTransport { // SimplePeer like
-	id = 0;
-	remoteId = null; // used to double-check the connection while sending data
+	id = null;
+	remoteId = null; // Can send message only if corresponding remoteId on both sides
 	callbacks = { connect: [], close: [], data: [], signal: [], error: [] };
 	initiator; 	// SimplePeer.Options
 	trickle; 	// SimplePeer.Options
 	wrtc; 		// SimplePeer.Options
 	/** @param {TestTransportOptions} opts */
 	constructor(opts = { initiator: false, trickle: true, wrtc: null, timeout: 5000 }) {
-		this.id = SANDBOX.inscribeInstance(this);
+		SANDBOX.inscribeInstance(this);
 		this.initiator = opts.initiator;
 		this.trickle = opts.trickle;
 		this.wrtc = opts.wrtc;
@@ -182,21 +190,20 @@ export class TestTransport { // SimplePeer like
 		this.callbacks.error.forEach(cb => cb(new Error(message)));
 	}
 	signal(remoteSDP) {
-		if (!remoteSDP.sdp || !remoteSDP.sdp.id || remoteSDP.type !== 'offer' && remoteSDP.type !== 'answer')
-			return this.dispatchError('Invalid remote SDP:', remoteSDP);
-		if (remoteSDP.type === 'offer' && SANDBOX.PENDING_OFFERS[this.id])
-			return this.dispatchError(`Signal with ID ${this.id} already exists.`);
+		if (this.closing) return;
+		if (this.remoteId) return this.dispatchError(`Transport instance already connected to a remote ID: ${this.remoteId}`);
+		if (remoteSDP.type === 'offer' && SANDBOX.PENDING_OFFERS[this.id]) return this.dispatchError(`Signal with ID ${this.id} already exists.`);
+		if (!remoteSDP.sdp || !remoteSDP.sdp.id || (remoteSDP.type !== 'offer' && remoteSDP.type !== 'answer')) return this.dispatchError('Invalid remote SDP:', remoteSDP);
 
 		const { success, signalData, reason } = SANDBOX.digestSignal(remoteSDP, this.id);
 		if (!success) return this.dispatchError(reason || `Failed to digest signal for peer: ${this.id}`);
-		
 		if (signalData) ICE_CANDIDATE_EMITTER.emit(this, signalData);
 	}
 	/** @param {string | Uint8Array} message */
 	send(message) {
 		const { success, reason } = SANDBOX.sendData(this.id, this.remoteId, message);
+		if (reason?.includes('is closing')) return this.destroy(reason);
 		if (!success) console.warn(reason);
-		//if (!success) this.destroy(reason);
 	}
 	close() {
 		this.destroy();

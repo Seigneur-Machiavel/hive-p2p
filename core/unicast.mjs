@@ -7,22 +7,18 @@ const RouteBuilder = RouteBuilder_V2; // temporary switch
  */
 
 export class DirectMessage {
-	route;
-	type = 'signal';
-	data;
-	isFlexible;
+	/** @type {string[]} */ route;
+	/** @type {'signal' | 'message'} */ type = 'signal';
+	/** @type {string | Uint8Array} */ data;
+	/** @type {boolean} */ isFlexible;
+	/** @type {boolean} */ isRerouted;
 
-	/**
-	 * @param {string[]} route chain of peerIds to reach the target, start by sender, end by target
-	 * @param {string} type type of message
-	 * @param {string | Uint8Array} data message content, should be encrypted with target peer's public key
-	 * @param {boolean} isFlexible Whether the message can be sent through a different route if the primary route fails, default is false
-	 */
-	constructor(route, type, data, isFlexible = false) {
-		this.route = route;
-		this.type = type;
-		this.data = data;
-		this.isFlexible = isFlexible;
+	/** @param {string[]} route @param {'signal' | 'message'} type @param {string | Uint8Array} data @param {boolean} isFlexible */
+	static serialize(route, type, data, isFlexible = false, isRerouted = false) {
+		return 'U' + UNICAST.SERIALIZER({ route, type, data, isFlexible, isRerouted });
+	}
+	static deserialize(serialized) {
+		return UNICAST.DESERIALIZER(serialized.slice(1));
 	}
 }
 
@@ -51,15 +47,7 @@ export class UnicastMessager {
 	 * @param {string} remoteId @param {string} type @param {string | Uint8Array} data
 	 * @param {number} [spread] Max neighbours used to relay the message, default: 1 */
 	sendMessage(remoteId, type, data, spread = 1) {
-		const tempConActive = this.peerStore.connecting[remoteId]?.tempTransportInstance?.readyState === 1;
-		if (tempConActive && type !== 'signal') return false; // 'signal' message only on temporary connections
 		if (remoteId === this.id) return false;
-
-		if (tempConActive) { // Special case: send 'signal' over tempCon to update the connection
-			const msg = new DirectMessage([this.id, remoteId], type, data, true);
-			this.peerStore.sendMessageToPeer(remoteId, msg);
-			return true;
-		}
 
 		const builtResult = this.pathFinder.buildRoutes(remoteId, this.maxRoutes, this.maxHops, this.maxNodes, true);
 		if (!builtResult.success) return false;
@@ -69,15 +57,18 @@ export class UnicastMessager {
 		const finalSpread = flexibleRouting ? 1 : spread; // Spread only if re-routing is false
 		for (let i = 0; i < Math.min(finalSpread, builtResult.routes.length); i++) {
 			const route = builtResult.routes[i].path;
-			const msg = new DirectMessage(route, type, data, flexibleRouting);
-			this.peerStore.sendMessageToPeer(route[1], msg); // send to next peer
+			const msg = DirectMessage.serialize(route, type, data, flexibleRouting);
+			this.#sendMessageToPeer(route[1], msg); // send to next peer
 		}
 		return true;
 	}
-	#patchRouteToReachTarget(traveledRoute = [], targetId = 'toto') {
-		const builtResult = this.pathFinder.buildRoutes(targetId, this.maxRoutes, this.maxHops, this.maxNodes, true);
-		if (!builtResult.success) return null;
-		return [...traveledRoute.slice(0, -1), ...builtResult.routes[0].path];
+	/** @param {string} targetId @param {any} serializedMessage */
+	#sendMessageToPeer(targetId, serializedMessage) {
+		const transportInstance = this.peerStore.connected[targetId]?.transportInstance;
+		if (!transportInstance) return { success: false, reason: `Transport instance is not available for peer ${targetId}.` };
+		try { transportInstance.send(serializedMessage); return { success: true }; }
+		catch (error) { console.error(`Error sending message to ${targetId}:`, error.stack); }
+		return { success: false, reason: `Error sending message to ${targetId}.` };
 	}
 	#extractTraveledRoute(route = []) {
 		const traveledRoute = [];
@@ -87,27 +78,51 @@ export class UnicastMessager {
 		}
 		return { traveledRoute, selfPosition: -1 };
 	}
-	/** @param {string} from @param {DirectMessage} message */
-	handleDirectMessage(from, message, log = false) {
+	#patchRouteToReachTarget(traveledRoute = [], targetId = 'toto') {
+		const builtResult = this.pathFinder.buildRoutes(targetId, this.maxRoutes, this.maxHops, this.maxNodes, true);
+		if (!builtResult.success) return null;
+		return [...traveledRoute.slice(0, -1), ...builtResult.routes[0].path];
+	}
+	/** @param {string} from @param {DirectMessage} message @param {any} serialized */
+	handleDirectMessage(from, message, serialized, log = false) {
 		if (this.peerStore.isBanned(from)) return;
 		const { route, type, data, isFlexible, isRerouted } = message;
 		const { traveledRoute, selfPosition } = this.#extractTraveledRoute(route);
-		if (selfPosition === -1)
-			return console.warn(`Failed to extract traveled route from ${JSON.stringify(route).replaceAll('"', '').replaceAll(',', ' > ')}`);
+		if (selfPosition === -1) { // DEBUG
+			const peer = this.peerStore.connected[from];
+			const iId = peer.transportInstance.id;
+			const rId = peer.transportInstance.remoteId;
+			console.info(`rId: ${rId} | iId: ${iId}`);
+			console.log(this.peerStore);
+			//throw new Error(`[this.id: ${this.id}] from: ${from} > ${route}`);
+			return console.warn(`[${this.id}] Direct message from ${from} cannot be routed correctly. This peer is not in the route: ${JSON.stringify(route)}`);
+		}
 		if (DISCOVERY.TRAVELED_ROUTE) this.peerStore.digestValidRoute(traveledRoute);
 		
 		const [senderId, prevId, nextId, targetId] = [route[0], route[selfPosition - 1], route[selfPosition + 1], route[route.length - 1]];
 		if (senderId === this.id) return console.warn(`Direct message from self (${this.id}) is not allowed.`);
-		if (from !== prevId) return; // console.warn(`Direct message from ${from} to ${this.id} is not routed correctly. Expected previous ID: ${prevId}, but got: ${from}`);
+		if (prevId && from !== prevId) { // DEBUG
+			const peer = this.peerStore.connected[from];
+			const iId = peer.transportInstance.id;
+			const rId = peer.transportInstance.remoteId;
+			console.info(`rId: ${rId} | iId: ${iId}`);
+			console.log(this.peerStore);
+			//throw new Error(`Direct message from ${from} to ${this.id} is not routed correctly. Expected previous ID: ${prevId}, but got: ${from}`);
+			return console.warn(`Direct message from ${from} to ${this.id} is not routed correctly. Expected previous ID: ${prevId}, but got: ${from}`);
+		}
+		if (prevId && from !== prevId)
+			return console.warn(`Direct message from ${from} to ${this.id} is not routed correctly. Expected previous ID: ${prevId}, but got: ${from}`);
 
 		const selfIsDestination = this.id === targetId;
 		if (!selfIsDestination) { // forward to next
-			const { success, reason } = this.peerStore.sendMessageToPeer(nextId, message);
+			if (!route.includes(nextId)) return console.warn(`Direct message to ${targetId} cannot be routed correctly. Next ID: ${nextId} not found in route: ${JSON.stringify(route)}`);
+			const { success, reason } = this.#sendMessageToPeer(nextId, serialized);
 			if (!success && isFlexible && !isRerouted) { // try to patch the route
 				const patchedRoute = this.#patchRouteToReachTarget(traveledRoute, targetId);
-				const newMsg = { route: patchedRoute, type, data, isFlexible, isRerouted: true };
-				if (patchedRoute) this.peerStore.sendMessageToPeer(nextId, newMsg);
+				const patchedMsg = DirectMessage.serialize(patchedRoute, type, data, isFlexible, true);
+				if (patchedRoute) this.#sendMessageToPeer(patchedRoute[1], patchedMsg); // send to next peer
 			}
+			return;
 		}
 		
 		// ... or this node is the target of the message
@@ -115,8 +130,7 @@ export class UnicastMessager {
 			if (senderId === from) console.log(`(${this.id}) Direct message received from ${senderId}: ${data}`);
 			else console.log(`(${this.id}) Direct message received from ${senderId} (lastRelay: ${from}): ${data}`);
 		}
-
-		//if (!selfIsDestination) return;
+		
 		if (this.callbacks[type]) for (const cb of this.callbacks[type]) cb(senderId, data);
 	}
 }
