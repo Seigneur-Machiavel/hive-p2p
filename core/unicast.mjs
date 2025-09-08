@@ -1,5 +1,7 @@
 import { DISCOVERY, UNICAST } from "./global_parameters.mjs";
 import { RouteBuilder_V1, RouteBuilder_V2 } from "./route-builder.mjs";
+import { SANDBOX } from '../simulation/tranports-sandbox.mjs'; // DEBUG
+
 const RouteBuilder = RouteBuilder_V2; // temporary switch
 
 /**
@@ -88,49 +90,69 @@ export class UnicastMessager {
 		if (this.peerStore.isBanned(from)) return;
 		const { route, type, data, isFlexible, isRerouted } = message;
 		const { traveledRoute, selfPosition } = this.#extractTraveledRoute(route);
-		if (selfPosition === -1) { // DEBUG
-			const peer = this.peerStore.connected[from];
-			const iId = peer.transportInstance.id;
-			const rId = peer.transportInstance.remoteId;
-			console.info(`rId: ${rId} | iId: ${iId}`);
-			console.log(this.peerStore);
+		if (selfPosition === -1) {
+			// RACE CONDITION CAN OCCUR IN SIMULATION !!
+			// ref: simulation/race-condition-demonstration.js
+			const sc = this.peerStore.connected[from];
+			const iId = sc.transportInstance.id;
+			const rId = sc.transportInstance.remoteId;
+			const wId = sc.transportInstance.remoteWsId;
+			const OWNER = sc.transportInstance.OWNER;
+			const REMOTE = sc.transportInstance.REMOTE;
+			const SENT = sc.transportInstance.SENT;
+
+			const rC = iId ? SANDBOX.transportInstances[iId] : SANDBOX.wsConnections[wId];
+			const rOWNER = rC?.OWNER;
+			const rREMOTE = rC?.REMOTE;
+			const rSENT = rC?.SENT;
+			
+			//console.info(`rId: ${rId} | iId: ${iId} | wId: ${wId} | OWNER: ${OWNER} | REMOTE: ${REMOTE} | rOWNER: ${rOWNER} | rREMOTE: ${rREMOTE}`);
+			console.info(`rId: ${rId} | iId: ${iId} | wId: ${wId}`);
+			console.info(`OWNER: ${OWNER} | REMOTE: ${REMOTE} | SENT: ${JSON.stringify(SENT)}`);
+			console.info(`rOWNER: ${rOWNER} | rREMOTE: ${rREMOTE} | rSENT: ${JSON.stringify(rSENT)}`);
+			//console.log(this.peerStore);
 			//throw new Error(`[this.id: ${this.id}] from: ${from} > ${route}`);
-			return console.warn(`[${this.id}] Direct message from ${from} cannot be routed correctly. This peer is not in the route: ${JSON.stringify(route)}`);
+			console.warn(`0- [${this.id}] Direct message from ${from} cannot be routed correctly. This peer is not in the route: ${JSON.stringify(route)}`);
+			throw new Error(`MERDE0`);
 		}
 		if (DISCOVERY.TRAVELED_ROUTE) this.peerStore.digestValidRoute(traveledRoute);
 		
 		const [senderId, prevId, nextId, targetId] = [route[0], route[selfPosition - 1], route[selfPosition + 1], route[route.length - 1]];
 		if (senderId === this.id) return console.warn(`Direct message from self (${this.id}) is not allowed.`);
+
 		if (prevId && from !== prevId) { // DEBUG
 			const peer = this.peerStore.connected[from];
 			const iId = peer.transportInstance.id;
 			const rId = peer.transportInstance.remoteId;
-			console.info(`rId: ${rId} | iId: ${iId}`);
-			console.log(this.peerStore);
+			const wId = peer.transportInstance.remoteWsId;
+			const OWNER = peer.transportInstance.OWNER;
+			const REMOTE = peer.transportInstance.REMOTE;
+			console.info(`iId: ${iId} | rId: ${rId} | wId: ${wId} | OWNER: ${OWNER} | REMOTE: ${REMOTE}`);
+			//console.log(this.peerStore);
 			//throw new Error(`Direct message from ${from} to ${this.id} is not routed correctly. Expected previous ID: ${prevId}, but got: ${from}`);
-			return console.warn(`Direct message from ${from} to ${this.id} is not routed correctly. Expected previous ID: ${prevId}, but got: ${from}`);
+			console.warn(`1- Direct message from ${from} to ${this.id} is not routed correctly. Expected previous ID: ${prevId}, but got: ${from}`);
+			throw new Error(`MERDE1`);
 		}
 		if (prevId && from !== prevId)
 			return console.warn(`Direct message from ${from} to ${this.id} is not routed correctly. Expected previous ID: ${prevId}, but got: ${from}`);
-
-		const selfIsDestination = this.id === targetId;
-		if (!selfIsDestination) { // forward to next
-			if (!route.includes(nextId)) return console.warn(`Direct message to ${targetId} cannot be routed correctly. Next ID: ${nextId} not found in route: ${JSON.stringify(route)}`);
-			const { success, reason } = this.#sendMessageToPeer(nextId, serialized);
-			if (!success && isFlexible && !isRerouted) { // try to patch the route
-				const patchedRoute = this.#patchRouteToReachTarget(traveledRoute, targetId);
-				const patchedMsg = DirectMessage.serialize(patchedRoute, type, data, isFlexible, true);
-				if (patchedRoute) this.#sendMessageToPeer(patchedRoute[1], patchedMsg); // send to next peer
-			}
-			return;
-		}
 		
-		// ... or this node is the target of the message
 		if (log) {
 			if (senderId === from) console.log(`(${this.id}) Direct message received from ${senderId}: ${data}`);
 			else console.log(`(${this.id}) Direct message received from ${senderId} (lastRelay: ${from}): ${data}`);
 		}
-		
-		if (this.callbacks[type]) for (const cb of this.callbacks[type]) cb(senderId, data);
+
+		if (this.id === targetId) { // selfIsDestination
+			for (const cb of this.callbacks[type] || []) cb(senderId, data);
+			return;
+		}
+
+		// re-send the message to the next peer in the route
+		const { success, reason } = this.#sendMessageToPeer(nextId, serialized);
+		if (!success && isFlexible && !isRerouted) { // try to patch the route
+			const patchedRoute = this.#patchRouteToReachTarget(traveledRoute, targetId);
+			const patchedMsg = DirectMessage.serialize(patchedRoute, type, data, isFlexible, true);
+			if (patchedRoute) // ICI ERROR ! patchedRoute[1] ???
+				this.#sendMessageToPeer(patchedRoute[1], patchedMsg); // send to next peer
+		}
 	}
 }

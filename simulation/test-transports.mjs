@@ -1,5 +1,5 @@
-import { Sandbox } from './tranports-sandbox.mjs';
-const SANDBOX = new Sandbox();
+import { Sandbox, SANDBOX } from './tranports-sandbox.mjs';
+//const SANDBOX = new Sandbox();
 
 class TestWsEventManager { // manage init() and close() to avoid timeout usage
 	/** @type {Array<{ connId: string, clientWsId: string, time: number }> } */ toInit = [];
@@ -39,7 +39,8 @@ const TEST_WS_EVENT_MANAGER = new TestWsEventManager();
 // // HERE WE ARE BASICALLY COPYING THE PRINCIPLE OF "WebSocket"
 export class TestWsConnection { // WebSocket like
 	id;
-	remoteWsId;
+	isTestTransport = true;
+	remoteWsId = null;
 	delayBeforeConnectionTry = 500;
 	readyState = 0;
 	url; // outgoing connection only
@@ -143,21 +144,24 @@ class ICECandidateEmitter {
 		const n = Date.now();
 		const toEmit = this.sdpToEmit;
 		this.sdpToEmit = [];
-		for (const { transport, SDP, time } of toEmit)
-			if (time > n) this.sdpToEmit.push({ transport, SDP, time }); // not yet
-			else transport?.callbacks?.signal?.forEach(cb => cb(SDP)); // emit signal event
+		for (const { transportId, SDP, time } of toEmit) {
+			if (time > n) return this.sdpToEmit.push({ transportId, SDP, time }); // not yet
+			const transport = SANDBOX.transportInstances[transportId];
+			transport?.callbacks?.signal?.forEach(cb => cb(SDP)); // emit signal event
+		}
 	}, 500);
 
-	emit(transport, SDP) {
+	emit(transportId, SDP) {
 		const delayRange = TestTransportOptions.signalCreationDelay;
 		const delay = Math.floor(Math.random() * (delayRange.max - delayRange.min + 1)) + delayRange.min;
-		this.sdpToEmit.push({ transport, SDP, time: Date.now() + delay });
+		this.sdpToEmit.push({ transportId, SDP, time: Date.now() + delay });
 	}
 }
 const ICE_CANDIDATE_EMITTER = new ICECandidateEmitter();
 
 export class TestTransport { // SimplePeer like
 	id = null;
+	isTestTransport = true;
 	remoteId = null; // Can send message only if corresponding remoteId on both sides
 	callbacks = { connect: [], close: [], data: [], signal: [], error: [] };
 	initiator; 	// SimplePeer.Options
@@ -172,7 +176,7 @@ export class TestTransport { // SimplePeer like
 
 		if (!this.initiator) return; // standby
 		const signalData = SANDBOX.buildSDP(this.id, 'offer'); // emit signal event 'offer'
-		ICE_CANDIDATE_EMITTER.emit(this, signalData);
+		ICE_CANDIDATE_EMITTER.emit(this.id, signalData);
 	}
 
 	destroy(errorMsg = null) {
@@ -197,13 +201,14 @@ export class TestTransport { // SimplePeer like
 
 		const { success, signalData, reason } = SANDBOX.digestSignal(remoteSDP, this.id);
 		if (!success) return this.dispatchError(reason || `Failed to digest signal for peer: ${this.id}`);
-		if (signalData) ICE_CANDIDATE_EMITTER.emit(this, signalData);
+		if (signalData) ICE_CANDIDATE_EMITTER.emit(this.id, signalData);
 	}
 	/** @param {string | Uint8Array} message */
 	send(message) {
 		const { success, reason } = SANDBOX.sendData(this.id, this.remoteId, message);
-		if (reason?.includes('is closing')) return this.destroy(reason);
-		if (!success) console.warn(reason);
+		if (success) return;
+		console.warn(reason);
+		this.destroy(reason);
 	}
 	close() {
 		this.destroy();

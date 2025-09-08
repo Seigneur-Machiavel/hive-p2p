@@ -10,7 +10,7 @@ export const NODE = {
 	USE_TEST_TRANSPORT: false, // useful for simulator
 	SERVICE: {
 		PORT: 8080,
-		AUTO_KICK_DELAY: { min: 30_000, max: 60_000 },
+		AUTO_KICK_DELAY: { min: 15_000, max: 60_000 },
 		AUTO_KICK_DURATION: 120_000,
 		MAX_WS_IN_CONNS: 10, // default: 10
 	},

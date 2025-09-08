@@ -6,6 +6,12 @@ import { MessageQueue, Statician, SubscriptionsManager } from './simulator-utils
 import { io } from 'socket.io-client'; // used for twitch events only
 import { NODE } from '../core/global_parameters.mjs';
 
+
+process.on('uncaughtException', (err) => { // DEBUG
+	console.error('There was an uncaught error', err.stack);
+	//throw err; //mandatory (as per the Node docs)
+});
+
 // TO ACCESS THE VISUALIZER GO TO: http://localhost:3000
 // LOGS COLORS :
 // BLUE:      SYSTEM
@@ -20,7 +26,7 @@ let initInterval = null;
 const sVARS = { // SIMULATION VARIABLES
 	publicInit: 0,
 	nextPeerToInit: 0,
-	avoidFollowersNodes: false,
+	avoidFollowersNodes: true,
 	publicPeersCards: [],
 	startTime: Date.now(),
 	// SETTINGS
@@ -29,11 +35,11 @@ const sVARS = { // SIMULATION VARIABLES
 	peersCount: 5,
 	bootstrapsPerPeer: null, // will not be exact, more like a limit. null = all of them
 	delayBetweenInit: 100, // 0 = faster for simulating big networks but > 0 = should be more realistic
-	randomMessagePerSecondPerPeer: 0 // .1, // capped at a total of 500msg/sec
+	randomMessagePerSecondPerPeer: 1 // .1, // capped at a total of 500msg/sec
 };
 if (NODE.USE_TEST_TRANSPORT) {
-	sVARS.publicPeersCount = 2; // stable: 3,  medium: 100, strong: 200
-	sVARS.peersCount = 12;	  	// stable: 25, medium: 800, strong: 1600
+	sVARS.publicPeersCount = 1; // stable: 3,  medium: 100, strong: 200
+	sVARS.peersCount = 14;	  	// stable: 25, medium: 800, strong: 1600
 }
 
 const peers = {

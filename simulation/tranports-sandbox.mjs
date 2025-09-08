@@ -15,11 +15,16 @@
  * @property {string} sdp.id
  */
 
+const VERBOSE = 2; // 0=none, 1=links, 2=destroy, 3=all
+
 export class Sandbox {
-	globalIndex = 1; // index to attribute transportInstances IDs
+	wsGlobalIndex = 1; // index to attribute wsInstances IDs
+	tGlobalIndex = 1; // index to attribute transportInstances IDs
 	/** @type {Record<string, TestTransport>} */ transportInstances = {};
 	/** @type {Record<string, TestWsConnection>} */ wsConnections = {};
 	/** @type {Record<string, TestWsServer>} */ publicWsServers = {};
+	// TRYING OTHER LINK METHODS FOR DEBUGING
+	links = {}; // key: idA, value: idB
 
 	// --- ICE SIMULATION ---
 	SIGNAL_OFFER_TIMEOUT = 30_000;
@@ -109,8 +114,8 @@ export class Sandbox {
 			if (now > entry.expiration) delete this.PENDING_ANSWERS[id];
 	}
 	#linkInstances(idA, idB) {
-		const [ tA, tB ] = [this.transportInstances[idA], this.transportInstances[idB]];
-		if (!tA || !tB) return `One of the transport instances is missing: ${idA}=>${!!tA}, ${idB}=>${!!tB}`;
+		const [ tA, tB ] = [ this.transportInstances[idA], this.transportInstances[idB] ];
+		if (!tA || !tB) return `Missing transport instances: ${idA}=>${!!tA}, ${idB}=>${!!tB}`;
 		if (tB.initiator && tA.initiator) return `Both transport instances cannot be initiators: ${idA}, ${idB}`;
 		if (tA.closing || tB.closing) return `One of the transport instances is closing: ${idA}=>${tA.closing}, ${idB}=>${tB.closing}`;
 		if (tA.remoteId) return `Transport instance tA: ${idA} is already linked to remoteId: ${tA.remoteId}`;
@@ -123,8 +128,48 @@ export class Sandbox {
 		// LINK THEM
 		tA.remoteId = idB;
 		tB.remoteId = idA;
+		this.links[idA] = idB;
+		this.links[idB] = idA;
+
+		if (VERBOSE > 0) console.log(`[SANDBOX] Linked transports: ${idA} <-> ${idB}`);
+		if (!this.transportInstances[idA].remoteId) // DEBUG
+			throw new Error(`Transport instance has no remoteId after linking: ${idA} => ${tA.remoteId}`);
+		if (!this.transportInstances[idB].remoteId) // DEBUG
+			throw new Error(`Transport instance has no remoteId after linking: ${idB} => ${tB.remoteId}`);
+
+		if (tA.callbacks.connect.length !== 1) // DEBUG
+			throw new Error(`Transport instance ${idA} has invalid number of 'connect' callbacks: ${tA.callbacks.connect.length}`);
+		if (tB.callbacks.connect.length !== 1) // DEBUG
+			throw new Error(`Transport instance ${idB} has invalid number of 'connect' callbacks: ${tB.callbacks.connect.length}`);
+
+		// EMIT CONNECT EVENT ON BOTH SIDES
 		tA.callbacks.connect.forEach(cb => cb()); // emit connect event for transportInstance A
 		tB.callbacks.connect.forEach(cb => cb()); // emit connect event for transportInstance B
+
+		this.#fullControl(); // DEBUG
+	}
+	#fullControl() {
+		const tList = {};
+		const rList = {};
+		for (const id in this.transportInstances) {
+			const t = this.transportInstances[id];
+			if (t.closing) continue;
+			if (!t.remoteId) continue;
+			if (tList[id]) 
+				throw new Error(`Duplicate transport instance ID found: ${id}`);
+			if (this.links[id] !== t.remoteId)
+				throw new Error(`Link inconsistency for transport instance ${id} => ${t.remoteId}`);
+			tList[id] = true;
+
+			const r = this.transportInstances[t.remoteId];
+			if (!r || r.closing) continue;
+			if (r.remoteId !== id) continue;
+			if (rList[t.remoteId]) 
+				throw new Error(`Duplicate remote transport instance ID found: ${t.remoteId}`);
+			if (this.links[t.remoteId] !== id)
+				throw new Error(`Link inconsistency for remote transport instance ${t.remoteId} => ${id}`);
+			rList[t.remoteId] = true;
+		}
 	}
 	#destroySignals(transportId) {
 		delete this.PENDING_OFFERS[transportId];
@@ -139,8 +184,9 @@ export class Sandbox {
 		delete this.publicWsServers[url];
 	}
 	inscribeWsConnection(testWsConnection) {
-		testWsConnection.id = (this.globalIndex++).toString();
+		testWsConnection.id = (this.wsGlobalIndex++).toString();
 		this.wsConnections[testWsConnection.id] = testWsConnection;
+		if (VERBOSE > 2) console.log(`[SANDBOX] Inscribed wsConnection: ${testWsConnection.id}`);
 	}
 	/** @param {string} url @param {TestWsConnection} clientWsConnection */
 	connectToWebSocketServer(url, clientWsConnection, instancier) {
@@ -153,9 +199,10 @@ export class Sandbox {
 
 	// --- SimplePeer(WebRTC) SIMULATION ---
 	inscribeInstance(transportInstance) {
-		const transportId = (this.globalIndex++).toString();
+		const transportId = (this.tGlobalIndex++).toString();
 		transportInstance.id = transportId;
 		this.transportInstances[transportId] = transportInstance;
+		if (VERBOSE > 2) console.log(`[SANDBOX] Inscribed transport: ${transportId}`);
 	}
 	sendData(fromId, toId, data) {
 		if (fromId === undefined) return { success: false, reason: `Cannot send message from id: ${fromId}` };
@@ -165,6 +212,10 @@ export class Sandbox {
 		if (!senderInstance) return { success: false, reason: `No transport instance found for id: ${fromId}` };
 		if (senderInstance.closing) return { success: false, reason: `Transport instance ${fromId} is closing` };
 
+		if (!senderInstance.remoteId) return { success: false, reason: `Transport instance ${fromId} is not linked to any remoteId` };
+		if (senderInstance.remoteId !== toId)
+			return { success: false, reason: `Transport instance ${fromId} is not linked to remoteId: ${toId}` };
+
 		const remoteInstance = this.transportInstances[toId];
 		if (!remoteInstance) return { success: false, reason: `No transport instance found for id: ${toId}` };
 		if (remoteInstance.closing) return { success: false, reason: `Transport instance ${toId} is closing` };
@@ -173,20 +224,21 @@ export class Sandbox {
 		if (remoteInstance.remoteId !== fromId)
 			return { success: false, reason: `Transport instance ${fromId} is not linked to remoteId: ${toId}` };
 
-		this.enqueueTransportData(remoteInstance, data);
+		this.enqueueTransportData(remoteInstance.id, remoteInstance.remoteId, data);
 		return { success: true, reason: 'na' };
 	}
 	destroyTransport(id) {
 		this.#destroySignals(id);
-		const transportInstance = this.transportInstances[id];
-		if (!transportInstance) return;
 
-		transportInstance.close(); 	// close local instance
+		this.transportInstances[id]?.close(); 	// close local instance
 		delete this.transportInstances[id]; 		// ensure deletion
 
-		const remoteId = transportInstance.remoteId;
+		const remoteId = this.links[id];
+		delete this.links[id];
+		delete this.links[remoteId];
 		this.transportInstances[remoteId]?.close(); 	// close remote instance if linked
 		delete this.transportInstances[remoteId]; 	// ensure deletion
+		if (VERBOSE > 1) console.log(`[SANDBOX] Destroyed transports: ${id} & ${remoteId}`);
 	}
 
 	// --- MESSAGE QUEUE TO SIMULATE ASYNC BEHAVIOR ---
@@ -207,10 +259,30 @@ export class Sandbox {
 			const [t, i, data, remoteId] = message;
 			if (t === 'transport_data') {
 				const remoteInstance = this.transportInstances[i];
+				const senderInstance = this.transportInstances[remoteId];
 				if (!remoteInstance || remoteInstance.closing) continue;
-				if (remoteInstance.remoteId !== remoteId) throw new Error(`Transport instance ${i} is not linked to remoteId: ${remoteId}`);
-				//const parsed = JSON.parse(data);
-				//if (parsed.route) console.log(`${remoteId} > ${remoteInstance.id} | ${remoteInstance.callbacks.data.length} - trough: ${parsed.route.join(' > ')}`);
+				if (remoteInstance.remoteId !== remoteId) 
+					throw new Error(`Transport instance ${i} is not linked to remoteId: ${remoteId}`);
+				if (remoteInstance.id !== i) 
+					throw new Error(`Wrong id for remoteInstance ${i} !== ${remoteInstance.id}`);
+				if (!senderInstance || senderInstance.closing) continue;
+				if (senderInstance.id !== remoteId) 
+					throw new Error(`Wrong id for senderInstance ${i} !== ${remoteId}`);
+				if (senderInstance.remoteId !== i)
+					throw new Error(`Transport instance ${remoteId} is not linked to remoteId: ${i}`);
+
+				// DEBUG
+				//senderInstance.SENT = (senderInstance.SENT || 0) + 1;
+				//remoteInstance.SENT = (remoteInstance.SENT || 0) + 1;
+				if (!senderInstance.SENT) senderInstance.SENT = {};
+				if (!remoteInstance.SENT) remoteInstance.SENT = {};
+				const parsed = JSON.parse(data.slice(1));
+				if (parsed.route) {
+					const routeLen = parsed.route.length.toString();
+					senderInstance.SENT[routeLen] = (senderInstance.SENT[routeLen] || 0) + 1;
+					remoteInstance.SENT[routeLen] = (remoteInstance.SENT[routeLen] || 0) + 1;
+				}
+		
                 for (const cb of remoteInstance.callbacks.data) cb(data);
             } else if (t === 'ws_message') {
 				const remoteWs = this.wsConnections[i];
@@ -226,5 +298,7 @@ export class Sandbox {
         this.queueIndex = 0;
     }
 	enqueueWsMessage(remoteWsId, message) { this.messageQueue.push(['ws_message', remoteWsId, message]); }
-	enqueueTransportData(remoteInstance, data) { this.messageQueue.push(['transport_data', remoteInstance.id, data, remoteInstance.remoteId]); }
+	enqueueTransportData(id, remoteId, data) { this.messageQueue.push(['transport_data', id, data, remoteId]); }
 }
+
+export const SANDBOX = new Sandbox();

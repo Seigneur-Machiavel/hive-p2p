@@ -110,7 +110,7 @@ export class SubscriptionsManager {
 			//const d = JSON.parse(data);
 			const identifier = data[0];
 			const d = identifier === 'U' ? DirectMessage.deserialize(data) : GossipMessage.deserialize(data);
-			this.sendFnc({ type: 'peerMessage', remoteId, data });
+			this.sendFnc({ type: 'peerMessage', remoteId, data: data.slice(1) }); // without identifier
 			if (d.topic) { // gossip message
 				this.tmpTopic[d.topic] ? this.tmpTopic[d.topic]++ : this.tmpTopic[d.topic] = 1;
 				this.mpTopic[d.topic] ? this.mpTopic[d.topic]++ : this.mpTopic[d.topic] = 1;

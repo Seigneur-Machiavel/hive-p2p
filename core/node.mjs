@@ -1,6 +1,7 @@
 import { WebSocketServer } from 'ws';
 import { TestWsServer } from '../simulation/test-transports.mjs';
-import { PeerStore, PeerConnection } from './peer-store.mjs';
+import { PeerStore } from './peer-store.mjs';
+import { PeerConnection } from './peer-store-utils.mjs';
 import { NetworkEnhancer } from './network-enhancer.mjs';
 import { UnicastMessager, DirectMessage } from './unicast.mjs';
 import { Gossip, GossipMessage } from './gossip.mjs';
@@ -28,10 +29,10 @@ export class NodeP2P {
 
 		const { peerStore, networkEnhancer, messager, gossip } = this;
 		// SETUP TRANSPORT LISTENERS
+		peerStore.on('signal', (peerId, data) => this.messager.sendMessage(peerId, 'signal', data)); // answer created => send it to offerer
+		peerStore.on('signal_rejected', (peerId, neighbours) => this.messager.sendMessage(peerId, 'signal_rejected', neighbours));
 		peerStore.on('connect', (peerId, direction) => this.#onConnect(peerId, direction));
 		peerStore.on('disconnect', (peerId, direction) => this.#onDisconnect(peerId, direction));
-		peerStore.on('signal', (peerId, data) => this.sendMessage(peerId, 'signal', data));
-		peerStore.on('signal_rejected', (peerId, neighbours) => this.sendMessage(peerId, 'signal_rejected', neighbours));
 		peerStore.on('data', (peerId, data) => this.#onData(peerId, data));
 		
 		// UNICAST LISTENERS
@@ -108,7 +109,7 @@ export class NodeP2P {
 	/** @param {string} remoteId @param {string} type @param {string | Uint8Array} data */
 	sendMessage(remoteId, type, data, spread = 1) { this.messager.sendMessage(remoteId, type, data, spread); }
 	// DEPRECATED -> NEEDS REFACTORING
-	//tryConnectToPeer(targetId = 'toto') { this.peerStore.addConnectingPeer(targetId, undefined, undefined); }
+	//tryConnectToPeer(targetId = 'toto') {  }
 	setAsPublic(domain = 'localhost', port = NODE.SERVICE.PORT) {
 		this.publicUrl = `ws://${domain}:${port}`;
 		this.networkEnhancer.isPublicNode = true;
@@ -134,13 +135,17 @@ export class NodeP2P {
 			ws.on('message', (message) => { try {
 				const identifier = message[0];
 				const deserialized = identifier === 'U' ? DirectMessage.deserialize(message) : GossipMessage.deserialize(message);
-				const { senderId, topic, type, data } = deserialized;
+				const { senderId, topic, type, data, TTL } = deserialized;
 				if (this.peerStore.isKicked(senderId)) return;
 				if (topic !== 'signal' && type !== 'signal') return; // ignore non-signal messages here
 				
+				//if (topic && TTL !== 0)
+					//return; 
+
+				// TRY DEBUG
 				/** @type {string | undefined} */ let result;
 				if (topic) result = this.gossip.handleGossipMessage(senderId, deserialized, message, this.verbose);
-				else result = this.messager.handleDirectMessage(remoteId, deserialized, message, this.verbose);
+				else if (remoteId) this.messager.handleDirectMessage(remoteId, deserialized, message, this.verbose);
 				if (!result?.senderId || remoteId) return;
 
 				remoteId = result.senderId;

@@ -1,6 +1,6 @@
 import { TestWsConnection } from '../simulation/test-transports.mjs';
 import { IDENTIFIERS, NODE, ENHANCER } from './global_parameters.mjs';
-import { PeerConnection } from './peer-store.mjs';
+import { PeerConnection } from './peer-store-utils.mjs';
 
 /**
  * @typedef {import('./gossip.mjs').Gossip} Gossip
@@ -58,10 +58,10 @@ export class NetworkEnhancer {
 		const { isEnough, connectedPeersCount } = this.#getConnectionInfo();
 		if (isEnough || !connectedPeersCount) return;
 
-		const offer = this.peerStore.sdpOfferBuilder.offer;
-		if (!offer) return;
+		const readyOffer = this.peerStore.sdpOfferManager.readyOffer;
+		if (!readyOffer) return;
 
-		this.gossip.broadcast('signal', { signal: offer, neighbours: this.peerStore.neighbours });
+		this.gossip.broadcast('signal', { peerIdControl: this.id, signal: readyOffer, neighbours: this.peerStore.neighbours });
 		this.noSpreadUntil = Date.now() + ENHANCER.DELAY_BETWEEN_SDP_SPREAD;
 	}
 	/** @param {string} senderId @param {SignalData} data */
@@ -80,12 +80,12 @@ export class NetworkEnhancer {
 		const tooManyConnectedPeers = this.peerStore.neighbours.length >= ENHANCER.TARGET_NEIGHBORS_COUNT - 1;
 		if (!isTwitchUser && (tooManySharedPeers || tooManyConnectedPeers)) this.peerStore.kickPeer(senderId, 30_000);
 		
-		const isConnecting = !!this.peerStore.connecting[senderId];
-		if (!isConnecting)
+		if (!this.peerStore.connecting[senderId]) {
 			if (signal.type === 'offer') this.peerStore.addConnectingPeer(senderId, signal);
 			else if (signal.type === 'answer') this.peerStore.addConnectingPeer(senderId, signal);
+		}
 
-		this.peerStore.assignSignal(senderId, data);
+		this.peerStore.assignSignal(senderId, signal);
 	}
 	/** @param {string} senderId @param {SignalData} data */
 	handleSignalRejection(senderId, data) {
@@ -131,21 +131,19 @@ export class NetworkEnhancer {
 		if (canMakeATry) this.#connectToPublicNode(id, publicUrl);
 		this.nBI = (this.nBI + 1) % this.bootstraps.length;
 	}
-	#connectToPublicNode(remoteId = 'toto', publicUrl = 'localhost:8080') {
-		this.peerStore.pendingConnections[remoteId] = Date.now() + 2000; // timeout
-		
+	#connectToPublicNode(remoteId = 'toto', publicUrl = 'localhost:8080') {		
 		const Transport = NODE.USE_TEST_TRANSPORT ? TestWsConnection : WebSocket;
 		const ws = new Transport(publicUrl);
-		this.peerStore.connecting[remoteId] = new PeerConnection(remoteId, ws, 'out', true);
+		const conn = new PeerConnection(remoteId, ws, 'out', true);
 		ws.onerror = (error) => console.error(`WebSocket error:`, error.stack);
 		ws.onclose = () => { for (const cb of this.peerStore.callbacks.disconnect) cb(remoteId, 'out'); }
 		ws.onopen = () => {
+			this.peerStore.addConnectedPeer(remoteId, conn);
 			ws.onmessage = (data) => {
 				if (typeof data.data !== 'string') // debug
 					console.warn(`Unexpected data event on WebSocket:`, data);
 				for (const cb of this.peerStore.callbacks.data) cb(remoteId, data.data);
 			};
-			for (const cb of this.peerStore.callbacks.connect) cb(remoteId, 'out');
 		};
 	}
 }

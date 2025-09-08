@@ -1,101 +1,14 @@
-import wrtc from 'wrtc';
-import SimplePeer from 'simple-peer';
-import { TestTransport } from '../simulation/test-transports.mjs';
+import { SANDBOX } from '../simulation/tranports-sandbox.mjs';
 import { IDENTIFIERS, NODE } from './global_parameters.mjs';
+import { PeerConnection, KnownPeer, SdpOfferManager, Punisher } from './peer-store-utils.mjs';
 
 /**
- * @typedef {import('ws').WebSocket} WebSocket
- * @typedef {import('./unicast.mjs').DirectMessage} DirectMessage
- * @typedef {import('./gossip.mjs').GossipMessage} GossipMessage */
+ * @typedef {import('simple-peer').Instance} SimplePeerInstance
+ */
 
-export class PeerConnection {
-	transportInstance;
-	connStartTime;
-	isWebSocket;
-	direction;
-	peerId;
-
-	/** 
-	 * @param {string} peerId @param {SimplePeer.Instance | WebSocket} transportInstance @param {'in' | 'out'} direction */
-	constructor(peerId, transportInstance, direction = 'in', isWebSocket = false) {
-		this.transportInstance = transportInstance;
-		this.isWebSocket = isWebSocket;
-		this.direction = direction;
-		this.peerId = peerId;
-	}
-	getConnectionDuration() { return this.connStartTime ? Date.now() - this.connStartTime : 0; }
-	close() { this.isWebSocket ? this.transportInstance?.close() : this.transportInstance?.destroy(); }
-}
-export class KnownPeer {
-	id;
-	neighbours;
-	connectionsCount;
-
-	/** @param {string} id @param {Record<string, number>} neighbours key: peerId, value: timestamp */
-	constructor(id, neighbours = {}) {
-		this.id = id;
-		this.neighbours = neighbours;
-		this.connectionsCount = Object.keys(neighbours).length;
-	}
-	
-	setNeighbour(peerId, timestamp = Date.now()) {
-		if (!this.neighbours[peerId]) this.connectionsCount++;
-		this.neighbours[peerId] = timestamp;
-	}
-	unsetNeighbour(peerId) {
-		if (this.neighbours[peerId]) this.connectionsCount--;
-		delete this.neighbours[peerId];
-	}
-}
-class SdpOfferBuilder {
-	transportInstancer = NODE.USE_TEST_TRANSPORT ? TestTransport : SimplePeer;
-	offerRequested = true; // Flag to indicate if an offer is requested
-	transportInstance = null;
-	offer = null;
-	answers = [];
-
-	sdpCreationInterval = setInterval(() => {
-		if (!this.offerRequested || this.offer) return;
-		this.#createOffer().then(offer => {
-			this.offer = offer;
-			this.offerRequested = false;
-		}).catch(() => {});
-	}, 500);
-
-	#createOffer(timeout = 5_000) {
-		return new Promise((resolve, reject) => {
-			this.transportInstance = new this.transportInstancer({ initiator: true, trickle: true, wrtc });
-			this.transportInstance.on('signal', data => resolve(data));
-			this.transportInstance.on('error', error => reject(error));
-			setTimeout(() => reject(new Error('SDP offer generation timeout')), timeout);
-		});
-	}
-	/** @param {{type: 'offer' | 'answer', sdp: Record<string, string>}} remoteSDP */
-	getTransportInstanceForSignal(remoteSDP) {
-		if (!remoteSDP) return new this.transportInstancer({ initiator: true, trickle: true, wrtc });
-		if (!remoteSDP.type || !remoteSDP.sdp) return null;
-		if (remoteSDP.type === 'offer') return new this.transportInstancer({ initiator: false, trickle: true, wrtc });
-		if (remoteSDP.type === 'answer') return this.transportInstance;
-	}
-}
-class Punisher {
-	/** @type {Record<string, number>} */ ban = {};
-	/** @type {Record<string, number>} */ kick = {};
-
-	/** @param {string} peerId @param {Record<string, PeerConnection>} connected */
-	sanctionPeer(peerId, connected, type = 'kick', duration = 60_000) {
-		this[type][peerId] = Date.now() + duration;
-		connected[peerId]?.close();
-	}
-	isSanctioned(peerId, type = 'kick') {
-		if (!this[type][peerId]) return false;
-		if (this[type][peerId] < Date.now()) delete this[type][peerId];
-		else return true;
-	}
-}
 export class PeerStore {
 	id;
-	sdpOfferBuilder = new SdpOfferBuilder();
+	sdpOfferManager;
 	punisher = new Punisher();
 	/** @type {string[]} The neighbours IDs */    neighbours = []; // faster access
 	/** @type {Record<string, PeerConnection>} */ connected = {};
@@ -116,7 +29,39 @@ export class PeerStore {
 		'data': []
 	};
 
-	constructor(selfId = 'toto') { this.id = selfId; }
+	constructor(selfId = 'toto') {
+		this.id = selfId;
+		this.sdpOfferManager = new SdpOfferManager();
+		this.sdpOfferManager.onError = (error) => this.#onTransportError(error);
+		this.sdpOfferManager.onSignal = (remoteId, signalData) => this.#onSignal(remoteId, signalData);
+		this.sdpOfferManager.onConnect = (remoteId, transportInstance) => this.#onConnect(remoteId, transportInstance);
+	}
+	#onTransportError = (error) => {
+		if (error.message.includes('Failed to create answer')) return; // avoid logging
+		if (error.message.includes('Transport instance already')) return; // avoid logging
+		if (error.message.includes('is already linked')) return; // avoid logging
+		if (error.message.includes('Simulated failure')) return; // avoid logging
+		if (error.message.includes('Failed to digest')) return; // avoid logging
+		if (error.message.includes('No peer found')) return; // avoid logging
+		if (error.message === 'cannot signal after peer is destroyed') return; // avoid logging
+		console.error(`TI ERROR => `, error.stack);
+	};
+	/** @param {string} remoteId @param {any} signalData */
+	#onSignal = (remoteId, signalData) => {
+		if (this.isDestroy || this.punisher.isSanctioned(remoteId)) return; // not accepted
+		for (const cb of this.callbacks.signal) cb(remoteId, { peerIdControl: this.id, signal: signalData, neighbours: this.neighbours });
+	};
+	/** @param {string} remoteId @param {SimplePeerInstance} transportInstance @param {'in' | 'out'} direction */
+	#onConnect = (remoteId, transportInstance, direction) => {
+		// DEBUG
+		if (transportInstance.REMOTE) throw new Error(`transportInstance for ${remoteId} already has a REMOTE ID: ${transportInstance.REMOTE}`);
+		transportInstance.REMOTE = remoteId; // DEBUG
+		
+		if (this.isDestroy) return;
+		transportInstance.on('close', () => { if (!this.isDestroy) for (const cb of this.callbacks.disconnect) cb(remoteId, direction); });
+		transportInstance.on('data', data => { if (!this.isDestroy) for (const cb of this.callbacks.data) cb(remoteId, data); });
+		for (const cb of this.callbacks.connect) cb(remoteId, direction);
+	}
 
 	// API
 	/** @param {string} callbackType @param {Function} callback */
@@ -126,9 +71,17 @@ export class PeerStore {
 	}
 	/** @param {string} peerId @param {PeerConnection} peerConn */
 	addConnectedPeer(remoteId, peerConn) { // Used by public node only
-		if (this.connected[remoteId]) return console.warn(`Peer with ID ${remoteId} is already connected.`);
 		delete this.pendingConnections[remoteId];
 		delete this.connecting[remoteId];
+		if (this.connected[remoteId]) return console.warn(`Peer with ID ${remoteId} is already connected.`);
+
+		// RACE CONDITION CAN OCCUR IN SIMULATION !!
+		// ref: simulation/race-condition-demonstration.js
+		const tI = peerConn.transportInstance;
+		if (tI.isTestTransport && (!tI.remoteId && !tI.remoteWsId))
+			return this.removePeer(remoteId, 'both');
+
+		// CONTINUE NORMAL FLOW
 		peerConn.connStartTime = Date.now();
 		this.connected[remoteId] = peerConn;
 		this.neighbours.push(remoteId);
@@ -138,55 +91,53 @@ export class PeerStore {
 	 * @param {string} remoteId
 	 * @param {{type: 'offer' | 'answer', sdp: Record<string, string>}} remoteSDP */
 	addConnectingPeer(remoteId, remoteSDP) {
-		const direction = remoteSDP?.type === 'offer' ? 'in' : 'out';
-		if (!remoteId) return console.error('Invalid remoteId');
+		if (!remoteSDP) throw new Error('Missing remoteSDP');
+		if (!remoteId) throw new Error('Invalid remoteId');
+
+		const direction = remoteSDP.type === 'offer' ? 'in' : 'out';
 		if (this.connected[remoteId]) return console.warn(`Peer with ID ${remoteId} is already connected.`);
 		if (this.connecting[remoteId]) return console.warn(`Peer with ID ${remoteId} is already connecting.`);
 
-		const transportInstance = this.sdpOfferBuilder.getTransportInstanceForSignal(remoteSDP);
-		if (!transportInstance) return console.error(`Cannot create transport instance for peer ${remoteId}.`);
+		const transportInstance = this.sdpOfferManager.getTransportInstanceForSignal(remoteSDP);
+		if (!transportInstance) return console.error(`[${this.id}] Cannot create transport instance for ${remoteId}.`);
+		if (direction === 'in') { // assign callbacks (offer only, answer is done by sdpOfferManager)
+			transportInstance.on('error', (err) => this.#onTransportError(err));
+			transportInstance.on('signal', (data) => 
+				this.#onSignal(remoteId, data));
+			transportInstance.on('connect', () => this.#onConnect(remoteId, transportInstance, 'in'));
+		}
+
+		transportInstance.OWNER = this.id;
+		if (transportInstance.REMOTE) // DEBUG
+			throw new Error(`transportInstance for ${remoteId} already has a REMOTE ID: ${transportInstance.REMOTE}`);
+		
 		this.pendingConnections[remoteId] = Date.now() + NODE.WRTC.CONNECTION_UPGRADE_TIMEOUT;
 		this.connecting[remoteId] = new PeerConnection(remoteId, transportInstance, direction);
-
-		transportInstance.on('error', error => {
-			if (error.message.includes('Failed to create answer')) return; // avoid logging
-			if (error.message.includes('Transport instance already')) return; // avoid logging
-			if (error.message.includes('is already linked')) return; // avoid logging
-			if (error.message.includes('Simulated failure')) return; // avoid logging
-			if (error.message.includes('Failed to digest')) return; // avoid logging
-			if (error.message.includes('No peer found')) return; // avoid logging
-			if (error.message === 'cannot signal after peer is destroyed') return; // avoid logging
-			console.error(`transportInstance error for ${remoteId}:`, error.stack);
-		});
-		transportInstance.on('connect', () => {
-			if (this.isDestroy) return;
-			transportInstance.on('close', () => { if (!this.isDestroy) for (const cb of this.callbacks.disconnect) cb(remoteId, direction); });
-			transportInstance.on('data', data => { if (!this.isDestroy) for (const cb of this.callbacks.data) cb(remoteId, data); });
-			for (const cb of this.callbacks.connect) cb(remoteId, direction);
-		});
-		transportInstance.on('signal', data => {
-			if (!this.isDestroy) for (const cb of this.callbacks.signal) cb(remoteId, { signal: data, neighbours: this.neighbours });
-		});
 	}
-	/** @param {string} senderId @param {{signal: {type: 'offer' | 'answer', sdp: Record<string, string>}}} data */
-	assignSignal(remoteId = 'toto', data) {
+	/** @param {string} senderId @param {{type: 'offer' | 'answer', sdp: Record<string, string>}} signal */
+	assignSignal(remoteId, signal) {
 		try {
-			if (!remoteId || !data || !data.signal) throw new Error('Invalid remoteId or signalData');
-			const type = data.signal.type;
+			if (!remoteId || !signal) throw new Error('Invalid remoteId or signalData');
+			const type = signal.type;
 			const { transportInstance, direction, isWebSocket } = this.connecting[remoteId] || {};
 			if (isWebSocket) return console.warn(`Cannot assign signal for ID ${remoteId}. (WebSocket)`);
-			if (!transportInstance || !direction) return console.warn(`No connecting peer found for ID ${remoteId}.`);
-			if (type === 'answer' && direction === 'in') throw new Error(`Received ${type} for ${remoteId} incoming connexion is not allowed.`); // DEBUG
-			if (type === 'offer' && direction === 'out') throw new Error(`Received ${type} for ${remoteId} outgoing connexion is not allowed.`); // DEBUG
-			transportInstance.signal(data.signal);
+			if (type === 'answer') return this.sdpOfferManager.addSignalAnswer(remoteId, signal);
+			
+			if (!transportInstance || !direction) return console.warn(`[${this.id}] No connecting peer found for ID ${remoteId}.`);
+			if (direction === 'out') throw new Error(`Received ${type} for ${remoteId} outgoing connexion is not allowed.`); // DEBUG
+			if (transportInstance.remoteId)
+				throw new Error(`PeerConnection transportInstance has already a remoteId for peer ${remoteId}. => tId: ${transportInstance.id} value: ${transportInstance.remoteId}`);
+			
+			transportInstance.signal(signal);
 		} catch (error) {
 			if (error.message.includes('connexion is not allowed')) return; // avoid logging
 			console.error(`Error signaling ${data?.signal?.type} for ${remoteId}:`, error.stack);
 		}
 	}
 	#upgradeConnectingToConnected(remoteId) {
-		if (!this.connecting[remoteId]) return console.error(`Peer with ID ${remoteId} is not connecting.`);
-		this.addConnectedPeer(remoteId, this.connecting[remoteId]);
+		const conn = this.connecting[remoteId];
+		if (!conn) return console.error(`Peer with ID ${remoteId} is not connecting.`);
+		this.addConnectedPeer(remoteId, conn);
 	}
 	/** Link two peers if both declared the connection in a short delay(10s), trigger on:
 	 * - 'peer_connected' gossip message
@@ -214,8 +165,9 @@ export class PeerStore {
 	// STORE API
 	/** Improve discovery by considering used route as peer links @param {string[]} route */
 	digestValidRoute(route = []) { for (let i = 1; i < route.length; i++) this.linkPeers(route[i - 1], route[i]); }
-	rejectSignal(remoteId = 'toto') { // inform remote peer that we rejected its signal
-		for (const cb of this.callbacks.signal_rejected) cb(remoteId, { signal: null, neighbours: this.neighbours });
+	rejectSignal(remoteId) { // inform remote peer that we rejected its signal
+		if (this.isDestroy || !remoteId) return;
+		for (const cb of this.callbacks.signal_rejected) cb(remoteId, { peerIdControl: this.id, signal: null, neighbours: this.neighbours });
 	}
 	/** @param {string} peerId @param {string[]} neighbours */
 	digestPeerNeighbours(peerId, neighbours = []) { // Update known neighbours
@@ -224,20 +176,23 @@ export class PeerStore {
 		for (const p of peerNeighbours) if (!neighbours.includes(p)) this.unlinkPeers(peerId, p);
 		for (const p of neighbours) this.linkPeers(peerId, p);
 	}
-	/** @param {string} remoteId @param {'connected' | 'connecting' | 'both'} status */
-	removePeer(remoteId = 'toto', status = 'both') {
+	/** @param {string} remoteId @param {'connected' | 'connecting' | 'both'} [status] default: both */
+	removePeer(remoteId, status = 'both') {
+		if (!remoteId && remoteId === this.id) return;
 		const [ connectingConn, connectedConn ] = [ this.connecting[remoteId], this.connected[remoteId] ];
 		if (connectingConn && connectedConn) throw new Error(`Peer ${remoteId} is both connecting and connected.`);
 		if (!connectingConn && !connectedConn) return;
 		
+		// use negation to apply to 'both' too
 		if (status !== 'connecting') {
-			connectedConn?.close();
+			if (connectedConn?.direction === 'in') connectedConn?.close();
 			delete this.connected[remoteId];
 			this.neighbours = this.neighbours.filter(id => id !== remoteId);
 		}
 		if (status !== 'connected') {
 			connectingConn?.close();
 			delete this.connecting[remoteId];
+			delete this.pendingConnections[remoteId];
 		}
 	}
 	linkPeers(peerId1 = 'toto', peerId2 = 'tutu') {
@@ -266,17 +221,16 @@ export class PeerStore {
 		this.isDestroy = true;
 		for (const peerId in this.connected) this.removePeer(peerId, 'connected');
 		for (const peerId in this.connecting) this.removePeer(peerId, 'connecting');
+		this.sdpOfferManager.destroy();
 		clearInterval(this.expirationManagementInterval);
 	}
 
 	// INTERNAL METHODS
 	#cleanupExpired() { // Clean up expired pending connections and pending links
 		const now = Date.now();
-		for (const peerId in this.pendingConnections) {
+		for (const peerId in this.pendingConnections)
 			if (this.pendingConnections[peerId] > now) continue; // not expired
-			delete this.pendingConnections[peerId];
-			this.removePeer(peerId, 'both');
-		}
+			else this.removePeer(peerId, 'both');
 
 		for (const [key, expiration] of Object.entries(this.pendingLinks))
 			if (expiration < now) delete this.pendingLinks[key];
