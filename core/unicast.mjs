@@ -90,57 +90,22 @@ export class UnicastMessager {
 		if (this.peerStore.isBanned(from)) return;
 		const { route, type, data, isFlexible, isRerouted } = message;
 		const { traveledRoute, selfPosition } = this.#extractTraveledRoute(route);
-		if (selfPosition === -1) {
-			// RACE CONDITION CAN OCCUR IN SIMULATION !!
-			// ref: simulation/race-condition-demonstration.js
-			const sc = this.peerStore.connected[from];
-			const iId = sc.transportInstance.id;
-			const rId = sc.transportInstance.remoteId;
-			const wId = sc.transportInstance.remoteWsId;
-			const OWNER = sc.transportInstance.OWNER;
-			const REMOTE = sc.transportInstance.REMOTE;
-			const SENT = sc.transportInstance.SENT;
 
-			const rC = iId ? SANDBOX.transportInstances[iId] : SANDBOX.wsConnections[wId];
-			const rOWNER = rC?.OWNER;
-			const rREMOTE = rC?.REMOTE;
-			const rSENT = rC?.SENT;
-			
-			//console.info(`rId: ${rId} | iId: ${iId} | wId: ${wId} | OWNER: ${OWNER} | REMOTE: ${REMOTE} | rOWNER: ${rOWNER} | rREMOTE: ${rREMOTE}`);
-			console.info(`rId: ${rId} | iId: ${iId} | wId: ${wId}`);
-			console.info(`OWNER: ${OWNER} | REMOTE: ${REMOTE} | SENT: ${JSON.stringify(SENT)}`);
-			console.info(`rOWNER: ${rOWNER} | rREMOTE: ${rREMOTE} | rSENT: ${JSON.stringify(rSENT)}`);
-			//console.log(this.peerStore);
-			//throw new Error(`[this.id: ${this.id}] from: ${from} > ${route}`);
-			console.warn(`0- [${this.id}] Direct message from ${from} cannot be routed correctly. This peer is not in the route: ${JSON.stringify(route)}`);
-			throw new Error(`MERDE0`);
-		}
-		if (DISCOVERY.TRAVELED_ROUTE) this.peerStore.digestValidRoute(traveledRoute);
+		// RACE CONDITION CAN OCCUR IN SIMULATION !!
+		// ref: simulation/race-condition-demonstration.js
+		if (selfPosition === -1) return; // race condition or not => ignore message
 		
 		const [senderId, prevId, nextId, targetId] = [route[0], route[selfPosition - 1], route[selfPosition + 1], route[route.length - 1]];
 		if (senderId === this.id) return console.warn(`Direct message from self (${this.id}) is not allowed.`);
-
-		if (prevId && from !== prevId) { // DEBUG
-			const peer = this.peerStore.connected[from];
-			const iId = peer.transportInstance.id;
-			const rId = peer.transportInstance.remoteId;
-			const wId = peer.transportInstance.remoteWsId;
-			const OWNER = peer.transportInstance.OWNER;
-			const REMOTE = peer.transportInstance.REMOTE;
-			console.info(`iId: ${iId} | rId: ${rId} | wId: ${wId} | OWNER: ${OWNER} | REMOTE: ${REMOTE}`);
-			//console.log(this.peerStore);
-			//throw new Error(`Direct message from ${from} to ${this.id} is not routed correctly. Expected previous ID: ${prevId}, but got: ${from}`);
-			console.warn(`1- Direct message from ${from} to ${this.id} is not routed correctly. Expected previous ID: ${prevId}, but got: ${from}`);
-			throw new Error(`MERDE1`);
-		}
-		if (prevId && from !== prevId)
-			return console.warn(`Direct message from ${from} to ${this.id} is not routed correctly. Expected previous ID: ${prevId}, but got: ${from}`);
 		
-		if (log) {
-			if (senderId === from) console.log(`(${this.id}) Direct message received from ${senderId}: ${data}`);
+		// RACE CONDITION CAN OCCUR IN SIMULATION !!
+		// ref: simulation/race-condition-demonstration.js
+		if (prevId && from !== prevId) return; // race condition or not => ignore message
+		
+		if (log) if (senderId === from) console.log(`(${this.id}) Direct message received from ${senderId}: ${data}`);
 			else console.log(`(${this.id}) Direct message received from ${senderId} (lastRelay: ${from}): ${data}`);
-		}
-
+		
+		if (DISCOVERY.TRAVELED_ROUTE) this.peerStore.digestValidRoute(traveledRoute);
 		if (this.id === targetId) { // selfIsDestination
 			for (const cb of this.callbacks[type] || []) cb(senderId, data);
 			return;

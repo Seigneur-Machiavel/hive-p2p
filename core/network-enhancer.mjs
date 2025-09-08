@@ -61,7 +61,7 @@ export class NetworkEnhancer {
 		const readyOffer = this.peerStore.sdpOfferManager.readyOffer;
 		if (!readyOffer) return;
 
-		this.gossip.broadcast('signal', { peerIdControl: this.id, signal: readyOffer, neighbours: this.peerStore.neighbours });
+		this.gossip.broadcast('signal', { signal: readyOffer, neighbours: this.peerStore.neighbours });
 		this.noSpreadUntil = Date.now() + ENHANCER.DELAY_BETWEEN_SDP_SPREAD;
 	}
 	/** @param {string} senderId @param {SignalData} data */

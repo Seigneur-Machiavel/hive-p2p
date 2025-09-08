@@ -15,7 +15,7 @@
  * @property {string} sdp.id
  */
 
-const VERBOSE = 2; // 0=none, 1=links, 2=destroy, 3=all
+const VERBOSE = 0; // 0=none, 1=links, 2=destroy, 3=all
 
 export class Sandbox {
 	wsGlobalIndex = 1; // index to attribute wsInstances IDs

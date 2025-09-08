@@ -22,7 +22,7 @@ export class NodeP2P {
 	constructor(id = 'toto', bootstraps = [], verbose = 0) {
 		this.verbose = verbose;
 		this.id = id;
-		this.peerStore = new PeerStore(id);
+		this.peerStore = new PeerStore(id, this.verbose);
 		this.messager = new UnicastMessager(id, this.peerStore);
 		this.gossip = new Gossip(id, this.peerStore);
 		this.networkEnhancer = new NetworkEnhancer(id, this.gossip, this.peerStore, bootstraps);

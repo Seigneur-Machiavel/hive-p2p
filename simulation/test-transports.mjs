@@ -206,9 +206,7 @@ export class TestTransport { // SimplePeer like
 	/** @param {string | Uint8Array} message */
 	send(message) {
 		const { success, reason } = SANDBOX.sendData(this.id, this.remoteId, message);
-		if (success) return;
-		console.warn(reason);
-		this.destroy(reason);
+		if (!success) this.destroy(reason);
 	}
 	close() {
 		this.destroy();

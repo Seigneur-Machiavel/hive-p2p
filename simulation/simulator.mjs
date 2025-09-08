@@ -38,8 +38,8 @@ const sVARS = { // SIMULATION VARIABLES
 	randomMessagePerSecondPerPeer: 1 // .1, // capped at a total of 500msg/sec
 };
 if (NODE.USE_TEST_TRANSPORT) {
-	sVARS.publicPeersCount = 1; // stable: 3,  medium: 100, strong: 200
-	sVARS.peersCount = 14;	  	// stable: 25, medium: 800, strong: 1600
+	sVARS.publicPeersCount = 3; // stable: 3,  medium: 100, strong: 200
+	sVARS.peersCount = 30;	  	// stable: 25, medium: 800, strong: 1600
 }
 
 const peers = {
