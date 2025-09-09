@@ -10,12 +10,15 @@ export class DirectMessage {
 	/** @type {string[]} */ route;
 	/** @type {'signal' | 'message'} */ type = 'signal';
 	/** @type {string | Uint8Array} */ data;
+	/** @type {number} */ timestamp;
 	/** @type {boolean} */ isFlexible;
-	/** @type {boolean} */ isRerouted;
+	/** @type {string | undefined} */ reroutedBy;
 
-	/** @param {string[]} route @param {'signal' | 'message'} type @param {string | Uint8Array} data @param {boolean} isFlexible */
-	static serialize(route, type, data, isFlexible = false, isRerouted = false) {
-		return 'U' + UNICAST.SERIALIZER({ route, type, data, isFlexible, isRerouted });
+	/** 
+	 * @param {string[]} route @param {'signal' | 'message'} type @param {string | Uint8Array} data
+	 * @param {number} timestamp @param {boolean} isFlexible */
+	static serialize(route, type, data, timestamp, isFlexible = false, reroutedBy = undefined) {
+		return 'U' + UNICAST.SERIALIZER({ route, type, data, timestamp, isFlexible, reroutedBy });
 	}
 	static deserialize(serialized) {
 		return UNICAST.DESERIALIZER(serialized.slice(1));
@@ -45,8 +48,8 @@ export class UnicastMessager {
 	}
 	/** Send unicast message to a target
 	 * @param {string} remoteId @param {string} type @param {string | Uint8Array} data
-	 * @param {number} [spread] Max neighbours used to relay the message, default: 1 */
-	sendMessage(remoteId, type, data, spread = 1) {
+	 * @param {number} [timestamp] @param {number} [spread] Max neighbours used to relay the message, default: 1 */
+	sendMessage(remoteId, type, data, timestamp = Date.now(), spread = 1) {
 		if (remoteId === this.id) return false;
 
 		const builtResult = this.pathFinder.buildRoutes(remoteId, this.maxRoutes, this.maxHops, this.maxNodes, true);
@@ -57,7 +60,7 @@ export class UnicastMessager {
 		const finalSpread = flexibleRouting ? 1 : spread; // Spread only if re-routing is false
 		for (let i = 0; i < Math.min(finalSpread, builtResult.routes.length); i++) {
 			const route = builtResult.routes[i].path;
-			const msg = DirectMessage.serialize(route, type, data, flexibleRouting);
+			const msg = DirectMessage.serialize(route, type, data, timestamp, flexibleRouting);
 			this.#sendMessageToPeer(route[1], msg); // send to next peer
 		}
 		return true;
@@ -87,24 +90,27 @@ export class UnicastMessager {
 	/** @param {string} from @param {DirectMessage} message @param {any} serialized */
 	handleDirectMessage(from, message, serialized, log = false) {
 		if (this.peerStore.isBanned(from)) return;
-		const { route, type, data, isFlexible, isRerouted } = message;
+		const { route, type, data, timestamp, isFlexible, reroutedBy } = message;
 		const { traveledRoute, selfPosition } = this.#extractTraveledRoute(route);
 
 		// RACE CONDITION CAN OCCUR IN SIMULATION !!
 		// ref: simulation/race-condition-demonstration.js
-		if (selfPosition === -1) 
-			return this.peerStore.removePeer(from); // race condition or not => ignore message
+		if (selfPosition === -1)
+			return this.peerStore.kickPeer(from, 0); // race condition or not => ignore message
 		
 		const [senderId, prevId, nextId, targetId] = [route[0], route[selfPosition - 1], route[selfPosition + 1], route[route.length - 1]];
-		if (senderId === this.id) 
-			return this.peerStore.removePeer(from); // from self is not allowed.
+		if (from === senderId && from === this.id) // FATAL ERROR
+			throw new Error('DirectMessage senderId and from are both self id !!');
+		if (senderId === this.id) // !!Attacker can modify the route to kick a peer a by building a loop
+			return this.peerStore.kickPeer(from, 0); // from self is not allowed.
 				
 		// RACE CONDITION CAN OCCUR IN SIMULATION !!
 		// ref: simulation/race-condition-demonstration.js
-		if (prevId && from !== prevId) 
-			return this.peerStore.removePeer(from); // race condition or not => ignore message
+		if (prevId && from !== prevId)
+			return this.peerStore.kickPeer(from, 0); // race condition or not => ignore message
 		
-		if (log) if (senderId === from) console.log(`(${this.id}) Direct message received from ${senderId}: ${data}`);
+		if (log) // better with verbose ;)
+			if (senderId === from) console.log(`(${this.id}) Direct message received from ${senderId}: ${data}`);
 			else console.log(`(${this.id}) Direct message received from ${senderId} (lastRelay: ${from}): ${data}`);
 		
 		if (DISCOVERY.TRAVELED_ROUTE) this.peerStore.digestValidRoute(traveledRoute);
@@ -115,10 +121,10 @@ export class UnicastMessager {
 
 		// re-send the message to the next peer in the route
 		const { success, reason } = this.#sendMessageToPeer(nextId, serialized);
-		if (!success && isFlexible && !isRerouted) { // try to patch the route
+		if (!success && isFlexible && !reroutedBy) { // try to patch the route
 			const patchedRoute = this.#patchRouteToReachTarget(traveledRoute, targetId);
 			if (!patchedRoute) return;
-			const patchedMsg = DirectMessage.serialize(patchedRoute, type, data, isFlexible, true);
+			const patchedMsg = DirectMessage.serialize(patchedRoute, type, data, timestamp, isFlexible, true);
 			const nextPeerId = patchedRoute[selfPosition + 1];
 			this.#sendMessageToPeer(nextPeerId, patchedMsg);
 		}

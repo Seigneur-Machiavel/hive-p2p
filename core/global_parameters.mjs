@@ -16,7 +16,8 @@ export const NODE = {
 		MAX_WS_IN_CONNS: 20, // default: 10
 	},
 	WRTC: {
-		CONNECTION_UPGRADE_TIMEOUT: 5_000, // delay before SDP failure | default: 5_000 (5 seconds)	
+		/** peerStore.peerConnecting.timeout default: 30_000 (30 seconds) */
+		CONNECTION_UPGRADE_TIMEOUT: 5_000,
 	},
 	MIN_CONNECTION_TIME_TO_DISPATCH_EVENT: 2_500,
 }
@@ -25,9 +26,8 @@ export const ENHANCER = {
 	LOOP_DELAY: 2_500, // delay between connection attempts | default: 2_500 (2.5 seconds)
 	DELAY_BETWEEN_SDP_SPREAD: 10_000, // delay between spreading SDP | default: 15_000 (15 seconds)
 	DELAY_BETWEEN_SDP_RESET: 30_000, // delay between SDP reset | default: 60_000 (1 minute)
-	RATE_BASIS: .618, // default: .618 (61.8%) (PONDERATION) // DEPRECATED
 	MAX_SERVICE_OUT_CONNS: 2, // prod: 2, simulation we can set: 0
-	MAX_OVERLAP: 3, // Max of shared neighbours | default: 5, strict: 2
+	MAX_OVERLAP: 12, // Max of shared neighbours | default: 5, strict: 2
 	TARGET_NEIGHBORS_COUNT: 12, // default: 12
 }
 
@@ -48,6 +48,8 @@ export const UNICAST = {
 }
 
 export const GOSSIP = {
+	EXPIRATION: 10_000, // Time to consider a message as valid | default: 10_000 (10 seconds)
+	CACHE_DURATION: 20_000, // Duration to keep messages in cache
 	SERIALIZER: JSON.stringify,
 	DESERIALIZER: JSON.parse,
 	TTL: {

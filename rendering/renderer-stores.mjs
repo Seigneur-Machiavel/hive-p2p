@@ -58,7 +58,7 @@ export class NodesStore {
 	}
 }
 
-class PeerConnection {
+class PeerLineConnection {
 	/** @type {THREE.Line} */ line;
 	/** @type {number} in frames */ repaintIgnored = 0;
 	/** @type {boolean} */ isHovered = false;
@@ -100,7 +100,7 @@ class PeerConnection {
 }
 
 export class ConnectionsStore {
-	/** @type {Record<string, PeerConnection>} */ store = {};
+	/** @type {Record<string, PeerLineConnection>} */ store = {};
 	nodesStore;
 	scene;
 	updateBatchMax = 500;
@@ -121,7 +121,7 @@ export class ConnectionsStore {
 	set(fromId = 'toto', toId = 'tutu') {
 		const { key1, key2, validKey } = this.#getKeys(fromId, toId);
 		if (validKey) return { success: false, key: validKey }; // already set
-		this.store[key1] = new PeerConnection();
+		this.store[key1] = new PeerLineConnection();
 		return { success: true, key: key1, peerConn: this.store[key1] };
 	}
 	unset(fromId = 'toto', toId = 'tutu', force = false) {

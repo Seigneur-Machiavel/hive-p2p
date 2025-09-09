@@ -44,11 +44,25 @@ export class KnownPeer {
 		delete this.neighbours[peerId];
 	}
 }
+export class Punisher {
+	/** @type {Record<string, number>} */ ban = {};
+	/** @type {Record<string, number>} */ kick = {};
+
+	/** @param {string} peerId @param {Record<string, PeerConnection>} connected */
+	sanctionPeer(peerId, connected, type = 'kick', duration = 60_000) {
+		this[type][peerId] = Date.now() + duration;
+	}
+	isSanctioned(peerId, type = 'kick') {
+		if (!this[type][peerId]) return false;
+		if (this[type][peerId] < Date.now()) delete this[type][peerId];
+		else return true;
+	}
+}
 export class SdpOfferManager {
+	verbose = 0;
 	transportInstancer = NODE.USE_TEST_TRANSPORT ? TestTransport : SimplePeer;
 	/** @type {SimplePeer.Instance | null} */ #transportInstance = null;
 
-	onError = null; // function(remoteId, error)
 	onSignal = null; // function(remoteId, signalData)
 	onConnect = null; // function(remoteId, transportInstance)
 
@@ -61,11 +75,11 @@ export class SdpOfferManager {
 		if (this.readyOffer && this.#transportInstance) { // already have an offer => try to use answers
 			if (!this.onSignal) throw new Error('No onSignal callback defined in SdpOfferManager');
 			if (this.currentAnswerPeerId) return; // already processing an answer
-			//const answer = this.#answers.shift();
-			//if (!answer) return;
+
 			const rndomIndex = Math.random() * this.#answers.length | 0;
 			const answer = this.#answers.splice(rndomIndex, 1)[0];
 			if (!answer) return;
+
 			this.currentAnswerPeerId = answer.peerId;
 			this.#transportInstance?.signal(answer.signal);
 			return;
@@ -77,27 +91,44 @@ export class SdpOfferManager {
 
 	#createOffer(timeout = 5_000) {
 		return new Promise((resolve, reject) => {
-			this.#transportInstance = new this.transportInstancer({ initiator: true, trickle: true, wrtc });
-			this.#transportInstance.on('error', error => { 
-				this.onError(error);
+			const instance = new this.transportInstancer({ initiator: true, trickle: true, wrtc });
+			instance.on('error', error => {
+				this.#onError(error);
 				this.currentAnswerPeerId = null;
 				reject?.(error);
 			});
-			this.#transportInstance.on('signal', data => { this.#onSignal(data); resolve?.(data); });
-			this.#transportInstance.on('connect', () => this.#onConnect());
+			instance.on('signal', data => { this.#onSignal(data); resolve?.(data); });
+			instance.on('connect', () => this.#onConnect(instance));
+			this.#transportInstance = instance;
 			setTimeout(() => reject(new Error('SDP offer generation timeout')), timeout);
 		});
 	}
+	#onError = (error) => {
+		if (!this.verbose) return;
+		if (!NODE.USE_TEST_TRANSPORT) {
+			console.error(`Transport Instance Error:`, error);
+			return;
+		}
+		if (error.message.includes('Missing transport instance')) return; // avoid logging
+		if (error.message.includes('Failed to create answer')) return; // avoid logging
+		if (error.message.includes('Transport instance already')) return; // avoid logging
+		if (error.message.includes('is already linked')) return; // avoid logging
+		if (error.message.includes('Simulated failure')) return; // avoid logging
+		if (error.message.includes('Failed to digest')) return; // avoid logging
+		if (error.message.includes('No peer found')) return; // avoid logging
+		if (error.message === 'cannot signal after peer is destroyed') return; // avoid logging
+		console.error(`transportInstance ERROR => `, error.stack);
+	};
 	#onSignal(signalData) { // cb > peerStore > Node > Node.sendMessage() [Send directly to peer]
 		if (!signalData || signalData.type !== 'answer') return;
 		if (!this.onSignal) throw new Error('No onSignal callback defined in SdpOfferManager');
 		if (!this.currentAnswerPeerId) return;
 		this.onSignal(this.currentAnswerPeerId, signalData);
 	}
-	#onConnect() {			// cb > peerStore > Node > Node.#onConnect()
+	#onConnect(instance) {			// cb > peerStore > Node > Node.#onConnect()
 		if (!this.onConnect) throw new Error('No onConnect callback defined in SdpOfferManager');
-		if (!this.#transportInstance) throw new Error('No transport instance available in SdpOfferManager');
-		this.onConnect(this.currentAnswerPeerId, this.#transportInstance, 'out');
+		if (!instance) throw new Error('No transport instance available in SdpOfferManager');
+		this.onConnect(this.currentAnswerPeerId, instance, 'out');
 		this.#transportInstance = null; // release instance -> handled by peerStore now
 		this.reset();
 	}
@@ -117,30 +148,33 @@ export class SdpOfferManager {
 		this.#receivedAnswers[remoteId] = true; // flag it
 		this.#answers.push({ peerId: remoteId, signal, score: 0 });
 	}
-	/** @param {{type: 'offer' | 'answer', sdp: Record<string, string>}} remoteSDP */
-	getTransportInstanceForSignal(remoteSDP) {
-		if (!remoteSDP) throw new Error('No remote SDP provided to getTransportInstanceForSignal');
-		if (remoteSDP.type === 'offer' && !remoteSDP.sdp) throw new Error('No SDP in the remote SDP offer');
-		if (remoteSDP.type === 'answer' && !remoteSDP.sdp) throw new Error('No SDP in the remote SDP answer');
-		if (remoteSDP.type === 'offer') return new this.transportInstancer({ initiator: false, trickle: true, wrtc });
-		if (remoteSDP.type === 'answer') return this.#transportInstance;
+	/** @param {string} remoteId @param {{type: 'offer' | 'answer', sdp: Record<string, string>}} remoteSDP */
+	getPeerConnexionForSignal(remoteId, remoteSDP, verbose = 0) {
+		try {
+			if (!remoteSDP || !remoteSDP.type || !remoteSDP.sdp) throw new Error('Wrong remote SDP provided');
+			
+			const { type, sdp } = remoteSDP;
+			if (type !== 'offer' && type !== 'answer') throw new Error('Invalid remote SDP type');
+			if (type === 'offer' && !sdp) throw new Error('No SDP in the remote SDP offer');
+			if (type === 'answer' && !sdp) throw new Error('No SDP in the remote SDP answer');
+			
+			const instance = type === 'answer' ? this.#transportInstance : new this.transportInstancer({ initiator: false, trickle: true, wrtc });
+			if (!instance) throw new Error('Failed to create transport instance for the given remote SDP');
+			
+			if (type === 'offer') { // assign callbacks (offer only, answer is already done)
+				instance.on('error', (error) => this.#onError(error));
+				instance.on('signal', (data) => this.onSignal(remoteId, data));
+				instance.on('connect', () => this.onConnect(remoteId, instance, 'in'));
+			}
+
+			return new PeerConnection(remoteId, instance, type === 'offer' ? 'in' : 'out');	
+		} catch (error) {
+			if (verbose > 0) console.error('Error getting transport instance for remote SDP:', error.message);
+			return null;
+		}
 	}
 	destroy() {
 		clearInterval(this.interval);
 		this.#transportInstance?.destroy();
-	}
-}
-export class Punisher {
-	/** @type {Record<string, number>} */ ban = {};
-	/** @type {Record<string, number>} */ kick = {};
-
-	/** @param {string} peerId @param {Record<string, PeerConnection>} connected */
-	sanctionPeer(peerId, connected, type = 'kick', duration = 60_000) {
-		this[type][peerId] = Date.now() + duration;
-	}
-	isSanctioned(peerId, type = 'kick') {
-		if (!this[type][peerId]) return false;
-		if (this[type][peerId] < Date.now()) delete this[type][peerId];
-		else return true;
 	}
 }

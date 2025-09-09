@@ -5,7 +5,7 @@ import { PeerConnection } from './peer-store-utils.mjs';
 import { NetworkEnhancer } from './network-enhancer.mjs';
 import { UnicastMessager, DirectMessage } from './unicast.mjs';
 import { Gossip, GossipMessage } from './gossip.mjs';
-import { IDENTIFIERS, DISCOVERY, NODE } from './global_parameters.mjs';
+import { IDENTIFIERS, DISCOVERY, NODE, GOSSIP } from './global_parameters.mjs';
 
 export class NodeP2P {
 	verbose;
@@ -38,19 +38,18 @@ export class NodeP2P {
 		// UNICAST LISTENERS
 		messager.on('signal', (senderId, data) => networkEnhancer.handleIncomingSignal(senderId, data));
 		messager.on('signal_rejected', (senderId, data) => networkEnhancer.handleSignalRejection(senderId, data));
-		messager.on('gossip_history', (senderId, messages) => networkEnhancer.handleIncomingGossipHistory(senderId, messages));
+		messager.on('gossip_history', (senderId, messages) => this.#handleIncomingGossipHistory(senderId, messages));
 
 		// GOSSIP LISTENERS
+		gossip.on('signal', (senderId, data) => networkEnhancer.handleIncomingSignal(senderId, data));
 		gossip.on('peer_connected', (senderId, data) => peerStore.handlePeerConnectedGossipEvent(senderId, data));
 		gossip.on('peer_disconnected', (senderId, data) => peerStore.unlinkPeers(data, senderId));
 		gossip.on('my_neighbours', (senderId, data) => peerStore.digestPeerNeighbours(senderId, data));
-		gossip.on('signal', (senderId, data) => networkEnhancer.handleIncomingSignal(senderId, data));
 
 		if (verbose > 0) console.log(`NodeP2P initialized: ${id}`);
 
 		// TEST / UPDATE => the delay needs to be lowered => only used to improve network consistency
 		setInterval(() => {
-			//this.peerStore.digestPeerNeighbours(this.id, this.peerStore.neighbours); // Self 'known' update
 			if (DISCOVERY.NEIGHBOUR_GOSSIP) this.broadcast('my_neighbours', this.peerStore.neighbours);
 		}, 10_000);
 	}
@@ -61,22 +60,19 @@ export class NodeP2P {
 		if (this.peerStore.isKicked(peerId)) return;
 		if (this.verbose) console.log(`(${this.id}) ${direction === 'in' ? 'Incoming' : 'Outgoing'} connection established with peer ${peerId}`);
 		
+		this.peerStore.linkPeers(this.id, peerId); // Add link in self store
+		this.peerStore.digestPeerNeighbours(peerId, this.peerStore.neighbours); // Self
+
 		const [selfIsPublic, remoteIsPublic] = [this.publicUrl, peerId.startsWith(IDENTIFIERS.PUBLIC_NODE)];
 		if (remoteIsPublic) this.broadcast('hello_public', { peerId }); // inform public node of our id by sending his id
 		//if (selfIsPublic && direction === 'out') if (DISCOVERY.NEIGHBOUR_GOSSIP) this.broadcast('my_neighbours', this.peerStore.neighbours);
 		
 		//if (selfIsPublic && direction === 'in') this.broadcast('my_neighbours', this.peerStore.neighbours);
 		//else this.gossip.broadcastToPeer(peerId, 'my_neighbours', this.peerStore.neighbours);
-		
-		//if (!selfIsPublic && direction === 'out' && remoteIsPublic) this.networkEnhancer.tryConnectMoreNodes();
-		
-		if (DISCOVERY.GOSSIP_HISTORY) this.sendMessage(peerId, 'gossip_history', this.gossip.bloomFilter.getGossipHistoryByTime());
+				
+		//if (DISCOVERY.GOSSIP_HISTORY) this.sendMessage(peerId, 'gossip_history', this.gossip.bloomFilter.getGossipHistoryByTime());
 		if (DISCOVERY.NEIGHBOUR_GOSSIP) this.broadcast('my_neighbours', this.peerStore.neighbours);
 		if (DISCOVERY.CONNECTED_EVENT) this.broadcast('peer_connected', peerId);
-		//if (DISCOVERY.NEIGHBOUR_GOSSIP) this.broadcast('my_neighbours', this.peerStore.neighbours);
-		/*setTimeout(() => {
-
-		}, 500);*/
 	}
 	/** @param {string} peerId @param {'in' | 'out'} direction */
 	#onDisconnect = (peerId, direction) => {
@@ -96,6 +92,15 @@ export class NodeP2P {
 		if (deserialized.route) this.messager.handleDirectMessage(peerId, deserialized, data, this.verbose);
 		else this.gossip.handleGossipMessage(peerId, deserialized, data, this.verbose);
 	}
+	/** @param {string} senderId @param {Array<{senderId: string, topic: string, data: string | Uint8Array, timestamp: number}>} gossipHistory */
+	#handleIncomingGossipHistory(senderId, gossipHistory = []) {
+		for (const msg of gossipHistory) {
+			if (this.gossip.bloomFilter.addMessage(senderId, topic, data, timestamp) === false) return;
+			if (msg.topic === 'my_neighbours') this.peerStore.digestPeerNeighbours(msg.senderId, msg.data);
+			else if (msg.topic === 'peer_disconnected') this.peerStore.unlinkPeers(msg.data, msg.senderId);
+			else if (msg.topic === 'peer_connected') this.peerStore.handlePeerConnectedGossipEvent(msg.senderId, msg.data);
+		}
+	}
 
 	// PUBLIC API
 	/** @param {string} id @param {Array<string>} bootstraps */
@@ -109,7 +114,16 @@ export class NodeP2P {
 	broadcast(topic, data, targetId, TTL) { this.gossip.broadcast(topic, data, targetId, TTL); }
 	/** @param {string} remoteId @param {string} type @param {string | Uint8Array} data */
 	sendMessage(remoteId, type, data, spread = 1) { this.messager.sendMessage(remoteId, type, data, spread); }
-	//tryConnectToPeer(targetId = 'toto') {  } // DEPRECATED -> NEEDS REFACTORING
+	async tryConnectToPeer(targetId = 'toto', retry = 5) {
+		if (this.peerStore.connected[targetId]) return; // already connected
+		do {
+			if (this.peerStore.sdpOfferManager.readyOffer) break;
+			else await new Promise(r => setTimeout(r, 1000)); // build in progress...
+		} while (retry-- > 0);
+		
+		const readyOffer = this.peerStore.sdpOfferManager.readyOffer;
+		this.messager.sendMessage(targetId, 'signal', { signal: readyOffer, neighbours: this.peerStore.neighbours });
+	}
 	setAsPublic(domain = 'localhost', port = NODE.SERVICE.PORT) {
 		this.publicUrl = `ws://${domain}:${port}`;
 		this.networkEnhancer.isPublicNode = true;
@@ -148,6 +162,7 @@ export class NodeP2P {
 
 				remoteId = result.senderId;
 				this.peerStore.addConnectedPeer(remoteId, new PeerConnection(remoteId, ws, 'in', true));
+				for (const cb of this.peerStore.callbacks.connect) cb(remoteId, conn.direction);
 			} catch (error) { if (this.verbose > 0) console.error(`Error handling incoming signal for ${remoteId}:`, error.stack); } });
 
 			setTimeout(() => { // better if we can kick IP address instead of id only

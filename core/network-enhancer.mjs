@@ -74,7 +74,7 @@ export class NetworkEnhancer {
 	/** @param {string} senderId @param {SignalData} data */
 	handleIncomingSignal(senderId, data) {
 		if (typeof data !== 'object') return;
-		const { signal, neighbours } = data || {};
+		const { signal, neighbours } = data || {}; // remoteInfo
 		if (!senderId || typeof signal !== 'object' || !Array.isArray(neighbours)) return;
 		this.peerStore.digestPeerNeighbours(senderId, neighbours);
 
@@ -99,13 +99,6 @@ export class NetworkEnhancer {
 		if (typeof data !== 'object') return;
 		if (!senderId || !Array.isArray(data.neighbours)) return;
 		this.peerStore.digestPeerNeighbours(senderId, data.neighbours);
-	}
-	/** @param {string} senderId @param {Array<{senderId: string, topic: string, data: string | Uint8Array}>} gossipHistory */
-	handleIncomingGossipHistory(senderId, gossipHistory = []) {
-		for (const msg of gossipHistory)
-			if (msg.topic === 'my_neighbours') this.peerStore.digestPeerNeighbours(msg.senderId, msg.data);
-			else if (msg.topic === 'peer_disconnected') this.peerStore.unlinkPeers(msg.data, msg.senderId);
-			else if (msg.topic === 'peer_connected') this.peerStore.handlePeerConnectedGossipEvent(msg.senderId, msg.data);
 	}
 
 	// INTERNAL METHODS
@@ -144,13 +137,10 @@ export class NetworkEnhancer {
 		ws.onerror = (error) => console.error(`WebSocket error:`, error.stack);
 		ws.onclose = () => { for (const cb of this.peerStore.callbacks.disconnect) cb(remoteId, 'out'); }
 		ws.onopen = () => {
+			ws.onmessage = (data) => { for (const cb of this.peerStore.callbacks.data) cb(remoteId, data.data); };
 			const conn = new PeerConnection(remoteId, ws, 'out', true);
 			this.peerStore.addConnectedPeer(remoteId, conn); // can get peerId from WS in the future
-			for (const cb of this.peerStore.callbacks.connect) cb(remoteId, conn.direction); // TESTING
-			ws.onmessage = (data) => {
-				if (typeof data.data !== 'string') console.warn(`Unexpected data event on WebSocket:`, data);
-				for (const cb of this.peerStore.callbacks.data) cb(remoteId, data.data);
-			};
+			for (const cb of this.peerStore.callbacks.connect) cb(remoteId, conn.direction);
 		};
 	}
 }
