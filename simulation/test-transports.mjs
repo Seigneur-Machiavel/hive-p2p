@@ -1,5 +1,5 @@
-import { NODE } from '../core/global_parameters.mjs';
-import { SANDBOX } from './tranports-sandbox.mjs';
+import { NODE, SIMULATION } from '../core/global_parameters.mjs';
+import { Sandbox } from './tranports-sandbox.mjs';
 
 class TestWsEventManager { // manage init() and close() to avoid timeout usage
 	/** @type {Array<{ connId: string, clientWsId: string, time: number }> } */ toInit = [];
@@ -10,32 +10,77 @@ class TestWsEventManager { // manage init() and close() to avoid timeout usage
 		const n = Date.now();
 		const toInit = this.toInit;
 		this.toInit = [];
-		for (const { connId, clientWsId, time } of toInit)
-			if (time > n) this.toInit.push({ connId, clientWsId, time }); // not yet
-			else {
-				const conn = SANDBOX.wsConnections[connId];
-				if (!conn) continue;
-
-				SANDBOX.connectToWebSocketServer(conn.url, conn.id, TestWsConnection);
-			}
+		for (const { connId, time } of toInit)
+			if (time > n) this.toInit.push({ connId, time }); // not yet
+			else this.#connectToWebSocketServer(connId);
 	}, 500);
 	closeInterval = setInterval(() => {
 		if (this.toClose.length <= 0) return;
 		const n = Date.now();
 		const toClose = this.toClose;
 		this.toClose = [];
-		for (const { remoteWsId, time } of toClose) {
-			const remoteWs = SANDBOX.wsConnections[remoteWsId];
-			const closeHandlerReady = remoteWs?.onclose || (remoteWs?.callbacks?.close || []).length;
-			if (!closeHandlerReady || time > n) this.toClose.push({ remoteWsId, time }); // not yet
-			else remoteWs?.close(); // close connection
+		for (const { wsId, remoteWsId, time } of toClose) {
+			if (time > n) this.toClose.push({ wsId, remoteWsId, time }); // not yet
+			else this.#disconnectWsInstances(wsId, remoteWsId);
 		}
 	}, 500);
 
-	scheduleInit(connId, clientWsId, delay = 500) { this.toInit.push({ connId, clientWsId, time: Date.now() + delay }); }
-	scheduleClose(remoteWsId, delay = 100) { this.toClose.push({ remoteWsId, time: Date.now() + delay }); }
+	#connectToWebSocketServer(connId) {
+		const conn = SANDBOX.wsConnections[connId];
+		if (!conn) return;
+		SANDBOX.connectToWebSocketServer(conn.url, conn.id, TestWsConnection);
+	}
+	#disconnectWsInstances(wsId, remoteWsId) {
+		const ws = SANDBOX.wsConnections[wsId];
+		const remoteWs = SANDBOX.wsConnections[remoteWsId];
+		ws?.onclose?.(); // emit close event (client)
+		remoteWs?.onclose?.(); // close connection (client)
+		for (const cb of ws?.callbacks?.close || []) cb(); // emit close event (server)
+		for (const cb of remoteWs?.callbacks?.close || []) cb(); // emit close event (server)
+	}
+	// API
+	scheduleInit(connId, delay = 500) {
+		// IMPOSSIBLE SAFE MODE BECAUSE CALLED IN CONSTRUCTOR ?
+		//if (SIMULATION.SAFE_MODE) this.#connectToWebSocketServer(connId);
+		//else
+		this.toInit.push({ connId, time: Date.now() + delay }); 
+	}
+	scheduleClose(wsId, remoteWsId, delay = 100) {
+		// IMPOSSIBLE SAFE MODE BECAUSE CALLED IN CONSTRUCTOR ?
+		//if (SIMULATION.SAFE_MODE) this.#disconnectWsInstances(wsId, remoteWsId);
+		//else
+		this.toClose.push({ wsId, remoteWsId, time: Date.now() + delay }); 
+	}
 }
-const TEST_WS_EVENT_MANAGER = new TestWsEventManager();
+class ICECandidateEmitter {
+	/** @type {Array<{ transport: TestTransport, SDP: string, time: number }>} */ sdpToEmit = [];
+
+	emitInterval = setInterval(() => {
+		if (this.sdpToEmit.length <= 0) return;
+		const n = Date.now();
+		const toEmit = this.sdpToEmit;
+		this.sdpToEmit = [];
+		for (const { transportId, SDP, time } of toEmit)
+			if (time > n) return this.sdpToEmit.push({ transportId, SDP, time }); // not yet
+			else this.#emitSignal(transportId, SDP);
+	}, 500);
+
+	#emitSignal(transportId, SDP) {
+		const transport = SANDBOX.transportInstances[transportId];
+		transport?.callbacks?.signal?.forEach(cb => cb(SDP)); // emit signal event
+	}
+	emit(transportId, SDP) {
+		// IMPOSSIBLE SAFE MODE BECAUSE CALLED IN CONSTRUCTOR ?
+		/*if (SIMULATION.SAFE_MODE) {
+			this.#emitSignal(transportId, SDP);
+			return;
+		}*/
+
+		const delayRange = NODE.ICE_DELAY || { min: 250, max: 3000 };
+		const delay = Math.floor(Math.random() * (delayRange.max - delayRange.min + 1)) + delayRange.min;
+		this.sdpToEmit.push({ transportId, SDP, time: Date.now() + delay });
+	}
+}
 
 // // HERE WE ARE BASICALLY COPYING THE PRINCIPLE OF "WebSocket"
 export class TestWsConnection { // WebSocket like
@@ -54,11 +99,11 @@ export class TestWsConnection { // WebSocket like
 		SANDBOX.inscribeWsConnection(this);
 		if (oppositeWsConnectionId) return;
 		this.url = url;
-		TEST_WS_EVENT_MANAGER.scheduleInit(this.id, oppositeWsConnectionId, this.delayBeforeConnectionTry);
+		TEST_WS_EVENT_MANAGER.scheduleInit(this.id, this.delayBeforeConnectionTry);
 	}
 	init(remoteWsId) {
 		if (!this.readyState === 3 || this.remoteWsId) {
-			this.close(); // TESTING
+			//this.close(); // TESTING
 			setTimeout(() => this.#dispatchError(new Error(`Failed to connect to WebSocket server at ${this.url}`)), 5_000);
 			return;
 		}
@@ -72,12 +117,11 @@ export class TestWsConnection { // WebSocket like
 		this.callbacks[event].push(callback);
 	}
 	close() {
-		if (this.closing) return;
-		this.closing = true;
+		if (this.readyState === 3) return;
 		this.readyState = 3; // CLOSED
-		this.callbacks.close.forEach(cb => cb()); // emit close event
-		if (this.onclose) this.onclose();
-		if (this.remoteWsId) TEST_WS_EVENT_MANAGER.scheduleClose(this.remoteWsId, 100);
+		const remoteWs = SANDBOX.wsConnections[this.remoteWsId];
+		if (remoteWs) remoteWs.readyState = 3; // CLOSED
+		if (this.remoteWsId) TEST_WS_EVENT_MANAGER.scheduleClose(this.id, this.remoteWsId, 100);
 	}
 	send(message) {
 		if (!this.remoteWsId) {
@@ -101,14 +145,14 @@ export class TestWsServer { // WebSocket like
 		close: [],
 		error: []
 	};
-	cleanerInterval = setInterval(() => this.cleaner(), 2_000);
+	cleanerInterval = setInterval(() => {
+		for (const client of this.clients)
+			if (client.readyState === 3) this.clients.delete(client);
+	}, 2_000);
 
 	constructor(opts = { port, host: domain }) {
 		this.url = `ws://${opts.host}:${opts.port}`;
 		SANDBOX.inscribeWebSocketServer(this.url, this);
-	}
-	cleaner() {
-		for (const client of this.clients) if (client.readyState === 3) this.clients.delete(client);
 	}
 	on(event, callback) {
 		if (!this.callbacks[event]) return console.error(`Unknown event: ${event}`);
@@ -131,28 +175,6 @@ class TestTransportOptions {
 	/** @type {any} */
 	wrtc;
 }
-class ICECandidateEmitter {
-	/** @type {Array<{ transport: TestTransport, SDP: string, time: number }>} */ sdpToEmit = [];
-
-	emitInterval = setInterval(() => {
-		if (this.sdpToEmit.length <= 0) return;
-		const n = Date.now();
-		const toEmit = this.sdpToEmit;
-		this.sdpToEmit = [];
-		for (const { transportId, SDP, time } of toEmit) {
-			if (time > n) return this.sdpToEmit.push({ transportId, SDP, time }); // not yet
-			const transport = SANDBOX.transportInstances[transportId];
-			transport?.callbacks?.signal?.forEach(cb => cb(SDP)); // emit signal event
-		}
-	}, 500);
-
-	emit(transportId, SDP) {
-		const delayRange = NODE.ICE_DELAY || { min: 250, max: 3000 };
-		const delay = Math.floor(Math.random() * (delayRange.max - delayRange.min + 1)) + delayRange.min;
-		this.sdpToEmit.push({ transportId, SDP, time: Date.now() + delay });
-	}
-}
-const ICE_CANDIDATE_EMITTER = new ICECandidateEmitter();
 
 export class TestTransport { // SimplePeer like
 	id = null;
@@ -174,14 +196,6 @@ export class TestTransport { // SimplePeer like
 		ICE_CANDIDATE_EMITTER.emit(this.id, signalData);
 	}
 
-	destroy(errorMsg = null) {
-		if (this.closing) return;
-		this.closing = true;
-		if (errorMsg) this.dispatchError(errorMsg);
-
-		this.callbacks.close?.forEach(cb => cb());
-		SANDBOX.destroyTransport(this.id);
-	}
 	on(event, callbacks) {
 		if (this.callbacks[event]) this.callbacks[event].push(callbacks);
 	}
@@ -206,4 +220,17 @@ export class TestTransport { // SimplePeer like
 	close() {
 		this.destroy();
 	}
+	destroy(errorMsg = null) {
+		if (this.closing) return;
+		this.closing = true;
+		if (errorMsg) this.dispatchError(errorMsg);
+
+		this.callbacks.close?.forEach(cb => cb());
+		SANDBOX.destroyTransport(this.id);
+	}
 }
+
+// INSTANCIATE
+const SANDBOX = new Sandbox();
+const ICE_CANDIDATE_EMITTER = new ICECandidateEmitter();
+const TEST_WS_EVENT_MANAGER = new TestWsEventManager();

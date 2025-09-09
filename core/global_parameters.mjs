@@ -2,11 +2,15 @@
 // TO HOLD GLOBAL PARAMETERS FOR THE LIBRARY
 // AND AVOID CIRCULAR DEPENDENCIES
 
+export const SIMULATION = {
+	SAFE_MODE: true, // if true, avoid any race Condition
+}
 export const IDENTIFIERS = {
 	PUBLIC_NODE: 'public_',
 }
 
 export const NODE = {
+	DEFAULT_VERBOSE: 1, // 0: none, 1: errors, 2: +important info, 3: +debug, 4: +everything
 	USE_TEST_TRANSPORT: false, // useful for simulation
 	ICE_DELAY: { min: 250, max: 1000 }, // simulation delay range for ICE candidates in ms | default: { min: 250, max: 3000 }
 	SERVICE: {

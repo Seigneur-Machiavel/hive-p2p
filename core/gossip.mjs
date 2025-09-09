@@ -34,49 +34,44 @@ class DegenerateBloomFilter {
 	xxHash32UsageCount = 0;
 	/** @type {Record<string, number>} */
 	seenTimeouts = {}; // Map of message hashes to their expiration timestamps
-
+	
 	/** @type {BloomFilterCacheEntry[]} */ cache = [];
-	#cacheStartIndex = 0;
+	cleanupFrequency = 100;
+	cleanupIn = 100;
 	cleanupDurationWarning = 10;
 
 	// PUBLIC API
+	/** @param {'asc' | 'desc'} order */
+	getGossipHistoryByTime(order = 'asc') {
+		const lightenHistory = this.cache.map(e => ({ senderId: e.senderId, topic: e.topic, data: e.data }));
+		return order === 'asc' ? lightenHistory : lightenHistory.reverse();
+	}
 	addMessage(senderId, topic, data, timestamp) {
 		const n = Date.now();
 		if (n - timestamp > GOSSIP.EXPIRATION) return; // ignore expired messages
 		const h = xxHash32(`${senderId}${topic}${JSON.stringify(data)}`);
 		this.xxHash32UsageCount++;
-		let forwardMessage = true;
-		if (this.seenTimeouts[h] && n < this.seenTimeouts[h]) forwardMessage = false; // already exists and not expired
-		else this.#addEntry(senderId, topic, data, timestamp, h, n + GOSSIP.CACHE_DURATION);
-		this.#cleanupOldestEntries(n); // cleanup expired cache
+
+		const isPresent = this.seenTimeouts[h];
+		const isExpired = this.seenTimeouts[h] && n >= this.seenTimeouts[h];
+		if (isPresent && !isExpired) return; // already exists and not expired
 		
-		//if (this.xxHash32UsageCount % 1000 === 0) console.log(`xxHash32 usage count: ${this.xxHash32UsageCount}, cache size: ${this.cache.length}`);
-		return forwardMessage;
-	}
-	/** @param {'asc' | 'desc'} order */
-	getGossipHistoryByTime(order = 'asc') {
-		if (this.#cacheStartIndex >= this.cache.length) return [];
-		const activeCache = this.cache.slice(this.#cacheStartIndex);
-		const lightenHistory = activeCache.map(e => ({ senderId: e.senderId, topic: e.topic, data: e.data }));
-		return order === 'asc' ? lightenHistory : lightenHistory.reverse();
+		const expiration = n + GOSSIP.CACHE_DURATION;
+		if (!isPresent) this.cache.push({ hash: h, senderId, topic, data, timestamp, expiration });
+		this.seenTimeouts[h] = expiration;
+
+		if (--this.cleanupIn > 0) return { hash: h, isExpired, isPresent };
+
+		this.#cleanupOldestEntries(n); // cleanup expired cache
+		this.cleanupIn = this.cleanupFrequency;
+		return { hash: h, isExpired, isPresent };
 	}
 
-	// PRIVATE METHODS
-	#addEntry(senderId, topic, data, timestamp, hash, expiration) {
-		this.seenTimeouts[hash] = expiration;
-		this.cache.push({ hash, senderId, topic, data, timestamp, expiration });
-	}
 	#cleanupOldestEntries(n = Date.now()) {
-		while (this.#cacheStartIndex < this.cache.length && 
-		       this.cache[this.#cacheStartIndex].expiration < n) {
-			delete this.seenTimeouts[this.cache[this.#cacheStartIndex].hash];
-			this.#cacheStartIndex++;
-		}
-
-		// Periodic compaction to prevent the cache from becoming too large
-		if (this.#cacheStartIndex <= this.cache.length / 2) return;
-		this.cache = this.cache.slice(this.#cacheStartIndex);
-		this.#cacheStartIndex = 0;
+		for (let i = 0; i < this.cache.length; i++)
+			if (this.cache[i].expiration <= n) delete this.seenTimeouts[this.cache[i].hash];
+			else if (i) return this.cache = this.cache.slice(i);
+			else return; // nothing to clean
 	}
 }
 export class Gossip {
@@ -89,12 +84,13 @@ export class Gossip {
 	constructor(peerId, peerStore) {
 		this.id = peerId;
 		this.peerStore = peerStore;
+		this.bloomFilter.id = peerId; // DEBUG
 	}
 
 	/** @param {string} callbackType @param {Function} callback */
 	on(callbackType, callback) {
 		if (!this.callbacks[callbackType]) this.callbacks[callbackType] = [callback];
-		else this.callbacks[callbackType].unshift(callback);
+		else this.callbacks[callbackType].push(callback);
 	}
 	/** Gossip a message to all connected peers > will be forwarded to all peers
 	 * @param {string} topic @param {string | Uint8Array} data @param {number} [timestamp]
@@ -119,7 +115,10 @@ export class Gossip {
 		// HERE WE DECRYPT MESSAGE WITH (pubKey === 'from')
 		const { senderId, topic, data, timestamp, TTL } = message;
 		for (const cb of this.callbacks['message_handle'] || []) cb(senderId, data); // mainly used in debug
-		if (this.bloomFilter.addMessage(senderId, topic, data, timestamp) === false) return; // already processed this message
+		
+		if (!this.bloomFilter.addMessage(senderId, topic, data, timestamp)) return; // already processed this message
+		if (senderId === this.id) // DEBUG
+			throw new Error(`Received our own message back from peer ${from}.`);
 		for (const cb of this.callbacks[topic] || []) cb(senderId, data);
 
 		if (TTL < 1) return; // stop forwarding if TTL is 0
@@ -135,6 +134,8 @@ export class Gossip {
 		const messageWithDecrementedTTL = GossipMessage.serialize(senderId, topic, data, timestamp, TTL - 1);
 		for (const [peerId, conn] of neighbours) {
 			if (peerId === from) continue; // avoid sending back to sender
+			if (peerId === this.id) // DEBUG
+				throw new Error(`Refusing to send a gossip message to self (${this.id}).`);
 			if (!avoidTransmissionRate && Math.random() > transmissionRate) continue; // apply gossip transmission rate
 			this.#broadcastToPeer(peerId, messageWithDecrementedTTL);
 		}

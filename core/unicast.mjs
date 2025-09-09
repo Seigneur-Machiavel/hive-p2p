@@ -44,7 +44,7 @@ export class UnicastMessager {
 	/** @param {'signal' | 'message'} callbackType @param {Function} callback */
 	on(callbackType, callback) {
 		if (!this.callbacks[callbackType]) this.callbacks[callbackType] = [callback];
-		else this.callbacks[callbackType].unshift(callback);
+		else this.callbacks[callbackType].push(callback);
 	}
 	/** Send unicast message to a target
 	 * @param {string} remoteId @param {string} type @param {string | Uint8Array} data
@@ -88,7 +88,7 @@ export class UnicastMessager {
 		return [...traveledRoute.slice(0, -1), ...builtResult.routes[0].path];
 	}
 	/** @param {string} from @param {DirectMessage} message @param {any} serialized */
-	handleDirectMessage(from, message, serialized, log = false) {
+	handleDirectMessage(from, message, serialized, verbose = 0) {
 		if (this.peerStore.isBanned(from)) return;
 		const { route, type, data, timestamp, isFlexible, reroutedBy } = message;
 		const { traveledRoute, selfPosition } = this.#extractTraveledRoute(route);
@@ -109,7 +109,7 @@ export class UnicastMessager {
 		if (prevId && from !== prevId)
 			return this.peerStore.kickPeer(from, 0); // race condition or not => ignore message
 		
-		if (log) // better with verbose ;)
+		if (verbose > 2)
 			if (senderId === from) console.log(`(${this.id}) Direct message received from ${senderId}: ${data}`);
 			else console.log(`(${this.id}) Direct message received from ${senderId} (lastRelay: ${from}): ${data}`);
 		

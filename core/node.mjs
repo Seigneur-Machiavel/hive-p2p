@@ -19,7 +19,7 @@ export class NodeP2P {
 	/** Initialize a new P2P node instance, use .start() to init networkEnhancer
 	 * @param {string} id The unique identifier for the node (PubKey)
 	 * @param {Array<Record<string, string>>} bootstraps List of bootstrap nodes used as P2P network entry */
-	constructor(id = 'toto', bootstraps = [], verbose = 0) {
+	constructor(id = 'toto', bootstraps = [], verbose = NODE.DEFAULT_VERBOSE) {
 		this.verbose = verbose;
 		this.id = id;
 		this.peerStore = new PeerStore(id, this.verbose);
@@ -46,7 +46,7 @@ export class NodeP2P {
 		gossip.on('peer_disconnected', (senderId, data) => peerStore.unlinkPeers(data, senderId));
 		gossip.on('my_neighbours', (senderId, data) => peerStore.digestPeerNeighbours(senderId, data));
 
-		if (verbose > 0) console.log(`NodeP2P initialized: ${id}`);
+		if (verbose > 2) console.log(`NodeP2P initialized: ${id}`);
 
 		// TEST / UPDATE => the delay needs to be lowered => only used to improve network consistency
 		setInterval(() => {
@@ -58,10 +58,7 @@ export class NodeP2P {
 	/** @param {string} peerId @param {'in' | 'out'} direction */
 	#onConnect = (peerId, direction) => {
 		if (this.peerStore.isKicked(peerId)) return;
-		if (this.verbose) console.log(`(${this.id}) ${direction === 'in' ? 'Incoming' : 'Outgoing'} connection established with peer ${peerId}`);
-		
-		this.peerStore.linkPeers(this.id, peerId); // Add link in self store
-		this.peerStore.digestPeerNeighbours(peerId, this.peerStore.neighbours); // Self
+		if (this.verbose > 2) console.log(`(${this.id}) ${direction === 'in' ? 'Incoming' : 'Outgoing'} connection established with peer ${peerId}`);
 
 		const [selfIsPublic, remoteIsPublic] = [this.publicUrl, peerId.startsWith(IDENTIFIERS.PUBLIC_NODE)];
 		if (remoteIsPublic) this.broadcast('hello_public', { peerId }); // inform public node of our id by sending his id
@@ -76,12 +73,11 @@ export class NodeP2P {
 	}
 	/** @param {string} peerId @param {'in' | 'out'} direction */
 	#onDisconnect = (peerId, direction) => {
-		if (this.verbose) console.log(`(${this.id}) ${direction === 'in' ? 'Incoming' : 'Outgoing'} connection closed with peer ${peerId}`);
-		this.peerStore.digestPeerNeighbours(peerId, this.peerStore.neighbours); // Self
-		const connDuration = this.peerStore.connected[peerId]?.getConnectionDuration() || 0;
-		if (connDuration < NODE.MIN_CONNECTION_TIME_TO_DISPATCH_EVENT) return;
+		if (this.verbose > 2) console.log(`(${this.id}) ${direction === 'in' ? 'Incoming' : 'Outgoing'} connection closed with peer ${peerId}`);
 
-		this.peerStore.unlinkPeers(this.id, peerId);
+		//const connDuration = this.peerStore.connected[peerId]?.getConnectionDuration() || 0;
+		//if (connDuration < NODE.MIN_CONNECTION_TIME_TO_DISPATCH_EVENT) return;
+
 		if (DISCOVERY.DISCONNECTED_EVENT) this.broadcast('peer_disconnected', peerId);
 	}
 	#onData = (peerId, data) => {
@@ -92,13 +88,14 @@ export class NodeP2P {
 		if (deserialized.route) this.messager.handleDirectMessage(peerId, deserialized, data, this.verbose);
 		else this.gossip.handleGossipMessage(peerId, deserialized, data, this.verbose);
 	}
-	/** @param {string} senderId @param {Array<{senderId: string, topic: string, data: string | Uint8Array, timestamp: number}>} gossipHistory */
-	#handleIncomingGossipHistory(senderId, gossipHistory = []) {
+	/** @param {string} from @param {Array<{senderId: string, topic: string, data: string | Uint8Array, timestamp: number}>} gossipHistory */
+	#handleIncomingGossipHistory(from, gossipHistory = []) {
 		for (const msg of gossipHistory) {
-			if (this.gossip.bloomFilter.addMessage(senderId, topic, data, timestamp) === false) return;
-			if (msg.topic === 'my_neighbours') this.peerStore.digestPeerNeighbours(msg.senderId, msg.data);
-			else if (msg.topic === 'peer_disconnected') this.peerStore.unlinkPeers(msg.data, msg.senderId);
-			else if (msg.topic === 'peer_connected') this.peerStore.handlePeerConnectedGossipEvent(msg.senderId, msg.data);
+			const { senderId, topic, data, timestamp } = msg;
+			if (!this.gossip.bloomFilter.addMessage(senderId, topic, data, timestamp)) continue;
+			if (topic === 'my_neighbours') this.peerStore.digestPeerNeighbours(senderId, data);
+			else if (topic === 'peer_disconnected') this.peerStore.unlinkPeers(data, senderId);
+			else if (topic === 'peer_connected') this.peerStore.handlePeerConnectedGossipEvent(senderId, data);
 		}
 	}
 
@@ -161,9 +158,11 @@ export class NodeP2P {
 				if (!result?.senderId || remoteId) return;
 
 				remoteId = result.senderId;
-				this.peerStore.addConnectedPeer(remoteId, new PeerConnection(remoteId, ws, 'in', true));
-				for (const cb of this.peerStore.callbacks.connect) cb(remoteId, conn.direction);
-			} catch (error) { if (this.verbose > 0) console.error(`Error handling incoming signal for ${remoteId}:`, error.stack); } });
+				const conn = new PeerConnection(remoteId, ws, 'in', true);
+				const res = this.peerStore.addConnectedPeer(remoteId, conn);
+				if (res) for (const cb of this.peerStore.callbacks.connect) cb(remoteId, conn.direction);
+				else ws.close(); // already connected, abort operation
+			} catch (error) { if (this.verbose > 0) console.error(error.stack); } });
 
 			setTimeout(() => { // better if we can kick IP address instead of id only
 				if (remoteId) this.peerStore.kickPeer(remoteId, kickDuration);

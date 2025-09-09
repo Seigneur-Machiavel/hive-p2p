@@ -101,7 +101,7 @@ export class SdpOfferManager {
 			instance.on('connect', () => this.#onConnect(instance));
 			this.#transportInstance = instance;
 			setTimeout(() => reject(new Error('SDP offer generation timeout')), timeout);
-		});
+		},);
 	}
 	#onError = (error) => {
 		if (!this.verbose) return;

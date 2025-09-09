@@ -1,3 +1,5 @@
+import { SIMULATION } from '../core/global_parameters.mjs';
+
 /**
  * Sandbox for testing WebSocket and transport connections.
  * 
@@ -29,7 +31,14 @@ export class Sandbox {
 	SIGNAL_ANSWER_TIMEOUT = 10_000;
 	/** @type {Record<string, object>} */ PENDING_OFFERS = {}; // key: id, value: signalData
 	/** @type {Record<string, object>} */ PENDING_ANSWERS = {}; // key: id, value: signalData
-	cleanupInterval = setInterval(() => this.#cleanupExpiredSignals(), 2000);
+	cleanupInterval = setInterval(() => {
+		const now = Date.now();
+		for (const [id, entry] of Object.entries(this.PENDING_OFFERS))
+			if (now > entry.expiration) delete this.PENDING_OFFERS[id];
+		
+		for (const [id, entry] of Object.entries(this.PENDING_ANSWERS))
+			if (now > entry.expiration) delete this.PENDING_ANSWERS[id];
+	}, 2000);
 
 	buildSDP(id, type = 'offer') {
 		if (this.PENDING_OFFERS[id] || this.PENDING_ANSWERS[id]) return null; // already exists
@@ -62,7 +71,6 @@ export class Sandbox {
 
 		if (type === 'offer') this.PENDING_OFFERS[id] = signalData;
 		else if (type === 'answer') this.PENDING_ANSWERS[id] = signalData;
-
 		return signalData;
 	}
 	/** @param {SignalData} signalData @param {string} receiverId */
@@ -103,15 +111,7 @@ export class Sandbox {
 
 		return result;
 	}
-	#cleanupExpiredSignals() {
-		const now = Date.now();
-		for (const [id, entry] of Object.entries(this.PENDING_OFFERS))
-			if (now > entry.expiration) delete this.PENDING_OFFERS[id];
-		
-		for (const [id, entry] of Object.entries(this.PENDING_ANSWERS))
-			if (now > entry.expiration) delete this.PENDING_ANSWERS[id];
-	}
-	#linkInstances(idA, idB) {
+	#linkInstances(idA, idB) { // SimplePeer instances only
 		const [ tA, tB ] = [ this.transportInstances[idA], this.transportInstances[idB] ];
 		if (!tA || !tB) return `Missing transport instances: ${idA}=>${!!tA}, ${idB}=>${!!tB}`;
 		if (tB.initiator && tA.initiator) return `Both transport instances cannot be initiators: ${idA}, ${idB}`;
@@ -177,14 +177,18 @@ export class Sandbox {
 		
 		const senderInstance = this.transportInstances[fromId];
 		if (!senderInstance) return { success: false, reason: `No transport instance found for id: ${fromId}` };
-		if (senderInstance.closing) return { success: false, reason: `Transport instance ${fromId} is closing` };
+		
+		const senderIsClosing = senderInstance.closing || senderInstance.readyState === 3;
+		if (senderIsClosing) return { success: false, reason: `Transport instance ${fromId} is closing` };
 
 		if (!senderInstance.remoteId) return { success: false, reason: `Transport instance ${fromId} is not linked to any remoteId` };
 		if (senderInstance.remoteId !== toId) return { success: false, reason: `Transport instance ${fromId} is not linked to remoteId: ${toId}` };
 
 		const remoteInstance = this.transportInstances[toId];
 		if (!remoteInstance) return { success: false, reason: `No transport instance found for id: ${toId}` };
-		if (remoteInstance.closing) return { success: false, reason: `Transport instance ${toId} is closing` };
+		
+		const remoteIsClosing = remoteInstance.closing || remoteInstance.readyState === 3;
+		if (remoteIsClosing) return { success: false, reason: `Transport instance ${toId} is closing` };
 		
 		if (remoteInstance.id !== toId) return { success: false, reason: `Wrong id for remoteInstance ${fromId} !== ${toId}` };
 		if (remoteInstance.remoteId !== fromId) return { success: false, reason: `Transport instance ${fromId} is not linked to remoteId: ${toId}` };
@@ -218,23 +222,9 @@ export class Sandbox {
         
         const endIndex = Math.min(this.queueIndex + this.batchSize, queueLength);
         for (let index = this.queueIndex; index < endIndex; index++) {
-			const [type, i, data, remoteId] =this.messageQueue[index];
-			if (type === 'transport_data') {
-				const remoteInstance = this.transportInstances[i];
-				const senderInstance = this.transportInstances[remoteId];
-				if (!senderInstance || !remoteInstance || senderInstance.closing || remoteInstance.closing) {
-					senderInstance?.close();
-					remoteInstance?.close();
-					continue;
-				}
-		
-                for (const cb of remoteInstance.callbacks.data) cb(data);
-            } else if (type === 'ws_message') {
-				const remoteWs = this.wsConnections[i];
-				if (!remoteWs || remoteWs.readyState !== 1) continue;
-                for (const cb of remoteWs.callbacks.message) cb(data);
-                if (remoteWs.onmessage) remoteWs.onmessage({ data });
-            }
+			const [type, id, data, remoteId] = this.messageQueue[index];
+			if (type === 'transport_data') this.#processInstanceMessage(id, remoteId, data);
+            else if (type === 'ws_message') this.#processWsMessage(id, data);
         }
         this.queueIndex = endIndex;
         
@@ -242,8 +232,32 @@ export class Sandbox {
         this.messageQueue = this.messageQueue.slice(this.queueIndex);
         this.queueIndex = 0;
     }
-	enqueueWsMessage(remoteWsId, message) { this.messageQueue.push(['ws_message', remoteWsId, message]); }
-	enqueueTransportData(id, remoteId, data) { this.messageQueue.push(['transport_data', id, data, remoteId]); }
-}
 
-export const SANDBOX = new Sandbox();
+	#processInstanceMessage(id, remoteId, data) {
+		const remoteInstance = this.transportInstances[id];
+		const senderInstance = this.transportInstances[remoteId];
+		if (!senderInstance || !remoteInstance || senderInstance.closing || remoteInstance.closing) {
+			senderInstance?.close();
+			remoteInstance?.close();
+			return;
+		}
+
+		for (const cb of remoteInstance.callbacks.data) cb(data);
+	}
+	#processWsMessage(id, message) {
+		const remoteWs = this.wsConnections[id];
+		if (!remoteWs || remoteWs.readyState !== 1) return;
+		for (const cb of remoteWs.callbacks.message) cb(message);
+		if (remoteWs.onmessage) remoteWs.onmessage({ data: message });
+	}
+
+	// API
+	enqueueTransportData(id, remoteId, data) {
+		if (SIMULATION.SAFE_MODE) this.#processInstanceMessage(id, remoteId, data);
+		else this.messageQueue.push(['transport_data', id, data, remoteId]);
+	}
+	enqueueWsMessage(remoteWsId, message) {
+		if (SIMULATION.SAFE_MODE) this.#processWsMessage(remoteWsId, message);
+		else this.messageQueue.push(['ws_message', remoteWsId, message]);
+	}
+}

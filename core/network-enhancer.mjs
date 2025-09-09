@@ -139,8 +139,9 @@ export class NetworkEnhancer {
 		ws.onopen = () => {
 			ws.onmessage = (data) => { for (const cb of this.peerStore.callbacks.data) cb(remoteId, data.data); };
 			const conn = new PeerConnection(remoteId, ws, 'out', true);
-			this.peerStore.addConnectedPeer(remoteId, conn); // can get peerId from WS in the future
-			for (const cb of this.peerStore.callbacks.connect) cb(remoteId, conn.direction);
+			const res = this.peerStore.addConnectedPeer(remoteId, conn); // can get peerId from WS in the future
+			if (res) for (const cb of this.peerStore.callbacks.connect) cb(remoteId, conn.direction);
+			else ws.close(); // already connected, abort operation
 		};
 	}
 }
