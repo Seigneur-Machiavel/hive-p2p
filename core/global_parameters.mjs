@@ -7,22 +7,24 @@ export const IDENTIFIERS = {
 }
 
 export const NODE = {
-	USE_TEST_TRANSPORT: false, // useful for simulator
+	USE_TEST_TRANSPORT: false, // useful for simulation
+	ICE_DELAY: { min: 250, max: 1000 }, // simulation delay range for ICE candidates in ms | default: { min: 250, max: 3000 }
 	SERVICE: {
 		PORT: 8080,
-		AUTO_KICK_DELAY: { min: 15_000, max: 60_000 },
+		AUTO_KICK_DELAY: { min: 30_000, max: 60_000 },
 		AUTO_KICK_DURATION: 120_000,
-		MAX_WS_IN_CONNS: 10, // default: 10
+		MAX_WS_IN_CONNS: 20, // default: 10
 	},
 	WRTC: {
-		CONNECTION_UPGRADE_TIMEOUT: 30_000, // delay before SDP failure | default: 5_000 (5 seconds)	
+		CONNECTION_UPGRADE_TIMEOUT: 5_000, // delay before SDP failure | default: 5_000 (5 seconds)	
 	},
 	MIN_CONNECTION_TIME_TO_DISPATCH_EVENT: 2_500,
 }
 
 export const ENHANCER = {
-	LOOP_DELAY: 500, // delay between connection attempts | default: 2_500 (2.5 seconds)
+	LOOP_DELAY: 2_500, // delay between connection attempts | default: 2_500 (2.5 seconds)
 	DELAY_BETWEEN_SDP_SPREAD: 10_000, // delay between spreading SDP | default: 15_000 (15 seconds)
+	DELAY_BETWEEN_SDP_RESET: 30_000, // delay between SDP reset | default: 60_000 (1 minute)
 	RATE_BASIS: .618, // default: .618 (61.8%) (PONDERATION) // DEPRECATED
 	MAX_SERVICE_OUT_CONNS: 2, // prod: 2, simulation we can set: 0
 	MAX_OVERLAP: 3, // Max of shared neighbours | default: 5, strict: 2
@@ -30,7 +32,7 @@ export const ENHANCER = {
 }
 
 export const DISCOVERY = {
-	CONNECTED_EVENT: false,
+	CONNECTED_EVENT: true,
 	DISCONNECTED_EVENT: true,
 	NEIGHBOUR_GOSSIP: true,
 	TRAVELED_ROUTE: true,

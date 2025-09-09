@@ -41,6 +41,7 @@ function statsFormating(stats) {
 
 export class Statician { // DO NOT ADD VARIABLES, JUST COUNTERS !!
 	gossip = 0;
+	unicast = 0;
 
 	constructor(sVARS, peers, delay = 10_000) {
 		setInterval(() => {

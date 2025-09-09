@@ -23,8 +23,6 @@ export class Sandbox {
 	/** @type {Record<string, TestTransport>} */ transportInstances = {};
 	/** @type {Record<string, TestWsConnection>} */ wsConnections = {};
 	/** @type {Record<string, TestWsServer>} */ publicWsServers = {};
-	// TRYING OTHER LINK METHODS FOR DEBUGING
-	links = {}; // key: idA, value: idB
 
 	// --- ICE SIMULATION ---
 	SIGNAL_OFFER_TIMEOUT = 30_000;
@@ -128,48 +126,12 @@ export class Sandbox {
 		// LINK THEM
 		tA.remoteId = idB;
 		tB.remoteId = idA;
-		this.links[idA] = idB;
-		this.links[idB] = idA;
 
 		if (VERBOSE > 0) console.log(`[SANDBOX] Linked transports: ${idA} <-> ${idB}`);
-		if (!this.transportInstances[idA].remoteId) // DEBUG
-			throw new Error(`Transport instance has no remoteId after linking: ${idA} => ${tA.remoteId}`);
-		if (!this.transportInstances[idB].remoteId) // DEBUG
-			throw new Error(`Transport instance has no remoteId after linking: ${idB} => ${tB.remoteId}`);
-
-		if (tA.callbacks.connect.length !== 1) // DEBUG
-			throw new Error(`Transport instance ${idA} has invalid number of 'connect' callbacks: ${tA.callbacks.connect.length}`);
-		if (tB.callbacks.connect.length !== 1) // DEBUG
-			throw new Error(`Transport instance ${idB} has invalid number of 'connect' callbacks: ${tB.callbacks.connect.length}`);
 
 		// EMIT CONNECT EVENT ON BOTH SIDES
 		tA.callbacks.connect.forEach(cb => cb()); // emit connect event for transportInstance A
 		tB.callbacks.connect.forEach(cb => cb()); // emit connect event for transportInstance B
-
-		this.#fullControl(); // DEBUG
-	}
-	#fullControl() {
-		const tList = {};
-		const rList = {};
-		for (const id in this.transportInstances) {
-			const t = this.transportInstances[id];
-			if (t.closing) continue;
-			if (!t.remoteId) continue;
-			if (tList[id]) 
-				throw new Error(`Duplicate transport instance ID found: ${id}`);
-			if (this.links[id] !== t.remoteId)
-				throw new Error(`Link inconsistency for transport instance ${id} => ${t.remoteId}`);
-			tList[id] = true;
-
-			const r = this.transportInstances[t.remoteId];
-			if (!r || r.closing) continue;
-			if (r.remoteId !== id) continue;
-			if (rList[t.remoteId]) 
-				throw new Error(`Duplicate remote transport instance ID found: ${t.remoteId}`);
-			if (this.links[t.remoteId] !== id)
-				throw new Error(`Link inconsistency for remote transport instance ${t.remoteId} => ${id}`);
-			rList[t.remoteId] = true;
-		}
 	}
 	#destroySignals(transportId) {
 		delete this.PENDING_OFFERS[transportId];
@@ -184,19 +146,24 @@ export class Sandbox {
 		delete this.publicWsServers[url];
 	}
 	inscribeWsConnection(testWsConnection) {
-		testWsConnection.id = (this.wsGlobalIndex++).toString();
-		this.wsConnections[testWsConnection.id] = testWsConnection;
+		const id = (this.wsGlobalIndex++).toString();
+		testWsConnection.id = id;
+		this.wsConnections[id] = testWsConnection;
 		if (VERBOSE > 2) console.log(`[SANDBOX] Inscribed wsConnection: ${testWsConnection.id}`);
 	}
-	/** @param {string} url @param {TestWsConnection} clientWsConnection */
-	connectToWebSocketServer(url, clientWsConnection, instancier) {
+	connectToWebSocketServer(url, clientWsConnectionId, instancier) {
+		const clientWsConnection = this.wsConnections[clientWsConnectionId];
 		const server = this.publicWsServers[url];
-		if (!server) return;
-		const serverWsConnection = new instancier(server, clientWsConnection);
-		server.callbacks.connection.forEach(cb => cb(serverWsConnection)); // emit connection event
-		return serverWsConnection.id;
-	}
+		if (!clientWsConnection || !server || server.closing) return;
+		if (server.clients.size >= server.maxClients) return; // max clients reached
 
+		const serverWsConnection = new instancier(server, clientWsConnectionId);
+		server.clients.add(serverWsConnection);
+		serverWsConnection.init(clientWsConnection.id); // init server connection
+		server.callbacks.connection.forEach(cb => cb(serverWsConnection)); // emit connection event on server
+
+		clientWsConnection.init(serverWsConnection.id); // init client connection
+	}
 	// --- SimplePeer(WebRTC) SIMULATION ---
 	inscribeInstance(transportInstance) {
 		const transportId = (this.tGlobalIndex++).toString();
@@ -213,16 +180,14 @@ export class Sandbox {
 		if (senderInstance.closing) return { success: false, reason: `Transport instance ${fromId} is closing` };
 
 		if (!senderInstance.remoteId) return { success: false, reason: `Transport instance ${fromId} is not linked to any remoteId` };
-		if (senderInstance.remoteId !== toId)
-			return { success: false, reason: `Transport instance ${fromId} is not linked to remoteId: ${toId}` };
+		if (senderInstance.remoteId !== toId) return { success: false, reason: `Transport instance ${fromId} is not linked to remoteId: ${toId}` };
 
 		const remoteInstance = this.transportInstances[toId];
 		if (!remoteInstance) return { success: false, reason: `No transport instance found for id: ${toId}` };
 		if (remoteInstance.closing) return { success: false, reason: `Transport instance ${toId} is closing` };
 		
 		if (remoteInstance.id !== toId) return { success: false, reason: `Wrong id for remoteInstance ${fromId} !== ${toId}` };
-		if (remoteInstance.remoteId !== fromId)
-			return { success: false, reason: `Transport instance ${fromId} is not linked to remoteId: ${toId}` };
+		if (remoteInstance.remoteId !== fromId) return { success: false, reason: `Transport instance ${fromId} is not linked to remoteId: ${toId}` };
 
 		this.enqueueTransportData(remoteInstance.id, remoteInstance.remoteId, data);
 		return { success: true, reason: 'na' };
@@ -230,15 +195,14 @@ export class Sandbox {
 	destroyTransport(id) {
 		this.#destroySignals(id);
 
-		this.transportInstances[id]?.close(); 	// close local instance
+		if (VERBOSE > 1) console.log(`[SANDBOX] Destroying transports: ${id} & ${remoteId}`);
+		const remoteId = this.transportInstances[id]?.remoteId;
+		this.transportInstances[id]?.close(); 		// close local instance
 		delete this.transportInstances[id]; 		// ensure deletion
+		if (!remoteId) return;
 
-		const remoteId = this.links[id];
-		delete this.links[id];
-		delete this.links[remoteId];
-		this.transportInstances[remoteId]?.close(); 	// close remote instance if linked
+		this.transportInstances[remoteId]?.close(); // close remote instance if linked
 		delete this.transportInstances[remoteId]; 	// ensure deletion
-		if (VERBOSE > 1) console.log(`[SANDBOX] Destroyed transports: ${id} & ${remoteId}`);
 	}
 
 	// --- MESSAGE QUEUE TO SIMULATE ASYNC BEHAVIOR ---
@@ -254,37 +218,18 @@ export class Sandbox {
         
         const endIndex = Math.min(this.queueIndex + this.batchSize, queueLength);
         for (let index = this.queueIndex; index < endIndex; index++) {
-			const message = this.messageQueue[index];
-			const type = message[0];
-			const [t, i, data, remoteId] = message;
-			if (t === 'transport_data') {
+			const [type, i, data, remoteId] =this.messageQueue[index];
+			if (type === 'transport_data') {
 				const remoteInstance = this.transportInstances[i];
 				const senderInstance = this.transportInstances[remoteId];
-				if (!remoteInstance || remoteInstance.closing) continue;
-				if (remoteInstance.remoteId !== remoteId) 
-					throw new Error(`Transport instance ${i} is not linked to remoteId: ${remoteId}`);
-				if (remoteInstance.id !== i) 
-					throw new Error(`Wrong id for remoteInstance ${i} !== ${remoteInstance.id}`);
-				if (!senderInstance || senderInstance.closing) continue;
-				if (senderInstance.id !== remoteId) 
-					throw new Error(`Wrong id for senderInstance ${i} !== ${remoteId}`);
-				if (senderInstance.remoteId !== i)
-					throw new Error(`Transport instance ${remoteId} is not linked to remoteId: ${i}`);
-
-				// DEBUG
-				//senderInstance.SENT = (senderInstance.SENT || 0) + 1;
-				//remoteInstance.SENT = (remoteInstance.SENT || 0) + 1;
-				if (!senderInstance.SENT) senderInstance.SENT = {};
-				if (!remoteInstance.SENT) remoteInstance.SENT = {};
-				const parsed = JSON.parse(data.slice(1));
-				if (parsed.route) {
-					const routeLen = parsed.route.length.toString();
-					senderInstance.SENT[routeLen] = (senderInstance.SENT[routeLen] || 0) + 1;
-					remoteInstance.SENT[routeLen] = (remoteInstance.SENT[routeLen] || 0) + 1;
+				if (!senderInstance || !remoteInstance || senderInstance.closing || remoteInstance.closing) {
+					senderInstance?.close();
+					remoteInstance?.close();
+					continue;
 				}
 		
                 for (const cb of remoteInstance.callbacks.data) cb(data);
-            } else if (t === 'ws_message') {
+            } else if (type === 'ws_message') {
 				const remoteWs = this.wsConnections[i];
 				if (!remoteWs || remoteWs.readyState !== 1) continue;
                 for (const cb of remoteWs.callbacks.message) cb(data);

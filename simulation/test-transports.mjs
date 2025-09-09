@@ -1,5 +1,5 @@
-import { Sandbox, SANDBOX } from './tranports-sandbox.mjs';
-//const SANDBOX = new Sandbox();
+import { NODE } from '../core/global_parameters.mjs';
+import { SANDBOX } from './tranports-sandbox.mjs';
 
 class TestWsEventManager { // manage init() and close() to avoid timeout usage
 	/** @type {Array<{ connId: string, clientWsId: string, time: number }> } */ toInit = [];
@@ -15,7 +15,8 @@ class TestWsEventManager { // manage init() and close() to avoid timeout usage
 			else {
 				const conn = SANDBOX.wsConnections[connId];
 				if (!conn) continue;
-				conn?.init(clientWsId); // init connection
+
+				SANDBOX.connectToWebSocketServer(conn.url, conn.id, TestWsConnection);
 			}
 	}, 500);
 	closeInterval = setInterval(() => {
@@ -49,22 +50,22 @@ export class TestWsConnection { // WebSocket like
 	// CLIENT CALLBACKS
 	onmessage; onopen; onclose; onerror;
 
-	constructor(url = 'ws://...', clientWsConnection) {
-		if (!clientWsConnection) this.url = url;
+	constructor(url = 'ws://...', oppositeWsConnectionId) {
 		SANDBOX.inscribeWsConnection(this);
-		TEST_WS_EVENT_MANAGER.scheduleInit(this.id, clientWsConnection?.id, this.delayBeforeConnectionTry);
+		if (oppositeWsConnectionId) return;
+		this.url = url;
+		TEST_WS_EVENT_MANAGER.scheduleInit(this.id, oppositeWsConnectionId, this.delayBeforeConnectionTry);
 	}
-	init(clientWsId) {
-		if (this.readyState === 3) return; // already closed
-		if (this.remoteWsId) return; // already initialized
-		if (clientWsId) this.remoteWsId = clientWsId;
-		else this.remoteWsId = SANDBOX.connectToWebSocketServer(this.url, this, TestWsConnection);
-
-		if (!this.remoteWsId && clientWsId)
+	init(remoteWsId) {
+		if (!this.readyState === 3 || this.remoteWsId) {
+			this.close(); // TESTING
 			setTimeout(() => this.#dispatchError(new Error(`Failed to connect to WebSocket server at ${this.url}`)), 5_000);
+			return;
+		}
 
-		if (this.remoteWsId) this.readyState = 1; // OPEN
-		if (this.remoteWsId && this.onopen) this.onopen();
+		this.remoteWsId = remoteWsId;
+		this.readyState = 1; // OPEN
+		if (this.onopen) this.onopen();
 	}
 	on(event, callback) {
 		if (!this.callbacks[event]) return console.error(`Unknown event: ${event}`);
@@ -94,13 +95,9 @@ export class TestWsConnection { // WebSocket like
 export class TestWsServer { // WebSocket like
 	url;
 	clients = new Set();
-	maxClients = 10;
+	maxClients = 20;
 	callbacks = {
-		connection: [(conn) => {
-			if (this.closing) return TEST_WS_EVENT_MANAGER.scheduleClose(conn, 100);
-			if (this.clients.size < this.maxClients) this.clients.add(conn);
-			else TEST_WS_EVENT_MANAGER.scheduleClose(conn, 100); // max clients reached, close connection
-		}],
+		connection: [],
 		close: [],
 		error: []
 	};
@@ -127,8 +124,6 @@ export class TestWsServer { // WebSocket like
 
 // HERE WE ARE BASICALLY COPYING THE PRINCIPLE OF "SimplePeer"
 class TestTransportOptions {
-	/** @type {number} */
-	static signalCreationDelay = { min: 100, max: 500 }; // truly random between 100 and 500ms
 	/** @type {boolean} */
 	initiator;
 	/** @type {boolean} */
@@ -152,7 +147,7 @@ class ICECandidateEmitter {
 	}, 500);
 
 	emit(transportId, SDP) {
-		const delayRange = TestTransportOptions.signalCreationDelay;
+		const delayRange = NODE.ICE_DELAY || { min: 250, max: 3000 };
 		const delay = Math.floor(Math.random() * (delayRange.max - delayRange.min + 1)) + delayRange.min;
 		this.sdpToEmit.push({ transportId, SDP, time: Date.now() + delay });
 	}

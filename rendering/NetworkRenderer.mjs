@@ -296,14 +296,15 @@ export class NetworkRenderer {
         if (peerId && this.nodesStore.has(peerId)) this.nodesStore.get(peerId).status = 'current';
 		this.currentPeerId = peerId;
     }
-	updateStats(neighborsCount = 0, publicNeighborsCount = 0) {
-		const nodeCount = this.nodesStore.getNodesIds().length;
-		this.elements.nodeCountElement.textContent = nodeCount;
+	updateStats() {
+		const info = this.nodesStore.getInfo();
+		this.elements.nodeCountElement.textContent = info.total;
 		const { connsCount, linesCount } = this.connectionsStore.getConnectionsCount();
 		this.elements.connectionsCountElement.textContent = connsCount;
 		this.elements.linesCountElement.textContent = linesCount;
-		this.elements.neighborCountElement.textContent = neighborsCount;
-		this.elements.publicNeighborCountElement.textContent = publicNeighborsCount;
+		this.elements.connectingCountElement.textContent = info.connecting;
+		this.elements.neighborCountElement.textContent = info.connected;
+		this.elements.publicNeighborCountElement.textContent = info.connectedPublic;
     }
 	switchMode() {
 		this.options.mode = this.options.mode === '2d' ? '3d' : '2d';

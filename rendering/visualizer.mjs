@@ -104,12 +104,7 @@ class NetworkVisualizer {
 			}
 		}
 
-		setInterval(() => {
-			const connected = this.lastPeerInfo?.store?.connected || [];
-			const neighborsCount = connected.length;
-			const publicNeighborsCount = connected.filter(id => id.startsWith(IDENTIFIERS.PUBLIC_NODE)).length;
-			this.networkRenderer.updateStats(neighborsCount, publicNeighborsCount);
-		}, 200);
+		setInterval(() => this.networkRenderer.updateStats(), 200);
 
 		window.addEventListener('keydown', (e) => {
 			if (e.key === 'ArrowUp') this.#selectPreviousPeer();

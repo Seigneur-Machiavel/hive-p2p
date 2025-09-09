@@ -27,14 +27,15 @@ export class NetworkEnhancer {
 	/** @type {Array<bootstrapInfo>} */ bootstraps = [];
 	/** @type {Record<string, string>} */ bootstrapsIds = {};
 	/** @type {number} next Bootstrap Index */ nBI = 0;
-	/** @type {number} */ noSpreadUntil = 0;
+	/** @type {number} */ lastReadyOfferShared = 0;
 
 	/** @param {string} selfId @param {Gossip} gossip @param {PeerStore} peerStore @param {Array<bootstrapInfo>} bootstraps */
 	constructor(selfId, gossip, peerStore, bootstraps) {
 		this.id = selfId;
 		this.gossip = gossip;
 		this.peerStore = peerStore;
-		this.bootstraps = bootstraps.sort(() => Math.random() - 0.5);
+		const shuffledIndexes = [...Array(bootstraps.length).keys()].sort(() => Math.random() - 0.5);
+		for (const i of shuffledIndexes) this.bootstraps.push(bootstraps[i]);
 		for (const b of bootstraps) this.bootstrapsIds[b.id] = b.publicUrl;
 		this.nBI = Math.random() * bootstraps.length | 0;
 	}
@@ -54,15 +55,21 @@ export class NetworkEnhancer {
 		if (this.interval) clearInterval(this.interval);
 	}
 	tryToSpreadSDP() {
-		if (this.noSpreadUntil > Date.now()) return;
+		const readyOffer = this.peerStore.sdpOfferManager.readyOffer;
+		if (!readyOffer) return; // Build in progress...
+
+		const { time, offer } = this.lastReadyOfferShared;
+		const tooSoon = time && time + ENHANCER.DELAY_BETWEEN_SDP_SPREAD > Date.now();
+		if (tooSoon && readyOffer === offer) return;
+
+		const timeToRenew = time && time + ENHANCER.DELAY_BETWEEN_SDP_RESET < Date.now();
+		if (timeToRenew) return this.peerStore.sdpOfferManager.reset();
+
 		const { isEnough, connectedPeersCount } = this.#getConnectionInfo();
 		if (isEnough || !connectedPeersCount) return;
 
-		const readyOffer = this.peerStore.sdpOfferManager.readyOffer;
-		if (!readyOffer) return;
-
 		this.gossip.broadcast('signal', { signal: readyOffer, neighbours: this.peerStore.neighbours });
-		this.noSpreadUntil = Date.now() + ENHANCER.DELAY_BETWEEN_SDP_SPREAD;
+		this.lastReadyOfferShared = { time: Date.now(), offer: readyOffer };
 	}
 	/** @param {string} senderId @param {SignalData} data */
 	handleIncomingSignal(senderId, data) {
@@ -134,14 +141,14 @@ export class NetworkEnhancer {
 	#connectToPublicNode(remoteId = 'toto', publicUrl = 'localhost:8080') {		
 		const Transport = NODE.USE_TEST_TRANSPORT ? TestWsConnection : WebSocket;
 		const ws = new Transport(publicUrl);
-		const conn = new PeerConnection(remoteId, ws, 'out', true);
 		ws.onerror = (error) => console.error(`WebSocket error:`, error.stack);
 		ws.onclose = () => { for (const cb of this.peerStore.callbacks.disconnect) cb(remoteId, 'out'); }
 		ws.onopen = () => {
-			this.peerStore.addConnectedPeer(remoteId, conn);
+			const conn = new PeerConnection(remoteId, ws, 'out', true);
+			this.peerStore.addConnectedPeer(remoteId, conn); // can get peerId from WS in the future
+			for (const cb of this.peerStore.callbacks.connect) cb(remoteId, conn.direction); // TESTING
 			ws.onmessage = (data) => {
-				if (typeof data.data !== 'string') // debug
-					console.warn(`Unexpected data event on WebSocket:`, data);
+				if (typeof data.data !== 'string') console.warn(`Unexpected data event on WebSocket:`, data);
 				for (const cb of this.peerStore.callbacks.data) cb(remoteId, data.data);
 			};
 		};

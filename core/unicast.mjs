@@ -1,7 +1,5 @@
 import { DISCOVERY, UNICAST } from "./global_parameters.mjs";
 import { RouteBuilder_V1, RouteBuilder_V2 } from "./route-builder.mjs";
-import { SANDBOX } from '../simulation/tranports-sandbox.mjs'; // DEBUG
-
 const RouteBuilder = RouteBuilder_V2; // temporary switch
 
 /**
@@ -66,6 +64,7 @@ export class UnicastMessager {
 	}
 	/** @param {string} targetId @param {any} serializedMessage */
 	#sendMessageToPeer(targetId, serializedMessage) {
+		if (this.id === targetId) return { success: false, reason: `Cannot send message to self.` };
 		const transportInstance = this.peerStore.connected[targetId]?.transportInstance;
 		if (!transportInstance) return { success: false, reason: `Transport instance is not available for peer ${targetId}.` };
 		try { transportInstance.send(serializedMessage); return { success: true }; }
@@ -93,14 +92,17 @@ export class UnicastMessager {
 
 		// RACE CONDITION CAN OCCUR IN SIMULATION !!
 		// ref: simulation/race-condition-demonstration.js
-		if (selfPosition === -1) return; // race condition or not => ignore message
+		if (selfPosition === -1) 
+			return this.peerStore.removePeer(from); // race condition or not => ignore message
 		
 		const [senderId, prevId, nextId, targetId] = [route[0], route[selfPosition - 1], route[selfPosition + 1], route[route.length - 1]];
-		if (senderId === this.id) return console.warn(`Direct message from self (${this.id}) is not allowed.`);
-		
+		if (senderId === this.id) 
+			return this.peerStore.removePeer(from); // from self is not allowed.
+				
 		// RACE CONDITION CAN OCCUR IN SIMULATION !!
 		// ref: simulation/race-condition-demonstration.js
-		if (prevId && from !== prevId) return; // race condition or not => ignore message
+		if (prevId && from !== prevId) 
+			return this.peerStore.removePeer(from); // race condition or not => ignore message
 		
 		if (log) if (senderId === from) console.log(`(${this.id}) Direct message received from ${senderId}: ${data}`);
 			else console.log(`(${this.id}) Direct message received from ${senderId} (lastRelay: ${from}): ${data}`);
@@ -115,9 +117,10 @@ export class UnicastMessager {
 		const { success, reason } = this.#sendMessageToPeer(nextId, serialized);
 		if (!success && isFlexible && !isRerouted) { // try to patch the route
 			const patchedRoute = this.#patchRouteToReachTarget(traveledRoute, targetId);
+			if (!patchedRoute) return;
 			const patchedMsg = DirectMessage.serialize(patchedRoute, type, data, isFlexible, true);
-			if (patchedRoute) // ICI ERROR ! patchedRoute[1] ???
-				this.#sendMessageToPeer(patchedRoute[1], patchedMsg); // send to next peer
+			const nextPeerId = patchedRoute[selfPosition + 1];
+			this.#sendMessageToPeer(nextPeerId, patchedMsg);
 		}
 	}
 }

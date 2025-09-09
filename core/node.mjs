@@ -50,7 +50,7 @@ export class NodeP2P {
 
 		// TEST / UPDATE => the delay needs to be lowered => only used to improve network consistency
 		setInterval(() => {
-			this.peerStore.digestPeerNeighbours(this.id, this.peerStore.neighbours); // Self 'known' update
+			//this.peerStore.digestPeerNeighbours(this.id, this.peerStore.neighbours); // Self 'known' update
 			if (DISCOVERY.NEIGHBOUR_GOSSIP) this.broadcast('my_neighbours', this.peerStore.neighbours);
 		}, 10_000);
 	}
@@ -62,20 +62,21 @@ export class NodeP2P {
 		if (this.verbose) console.log(`(${this.id}) ${direction === 'in' ? 'Incoming' : 'Outgoing'} connection established with peer ${peerId}`);
 		
 		const [selfIsPublic, remoteIsPublic] = [this.publicUrl, peerId.startsWith(IDENTIFIERS.PUBLIC_NODE)];
-		
-		
+		if (remoteIsPublic) this.broadcast('hello_public', { peerId }); // inform public node of our id by sending his id
 		//if (selfIsPublic && direction === 'out') if (DISCOVERY.NEIGHBOUR_GOSSIP) this.broadcast('my_neighbours', this.peerStore.neighbours);
-
+		
 		//if (selfIsPublic && direction === 'in') this.broadcast('my_neighbours', this.peerStore.neighbours);
 		//else this.gossip.broadcastToPeer(peerId, 'my_neighbours', this.peerStore.neighbours);
-
+		
 		//if (!selfIsPublic && direction === 'out' && remoteIsPublic) this.networkEnhancer.tryConnectMoreNodes();
-
-		//if (DISCOVERY.GOSSIP_HISTORY) this.sendMessage(peerId, 'gossip_history', this.gossip.bloomFilter.getGossipHistoryByTime());
-		//if (DISCOVERY.CONNECTED_EVENT) this.broadcast('peer_connected', peerId);
+		
+		if (DISCOVERY.GOSSIP_HISTORY) this.sendMessage(peerId, 'gossip_history', this.gossip.bloomFilter.getGossipHistoryByTime());
+		if (DISCOVERY.NEIGHBOUR_GOSSIP) this.broadcast('my_neighbours', this.peerStore.neighbours);
+		if (DISCOVERY.CONNECTED_EVENT) this.broadcast('peer_connected', peerId);
 		//if (DISCOVERY.NEIGHBOUR_GOSSIP) this.broadcast('my_neighbours', this.peerStore.neighbours);
-		//setTimeout(() => {
-		//}, 500);
+		/*setTimeout(() => {
+
+		}, 500);*/
 	}
 	/** @param {string} peerId @param {'in' | 'out'} direction */
 	#onDisconnect = (peerId, direction) => {
@@ -108,8 +109,7 @@ export class NodeP2P {
 	broadcast(topic, data, targetId, TTL) { this.gossip.broadcast(topic, data, targetId, TTL); }
 	/** @param {string} remoteId @param {string} type @param {string | Uint8Array} data */
 	sendMessage(remoteId, type, data, spread = 1) { this.messager.sendMessage(remoteId, type, data, spread); }
-	// DEPRECATED -> NEEDS REFACTORING
-	//tryConnectToPeer(targetId = 'toto') {  }
+	//tryConnectToPeer(targetId = 'toto') {  } // DEPRECATED -> NEEDS REFACTORING
 	setAsPublic(domain = 'localhost', port = NODE.SERVICE.PORT) {
 		this.publicUrl = `ws://${domain}:${port}`;
 		this.networkEnhancer.isPublicNode = true;
@@ -129,23 +129,21 @@ export class NodeP2P {
 		this.wsServer.on('connection', (ws) => {
 			ws.on('close', () => { for (const cb of this.peerStore.callbacks.disconnect) cb(remoteId, 'in'); });
 			ws.on('error', (error) => console.error(`WebSocket error on Node #${this.id} with peer ${remoteId}:`, error.stack));
-			if (this.wsServer.clients.size > NODE.SERVICE.MAX_WS_IN_CONNS) ws.close();
 
 			let remoteId;
 			ws.on('message', (message) => { try {
+				if (remoteId) { // When peer proves his id, we can handle data normally
+					for (const cb of this.peerStore.callbacks.data) cb(remoteId, message);
+					return;
+				}
+
 				const identifier = message[0];
 				const deserialized = identifier === 'U' ? DirectMessage.deserialize(message) : GossipMessage.deserialize(message);
 				const { senderId, topic, type, data, TTL } = deserialized;
-				if (this.peerStore.isKicked(senderId)) return;
-				if (topic !== 'signal' && type !== 'signal') return; // ignore non-signal messages here
-				
-				//if (topic && TTL !== 0)
-					//return; 
+				// RESTRICTED TO CONNECTION ENHANCEMENT UNTIL WE KNOW REMOTE ID
+				if (topic !== 'hello_public') return;
 
-				// TRY DEBUG
-				/** @type {string | undefined} */ let result;
-				if (topic) result = this.gossip.handleGossipMessage(senderId, deserialized, message, this.verbose);
-				else if (remoteId) this.messager.handleDirectMessage(remoteId, deserialized, message, this.verbose);
+				const result = this.gossip.handleGossipMessage(senderId, deserialized, message, this.verbose);
 				if (!result?.senderId || remoteId) return;
 
 				remoteId = result.senderId;

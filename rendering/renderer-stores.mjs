@@ -35,6 +35,27 @@ export class NodesStore {
 	has(id = 'toto') { return !!this.store[id]; }
 	remove(id = 'toto') { delete this.store[id]; }
 	getNodesIds() { return Object.keys(this.store); }
+	getInfo() {
+		const result = {
+			total: 0,
+			totalPublic: 0,
+			connectedPublic: 0,
+			connected: 0,
+			connecting: 0,
+			known: 0,
+			unknown: 0
+		};
+		for (const node of Object.values(this.store)) {
+			result.total++;
+			if (node.isPublic) result.totalPublic++;
+			if (node.status === 'connected' && node.isPublic) result.connectedPublic++;
+			if (node.status === 'connected') result.connected++;
+			else if (node.status === 'connecting') result.connecting++;
+			else if (node.status === 'known') result.known++;
+			else if (node.status === 'unknown') result.unknown++;
+		}
+		return result;
+	}
 }
 
 class PeerConnection {

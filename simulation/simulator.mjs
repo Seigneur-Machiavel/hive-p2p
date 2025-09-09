@@ -7,7 +7,7 @@ import { io } from 'socket.io-client'; // used for twitch events only
 import { NODE } from '../core/global_parameters.mjs';
 
 
-process.on('uncaughtException', (err) => { // DEBUG
+process.on('uncaughtException', (err) => {
 	console.error('There was an uncaught error', err.stack);
 	//throw err; //mandatory (as per the Node docs)
 });
@@ -33,13 +33,13 @@ const sVARS = { // SIMULATION VARIABLES
 	autoStart: true,
 	publicPeersCount: 2,
 	peersCount: 5,
-	bootstrapsPerPeer: null, // will not be exact, more like a limit. null = all of them
-	delayBetweenInit: 100, // 0 = faster for simulating big networks but > 0 = should be more realistic
-	randomMessagePerSecondPerPeer: 1 // .1, // capped at a total of 500msg/sec
+	bootstrapsPerPeer: 10, // will not be exact, more like a limit. null = all of them
+	delayBetweenInit: 10, // 0 = faster for simulating big networks but > 0 = should be more realistic
+	randomMessagePerSecondPerPeer: .1, // capped at a total of 500msg/sec
 };
 if (NODE.USE_TEST_TRANSPORT) {
 	sVARS.publicPeersCount = 3; // stable: 3,  medium: 100, strong: 200
-	sVARS.peersCount = 30;	  	// stable: 25, medium: 800, strong: 1600
+	sVARS.peersCount = 25;	  	// stable: 25, medium: 800, strong: 1600
 }
 
 const peers = {
@@ -62,12 +62,10 @@ function pickUpRandomBootstraps(count = sVARS.bootstrapsPerPeer) {
 	if (count === null) return sVARS.publicPeersCards; // all of them
 
 	const selected = [];
-	for (let i = 0; i < count; i++) {
-		const randomBootstrapIndex = Math.floor(Math.random() * sVARS.publicPeersCards.length);
-		const rndBootstrap = sVARS.publicPeersCards[randomBootstrapIndex];
-		if (selected.includes(rndBootstrap)) continue;
-		selected.push(rndBootstrap);
-	}
+	const t = sVARS.publicPeersCards.length;
+	const c = Math.min(count, t);
+	const shuffledIndexes = [...Array(t).keys()].sort(() => Math.random() - 0.5);
+	for (let i = 0; i < c; i++) selected.push(sVARS.publicPeersCards[shuffledIndexes[i]]);
 	return selected;
 }
 function addPeer(type = 'public', i = 0, bootstraps = [], init = false, setPublic = false) {

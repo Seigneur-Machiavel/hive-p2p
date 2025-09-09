@@ -105,8 +105,9 @@ export class RouteBuilder_V2 {
 	#buildBlindRoutes(remoteId, randomizeOrder = true) {
 		const routes = [];
 		const connected = this.peerStore.neighbours;
-		const peerList = randomizeOrder ? [...connected].sort(() => Math.random() - 0.5) : connected;
-		for (const peerId of peerList) routes.push({ path: [this.id, peerId, remoteId], hops: 0, score: 0 });
+		const shuffledIndexes = [...Array(connected.length).keys()].sort(() => Math.random() - 0.5);
+		for (const i of shuffledIndexes) routes.push({ path: [this.id, connected[i], remoteId], hops: 0, score: 0 });
+
 		if (routes.length === 0) return { routes: [], success: false, nodesExplored: 0 };
 		else return { routes, success: 'blind', nodesExplored: routes.length };
 	}

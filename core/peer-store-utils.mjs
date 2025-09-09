@@ -72,12 +72,8 @@ export class SdpOfferManager {
 		}
 
 		// no offer => create one
-		this.#createOffer().then(offer => {
-			this.#receivedAnswers = {};
-			this.#answers = [];
-			this.readyOffer = offer;
-		}).catch(() => {});
-	}, 500);
+		this.#createOffer().then(offer => this.readyOffer = offer).catch(() => {});
+	}, 50);
 
 	#createOffer(timeout = 5_000) {
 		return new Promise((resolve, reject) => {
@@ -85,9 +81,9 @@ export class SdpOfferManager {
 			this.#transportInstance.on('error', error => { 
 				this.onError(error);
 				this.currentAnswerPeerId = null;
-				reject(error);
+				reject?.(error);
 			});
-			this.#transportInstance.on('signal', data => { this.#onSignal(data); resolve(data); });
+			this.#transportInstance.on('signal', data => { this.#onSignal(data); resolve?.(data); });
 			this.#transportInstance.on('connect', () => this.#onConnect());
 			setTimeout(() => reject(new Error('SDP offer generation timeout')), timeout);
 		});
@@ -102,10 +98,16 @@ export class SdpOfferManager {
 		if (!this.onConnect) throw new Error('No onConnect callback defined in SdpOfferManager');
 		if (!this.#transportInstance) throw new Error('No transport instance available in SdpOfferManager');
 		this.onConnect(this.currentAnswerPeerId, this.#transportInstance, 'out');
-
+		this.#transportInstance = null; // release instance -> handled by peerStore now
+		this.reset();
+	}
+	reset() {
+		if (this.#transportInstance) this.#transportInstance.destroy();
+		this.readyOffer = null;
 		this.#transportInstance = null;
 		this.currentAnswerPeerId = null;
-		this.readyOffer = null;
+		this.#receivedAnswers = {};
+		this.#answers = [];
 	}
 
 	addSignalAnswer(remoteId, signal) {
@@ -135,7 +137,6 @@ export class Punisher {
 	/** @param {string} peerId @param {Record<string, PeerConnection>} connected */
 	sanctionPeer(peerId, connected, type = 'kick', duration = 60_000) {
 		this[type][peerId] = Date.now() + duration;
-		connected[peerId]?.close();
 	}
 	isSanctioned(peerId, type = 'kick') {
 		if (!this[type][peerId]) return false;

@@ -105,7 +105,7 @@ export class Gossip {
 		const transportInstance = this.peerStore.connected[targetId]?.transportInstance;
 		if (!transportInstance) return { success: false, reason: `Transport instance is not available for peer ${targetId}.` };
 		try { transportInstance.send(serializedData); }
-		catch (error) { console.error(`Error sending message to ${targetId}:`, error.stack); }
+		catch (error) { this.peerStore.connected[targetId]?.close(); }
 	}
 	/** @param {string} from @param {GossipMessage} message @param {string | Uint8Array} serializedMessage @param {number} [verbose] */
 	handleGossipMessage(from, message, serializedMessage, verbose = 0) {
@@ -119,6 +119,7 @@ export class Gossip {
 
 		if (TTL < 1) return; // stop forwarding if TTL is 0
 		if (this.id === senderId) return; // avoid sending our own message again
+		if (topic === 'hello_public') return { senderId: from, forwardedTo: 0, TTL, transmissionRate: 0 };
 
 		const neighbours = Object.entries(this.peerStore.connected);
 		const nCount = neighbours.length;
@@ -133,6 +134,6 @@ export class Gossip {
 			this.#broadcastToPeer(peerId, messageWithDecrementedTTL);
 		}
 
-		return { senderId: from, forwardedTo: nCount, transmissionRate };
+		return { senderId: from, forwardedTo: nCount, TTL, transmissionRate };
 	}
 }
