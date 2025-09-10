@@ -74,6 +74,7 @@ export class NetworkEnhancer {
 	handleIncomingSignal(senderId, data) {
 		if (typeof data !== 'object') return;
 		const { signal, neighbours } = data || {}; // remoteInfo
+		if (signal.type !== 'offer' && signal.type !== 'answer') return;
 		if (!senderId || typeof signal !== 'object' || !Array.isArray(neighbours)) return;
 		this.peerStore.digestPeerNeighbours(senderId, neighbours);
 
@@ -86,10 +87,10 @@ export class NetworkEnhancer {
 		const tooManyConnectedPeers = this.peerStore.neighbours.length >= ENHANCER.TARGET_NEIGHBORS_COUNT - 1;
 		if (!isTwitchUser && (tooManySharedPeers || tooManyConnectedPeers)) this.peerStore.kickPeer(senderId, 30_000);
 		
-		if (signal.type === 'offer' && !this.peerStore.connecting[senderId])
-			if (this.peerStore.addConnectingPeer(senderId, signal) !== true) return; // already connecting
-		if (signal.type === 'answer' && !this.peerStore.connecting[senderId])
-			console.warn(`Received an 'answer' signal from a non-connecting peer (${senderId}). Ignoring the signal.`);
+		if (signal.type === 'offer' && !this.peerStore.connecting[senderId]?.in)
+			if (this.peerStore.addConnectingPeer(senderId, signal, 'in') !== true) return;
+		if (signal.type === 'answer' && !this.peerStore.connecting[senderId]?.out)
+			if (this.peerStore.addConnectingPeer(senderId, signal, 'out') !== true) return;
 
 		this.peerStore.assignSignal(senderId, signal);
 	}
@@ -138,7 +139,7 @@ export class NetworkEnhancer {
 			ws.onmessage = (data) => { for (const cb of this.peerStore.callbacks.data) cb(remoteId, data.data); };
 			if (this.peerStore.connecting[remoteId]) return ws.close(); // already connecting, abort operation
 
-			this.peerStore.connecting[remoteId] = new PeerConnection(remoteId, ws, 'out', true);
+			this.peerStore.connecting[remoteId] = { out: new PeerConnection(remoteId, ws, 'out', true) };
 			this.peerStore.pendingConnections[remoteId] = Date.now() + NODE.CONNECTION_UPGRADE_TIMEOUT;
 			for (const cb of this.peerStore.callbacks.connect) cb(remoteId, 'out');
 		};

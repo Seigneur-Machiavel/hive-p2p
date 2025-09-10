@@ -65,14 +65,17 @@ export class NodeP2P {
 		//else this.gossip.broadcastToPeer(peerId, 'my_neighbours', this.peerStore.neighbours);
 				
 		//if (DISCOVERY.GOSSIP_HISTORY) this.sendMessage(peerId, 'gossip_history', this.gossip.bloomFilter.getGossipHistoryByTime());
-		setTimeout(() => {
+		const dispatchEvents = () => {
 			if (DISCOVERY.NEIGHBOUR_GOSSIP) this.broadcast('my_neighbours', this.peerStore.neighbours);
 			if (DISCOVERY.CONNECTED_EVENT) this.broadcast('peer_connected', peerId);
-		}, DISCOVERY.ON_CONNECT_DISPATCH_DELAY);
+		};
+		if (!DISCOVERY.ON_CONNECT_DISPATCH_DELAY) dispatchEvents();
+		else setTimeout(dispatchEvents, DISCOVERY.ON_CONNECT_DISPATCH_DELAY);
 	}
 	/** @param {string} peerId @param {'in' | 'out'} direction */
 	#onDisconnect = (peerId, direction) => {
 		if (this.verbose > 2) console.log(`(${this.id}) ${direction === 'in' ? 'Incoming' : 'Outgoing'} connection closed with peer ${peerId}`);
+		if (this.peerStore.connected[peerId]) return; // still connecting, ignore disconnection for now
 
 		//const connDuration = this.peerStore.connected[peerId]?.getConnectionDuration() || 0;
 		//if (connDuration < NODE.MIN_CONNECTION_TIME_TO_DISPATCH_EVENT) return;
@@ -142,29 +145,31 @@ export class NodeP2P {
 			ws.on('error', (error) => console.error(`WebSocket error on Node #${this.id} with peer ${remoteId}:`, error.stack));
 
 			let remoteId;
-			ws.on('message', (message) => { try {
+			ws.on('message', (message) => {
 				if (remoteId) { // When peer proves his id, we can handle data normally
 					for (const cb of this.peerStore.callbacks.data) cb(remoteId, message);
 					return;
 				}
 
-				const identifier = message[0];
-				const deserialized = identifier === 'U' ? DirectMessage.deserialize(message) : GossipMessage.deserialize(message);
-				const { senderId, topic, type, data, TTL } = deserialized;
-				// RESTRICTED TO CONNECTION ENHANCEMENT UNTIL WE KNOW REMOTE ID
-				if (topic !== 'hello_public') return;
+				try {
+					const identifier = message[0];
+					const deserialized = identifier === 'U' ? DirectMessage.deserialize(message) : GossipMessage.deserialize(message);
+					const { senderId, topic, type, data, TTL } = deserialized;
+					// RESTRICTED TO CONNECTION ENHANCEMENT UNTIL WE KNOW REMOTE ID
+					if (topic !== 'hello_public') return;
 
-				const result = this.gossip.handleGossipMessage(senderId, deserialized, message);
-				if (remoteId || !result?.senderId || !result?.from) return;
-				if (result.from !== result.senderId) return; // should not happen
+					const result = this.gossip.handleGossipMessage(senderId, deserialized, message);
+					if (remoteId || !result?.senderId || !result?.from) return;
+					if (result.from !== result.senderId) return; // should not happen
 
-				remoteId = result.senderId;
-				if (this.peerStore.connecting[remoteId]) return ws.close(); // already connecting, abort operation
+					remoteId = result.senderId;
+					if (this.peerStore.connecting[remoteId]) return ws.close(); // already connecting, abort operation
 
-				this.peerStore.connecting[remoteId] = new PeerConnection(remoteId, ws, 'in', true);
-				this.peerStore.pendingConnections[remoteId] = Date.now() + NODE.CONNECTION_UPGRADE_TIMEOUT;
-				for (const cb of this.peerStore.callbacks.connect) cb(remoteId, 'in');
-			} catch (error) { if (this.verbose > 0) console.error(error.stack); } });
+					this.peerStore.connecting[remoteId] = { in: new PeerConnection(remoteId, ws, 'in', true) };
+					this.peerStore.pendingConnections[remoteId] = Date.now() + NODE.CONNECTION_UPGRADE_TIMEOUT;
+					for (const cb of this.peerStore.callbacks.connect) cb(remoteId, 'in');
+				} catch (error) { if (this.verbose > 0) console.error(error.stack); }
+			});
 
 			setTimeout(() => { // better if we can kick IP address instead of id only
 				if (remoteId) this.peerStore.kickPeer(remoteId, kickDuration);

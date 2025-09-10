@@ -88,18 +88,7 @@ export class ICECandidateEmitter { // --- ICE SIMULATION ---
 				o: `- ${Math.random().toString(36).substring(2)} ${Math.floor(Math.random() * 1000000)} 2 IN IP4 127.0.0.1\r\n`,
 				s: '-',
 				t: '0 0',
-				a: [
-					'group:BUNDLE 0',
-					'msid-semantic: WMS',
-					'ice-ufrag:Cvvt',
-					'ice-pwd:6jB1TY+roP0E44NQEavy9shl',
-					'ice-options:trickle',
-					'fingerprint:sha-256 FF:16:35:3A:3D:C2:5C:CD:A5:5D:21:B3:4E:31:3F:0B:5B:0B:3C:15:5B:59:A8:2C:A0:34:4E:8C:81:48:75:7D',
-					'setup:actpass',
-					'mid:0',
-					'sctp-port:5000',
-					'max-message-size:262144'
-				]
+				a: ['group:BUNDLE 0','msid-semantic: WMS','ice-ufrag:Cvvt','ice-pwd:6jB1TY+roP0E44NQEavy9shl','ice-options:trickle','fingerprint:sha-256 FF:16:35:3A:3D:C2:5C:CD:A5:5D:21:B3:4E:31:3F:0B:5B:0B:3C:15:5B:59:A8:2C:A0:34:4E:8C:81:48:75:7D','setup:actpass','mid:0','sctp-port:5000','max-message-size:262144']
 			}
 		}
 

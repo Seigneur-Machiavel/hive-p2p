@@ -1,13 +1,12 @@
 import path from 'path';
 import express from 'express';
 import { NodeP2P } from '../core/node.mjs';
-import { MessageQueue, Statician, SubscriptionsManager } from './simulator-utils.mjs';
 import { io } from 'socket.io-client'; // used for twitch events only
-import { TRANSPORT, NODE } from '../core/global_parameters.mjs';
 import { WebSocketServer } from 'ws';
-import { TestWsServer } from '../simulation/test-transports.mjs';
-import { TestWsConnection } from '../simulation/test-transports.mjs';
-import { TestTransport } from '../simulation/test-transports.mjs';
+
+import { TRANSPORT, NODE } from '../core/global_parameters.mjs';
+import { MessageQueue, Statician, SubscriptionsManager } from './simulator-utils.mjs';
+import { TestWsServer, TestWsConnection, TestTransport } from '../simulation/test-transports.mjs';
 
 process.on('uncaughtException', (err) => {
 	console.error('There was an uncaught error', err.stack);
