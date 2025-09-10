@@ -86,8 +86,10 @@ export class NetworkEnhancer {
 		const tooManyConnectedPeers = this.peerStore.neighbours.length >= ENHANCER.TARGET_NEIGHBORS_COUNT - 1;
 		if (!isTwitchUser && (tooManySharedPeers || tooManyConnectedPeers)) this.peerStore.kickPeer(senderId, 30_000);
 		
-		if (!this.peerStore.connecting[senderId])
-			if (!this.peerStore.addConnectingPeer(senderId, signal)) return; // already connecting
+		if (signal.type === 'offer' && !this.peerStore.connecting[senderId])
+			if (this.peerStore.addConnectingPeer(senderId, signal) !== true) return; // already connecting
+		if (signal.type === 'answer' && !this.peerStore.connecting[senderId])
+			console.warn(`Received an 'answer' signal from a non-connecting peer (${senderId}). Ignoring the signal.`);
 
 		this.peerStore.assignSignal(senderId, signal);
 	}
@@ -134,10 +136,10 @@ export class NetworkEnhancer {
 		ws.onclose = () => { for (const cb of this.peerStore.callbacks.disconnect) cb(remoteId, 'out'); }
 		ws.onopen = () => {
 			ws.onmessage = (data) => { for (const cb of this.peerStore.callbacks.data) cb(remoteId, data.data); };
-			if (this.peerStore.connecting[remoteId]) ws.close(); // already connecting, abort operation
+			if (this.peerStore.connecting[remoteId]) return ws.close(); // already connecting, abort operation
 
 			this.peerStore.connecting[remoteId] = new PeerConnection(remoteId, ws, 'out', true);
-			this.peerStore.pendingConnections[remoteId] = Date.now() + NODE.WRTC.CONNECTION_UPGRADE_TIMEOUT;
+			this.peerStore.pendingConnections[remoteId] = Date.now() + NODE.CONNECTION_UPGRADE_TIMEOUT;
 			for (const cb of this.peerStore.callbacks.connect) cb(remoteId, 'out');
 		};
 	}

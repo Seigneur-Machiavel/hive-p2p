@@ -2,6 +2,9 @@
 // HOLD GLOBAL PARAMETERS FOR THE LIBRARY
 // AND AVOID CIRCULAR DEPENDENCIES
 export const SIMULATION = {
+	ICE_DELAY: { min: 250, max: 3000 }, // simulation delay range for ICE candidates in ms | default: { min: 250, max: 3000 }
+	ICE_OFFER_FAILURE_RATE: 0, 	// default: .2, 20% offer failure
+	ICE_ANSWER_FAILURE_RATE: 0, 	// default: .15, 15% answer failure
 }
 export const TRANSPORT = {
 	WS_CLIENT: WebSocket,
@@ -15,17 +18,13 @@ export const IDENTIFIERS = {
 }
 
 export const NODE = {
-	DEFAULT_VERBOSE: 3, // 0: none, 1: errors, 2: +important info, 3: +debug, 4: +everything
-	ICE_DELAY: { min: 250, max: 1000 }, // simulation delay range for ICE candidates in ms | default: { min: 250, max: 3000 }
+	DEFAULT_VERBOSE: 4, // 0: none, 1: errors, 2: +important info, 3: +debug, 4: +everything
+	CONNECTION_UPGRADE_TIMEOUT: 10_000,
 	SERVICE: {
 		PORT: 8080,
 		AUTO_KICK_DELAY: { min: 30_000, max: 60_000 },
 		AUTO_KICK_DURATION: 120_000,
 		MAX_WS_IN_CONNS: 20, // default: 10
-	},
-	WRTC: {
-		/** peerStore.peerConnecting.timeout default: 30_000 (30 seconds) */
-		CONNECTION_UPGRADE_TIMEOUT: 5_000,
 	},
 	MIN_CONNECTION_TIME_TO_DISPATCH_EVENT: 2_500,
 }
@@ -40,6 +39,7 @@ export const ENHANCER = {
 }
 
 export const DISCOVERY = {
+	ON_CONNECT_DISPATCH_DELAY: 100,
 	CONNECTED_EVENT: true,
 	DISCONNECTED_EVENT: true,
 	NEIGHBOUR_GOSSIP: true,

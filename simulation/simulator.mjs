@@ -38,11 +38,11 @@ const sVARS = { // SIMULATION VARIABLES
 	startTime: Date.now(),
 	// SETTINGS
 	autoStart: true,
-	publicPeersCount: 3, // stable: 3,  medium: 100, strong: 200
-	peersCount: 25,	  	 // stable: 25, medium: 800, strong: 1600
+	publicPeersCount: 1, // stable: 3,  medium: 100, strong: 200
+	peersCount: 2,	  	 // stable: 25, medium: 800, strong: 1600
 	bootstrapsPerPeer: 10, // will not be exact, more like a limit. null = all of them
 	delayBetweenInit: 10, // 0 = faster for simulating big networks but > 0 = should be more realistic
-	randomMessagePerSecondPerPeer: .1, // capped at a total of 500msg/sec
+	randomMessagePerSecondPerPeer: 0, // default: .1, capped at a total of 500msg/sec
 };
 
 const peers = {
@@ -129,8 +129,7 @@ async function randomMessagesLoop() {
 			if (!sender || senderKnowsPeers.length === 0) continue;
 
 			const recipientId = senderKnowsPeers[Math.floor(Math.random() * senderKnowsPeers.length)];
-			const message = { type: 'message', data: `Hello from ${sender.id}` };
-			sender.sendMessage(recipientId, 'message', message);
+			sender.sendMessage(recipientId, 'message',`Hello from ${sender.id}`);
 		} } catch (error) { console.error('Error selecting random sender:', error); }
 
 		await new Promise(resolve => setTimeout(resolve, 1000));

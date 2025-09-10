@@ -1,6 +1,9 @@
 import { IDENTIFIERS, NODE } from './global_parameters.mjs';
 import { PeerConnection, KnownPeer, SdpOfferManager, Punisher } from './peer-store-utils.mjs';
 
+// DEBUG / SIMULATION
+import { SANDBOX, ICE_CANDIDATE_EMITTER, TEST_WS_EVENT_MANAGER } from '../simulation/test-transports.mjs';
+
 /**
  * @typedef {import('simple-peer').Instance} SimplePeerInstance
  */
@@ -84,7 +87,7 @@ export class PeerStore {
 				
 			if (this.isDestroy) return transportInstance?.destroy();
 			
-			if (remoteId=== this.id) // DEBUG
+			if (remoteId === this.id) // DEBUG
 				throw new Error(`Refusing to connect to self (${this.id}).`);
 
 			transportInstance.on('close', () => { for (const cb of this.callbacks.disconnect) cb(remoteId, direction); });
@@ -102,20 +105,21 @@ export class PeerStore {
 	/** Initialize a connecting peer WebRTC connection (SimplePeer Instance)
 	 * @param {string} remoteId @param {{type: 'offer' | 'answer', sdp: Record<string, string>}} remoteSDP */
 	addConnectingPeer(remoteId, remoteSDP) {
-		if (!remoteSDP) throw new Error('Missing remoteSDP');
-		if (!remoteId) throw new Error('Invalid remoteId');
+		if (!remoteSDP) return this.verbose > 2 ? console.warn('No remote SDP provided.') : null;
+		if (!remoteId) return this.verbose > 2 ? console.warn('No remoteId provided.') : null;
 
-		if (remoteId === this.id)
-			throw new Error(`Refusing to connect to self (${this.id}).`);
+		if (remoteId === this.id) throw new Error(`Refusing to connect to self (${this.id}).`);
 
-		if (this.connected[remoteId]) return console.warn(`Peer with ID ${remoteId} is already connected.`);
-		if (this.connecting[remoteId]) return console.warn(`Peer with ID ${remoteId} is already connecting.`);
-		
+		if (this.connected[remoteId]) return this.verbose > 2 ? console.warn(`Peer with ID ${remoteId} is already connected.`) : null;
+		if (this.connecting[remoteId])
+			return this.verbose > 2 ? console.warn(`Peer with ID ${remoteId} is already connecting.`) : null;
+
 		const peerConnection = this.sdpOfferManager.getPeerConnexionForSignal(remoteId, remoteSDP, this.verbose);
-		if (!peerConnection) return; // Bad offer or is already handled by another peer => ignore.
+		if (!peerConnection) return this.verbose > 2 ? console.warn(`Failed to get/create a peer connection for ID ${remoteId}.`) : null;
 
 		this.connecting[remoteId] = peerConnection;
-		this.pendingConnections[remoteId] = Date.now() + NODE.WRTC.CONNECTION_UPGRADE_TIMEOUT;
+		this.pendingConnections[remoteId] = Date.now() + NODE.CONNECTION_UPGRADE_TIMEOUT;
+		return true;
 	}
 	/** @param {string} remoteId @param {{type: 'offer' | 'answer', sdp: Record<string, string>}} signal */
 	assignSignal(remoteId, signal) {

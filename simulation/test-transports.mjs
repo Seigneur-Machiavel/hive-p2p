@@ -47,6 +47,7 @@ export class TestWsConnection { // WebSocket like
 	id;
 	isTestTransport = true;
 	remoteWsId = null;
+	remoteId = false; // flag for debug
 	delayBeforeConnectionTry = 500;
 	readyState = 0;
 	url; // outgoing connection only
@@ -140,6 +141,7 @@ export class TestTransport { // SimplePeer like
 	id = null;
 	isTestTransport = true;
 	remoteId = null; // Can send message only if corresponding remoteId on both sides
+	remoteWsId = false; // flag for debug
 	callbacks = { connect: [], close: [], data: [], signal: [], error: [] };
 	initiator; 	// SimplePeer.Options
 	trickle; 	// SimplePeer.Options
@@ -164,7 +166,9 @@ export class TestTransport { // SimplePeer like
 	signal(remoteSDP) {
 		if (this.closing) return;
 		if (this.remoteId) return this.dispatchError(`Transport instance already connected to a remote ID: ${this.remoteId}`);
-		if (!remoteSDP.sdp || !remoteSDP.sdp.id || (remoteSDP.type !== 'offer' && remoteSDP.type !== 'answer')) return this.dispatchError('Invalid remote SDP:', remoteSDP);
+		if (!remoteSDP.sdp || !remoteSDP.sdp.id) return this.dispatchError('Invalid remote SDP:', remoteSDP);
+		if (this.initiator && remoteSDP.type !== 'answer') return this.dispatchError('Invalid remote SDP type: expecting an answer.');
+		if (!this.initiator && remoteSDP.type !== 'offer') return this.dispatchError('Invalid remote SDP type: expecting an offer.');
 
 		ICE_CANDIDATE_EMITTER.digestSignal(remoteSDP, this.id);
 	}
@@ -187,6 +191,6 @@ export class TestTransport { // SimplePeer like
 }
 
 // INSTANCIATE
-const SANDBOX = new Sandbox();
-const ICE_CANDIDATE_EMITTER = new ICECandidateEmitter(SANDBOX);
-const TEST_WS_EVENT_MANAGER = new TestWsEventManager();
+export const SANDBOX = new Sandbox();
+export const ICE_CANDIDATE_EMITTER = new ICECandidateEmitter(SANDBOX);
+export const TEST_WS_EVENT_MANAGER = new TestWsEventManager();

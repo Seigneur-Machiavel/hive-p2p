@@ -65,8 +65,10 @@ export class NodeP2P {
 		//else this.gossip.broadcastToPeer(peerId, 'my_neighbours', this.peerStore.neighbours);
 				
 		//if (DISCOVERY.GOSSIP_HISTORY) this.sendMessage(peerId, 'gossip_history', this.gossip.bloomFilter.getGossipHistoryByTime());
-		if (DISCOVERY.NEIGHBOUR_GOSSIP) this.broadcast('my_neighbours', this.peerStore.neighbours);
-		if (DISCOVERY.CONNECTED_EVENT) this.broadcast('peer_connected', peerId);
+		setTimeout(() => {
+			if (DISCOVERY.NEIGHBOUR_GOSSIP) this.broadcast('my_neighbours', this.peerStore.neighbours);
+			if (DISCOVERY.CONNECTED_EVENT) this.broadcast('peer_connected', peerId);
+		}, DISCOVERY.ON_CONNECT_DISPATCH_DELAY);
 	}
 	/** @param {string} peerId @param {'in' | 'out'} direction */
 	#onDisconnect = (peerId, direction) => {
@@ -157,10 +159,10 @@ export class NodeP2P {
 				if (result.from !== result.senderId) return; // should not happen
 
 				remoteId = result.senderId;
-				if (this.peerStore.connecting[remoteId]) ws.close(); // already connecting, abort operation
+				if (this.peerStore.connecting[remoteId]) return ws.close(); // already connecting, abort operation
 
 				this.peerStore.connecting[remoteId] = new PeerConnection(remoteId, ws, 'in', true);
-				this.peerStore.pendingConnections[remoteId] = Date.now() + NODE.WRTC.CONNECTION_UPGRADE_TIMEOUT;
+				this.peerStore.pendingConnections[remoteId] = Date.now() + NODE.CONNECTION_UPGRADE_TIMEOUT;
 				for (const cb of this.peerStore.callbacks.connect) cb(remoteId, 'in');
 			} catch (error) { if (this.verbose > 0) console.error(error.stack); } });
 

@@ -109,9 +109,9 @@ export class UnicastMessager {
 		if (prevId && from !== prevId)
 			return this.peerStore.kickPeer(from, 0); // race condition or not => ignore message
 		
-		if (verbose > 2)
-			if (senderId === from) console.log(`(${this.id}) Direct message received from ${senderId}: ${data}`);
-			else console.log(`(${this.id}) Direct message received from ${senderId} (lastRelay: ${from}): ${data}`);
+		if (verbose > 3)
+			if (senderId === from) console.log(`(${this.id}) Direct message ${type} from ${senderId}: ${data}`);
+			else console.log(`(${this.id}) Direct message ${type} from ${senderId} (lastRelay: ${from}): ${data}`);
 		
 		if (DISCOVERY.TRAVELED_ROUTE) this.peerStore.digestValidRoute(traveledRoute);
 		if (this.id === targetId) { // selfIsDestination

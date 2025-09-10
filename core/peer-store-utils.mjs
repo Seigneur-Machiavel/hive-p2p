@@ -1,6 +1,9 @@
 import wrtc from 'wrtc';
 import { NODE, TRANSPORT } from './global_parameters.mjs';
 
+// DEBUG / SIMULATION
+import { SANDBOX, ICE_CANDIDATE_EMITTER, TEST_WS_EVENT_MANAGER } from '../simulation/test-transports.mjs';
+
 /** 
  * @typedef {import('ws').WebSocket} WebSocket
  * @typedef {import('simple-peer').Instance} SimplePeerInstance
@@ -112,8 +115,8 @@ export class SdpOfferManager {
 				this.onSignal(this.currentAnswerPeerId, data); // cb > peerStore > Node > Node.sendMessage() [Send directly to peer]
 			}
 			
-			if (type !== 'offer')
-				throw new Error(`Unexpected signal type from offerer instance: ${type}`);
+			if (type !== 'offer') throw new Error(`Unexpected signal type from offerer instance: ${type}`);
+
 			if (this.offerCreationTimeout) clearTimeout(this.offerCreationTimeout);
 			this.offerCreationTimeout = null;
 			this.offerInstance = instance;
@@ -136,6 +139,7 @@ export class SdpOfferManager {
 		if (this.verbose < 2 && error.message.includes('Failed to create answer')) return; // avoid logging
 		if (this.verbose < 3 && error.message.includes('Transport instance already')) return; // avoid logging
 		if (this.verbose < 3 && error.message.includes('is already linked')) return; // avoid logging
+		if (this.verbose > 2 && error.message.includes('Simulated failure')) return console.warn(error.message);
 		if (this.verbose < 3 && error.message.includes('Simulated failure')) return; // avoid logging
 		if (this.verbose < 2 && error.message.includes('Failed to digest')) return; // avoid logging
 		if (this.verbose < 2 && error.message.includes('No peer found')) return; // avoid logging
@@ -177,7 +181,7 @@ export class SdpOfferManager {
 				instance.on('connect', () => this.onConnect(remoteId, instance, 'in'));
 			}
 
-			return new PeerConnection(remoteId, instance, type === 'offer' ? 'in' : 'out');	
+			return new PeerConnection(remoteId, instance, type === 'offer' ? 'in' : 'out');
 		} catch (error) {
 			if (verbose > 0) console.error('Error getting transport instance for remote SDP:', error.message);
 			return null;

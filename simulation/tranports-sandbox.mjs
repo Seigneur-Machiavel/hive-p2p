@@ -17,7 +17,7 @@ import { NODE, SIMULATION } from '../core/global_parameters.mjs';
  * @property {string} sdp.id
  */
 
-const VERBOSE = 0; // 0=none, 1=links, 2=destroy, 3=all
+const VERBOSE = NODE.DEFAULT_VERBOSE; // 0=none, 1=links, 2=destroy, 3=all
 export class ICECandidateEmitter { // --- ICE SIMULATION ---
 	sandbox;
 	SIGNAL_OFFER_TIMEOUT = 30_000;
@@ -35,7 +35,6 @@ export class ICECandidateEmitter { // --- ICE SIMULATION ---
 		this.#cleanupExpiredSignals(n); // CLEANUP FIRST
 
 		// PROCESS SDP TO BUILD
-		if (this.sdpToBuild.length <= 0) return;
 		const sdpToBuild = this.sdpToBuild;
 		this.sdpToBuild = [];
 		for (const { transportId, type, time } of sdpToBuild) {
@@ -122,19 +121,17 @@ export class ICECandidateEmitter { // --- ICE SIMULATION ---
 		if (type === 'answer' && (!this.PENDING_ANSWERS[transportId] || this.PENDING_ANSWERS[transportId].sdp.id !== sdp.id))
 			return { success: false, reason: `No pending answer found for transport ID: ${transportId} with SDP ID: ${sdp.id}` };
 
-		// In simulation: 20% offer use failure, 15% answer use failure
-		if (type === 'offer' && Math.random() < .2) return { success: false, reason: `Simulated failure for 'offer' signal from ${transportId} to ${receiverId}` };
-		if (type === 'answer' && Math.random() < .15) return { success: false, reason: `Simulated failure for 'answer' signal from ${transportId} to ${receiverId}` };
+		if (type === 'offer' && Math.random() < SIMULATION.ICE_OFFER_FAILURE_RATE) return { success: false, reason: `Simulated failure for 'offer' signal from ${transportId} to ${receiverId}` };
+		if (type === 'answer' && Math.random() < SIMULATION.ICE_ANSWER_FAILURE_RATE) return { success: false, reason: `Simulated failure for 'answer' signal from ${transportId} to ${receiverId}` };
 
 		if (type === 'offer') {
 			this.buildSDP(receiverId, 'answer');
 			return { success: true, reason: 'na' }; // answer will be sent later
 		}
 		
-		// CONSUME SIGNALS
-		//delete this.PENDING_OFFERS[transportId][sdp.id];
-		delete this.PENDING_OFFERS[transportId]; // remove all offers of transportId
-		delete this.PENDING_ANSWERS[transportId];
+		// CONSUME ANSWER SIGNALS
+		delete this.PENDING_OFFERS[receiverId]; // CONSUME OFFER SIGNALS
+		delete this.PENDING_ANSWERS[transportId]; 	 // CONSUME ANSWER SIGNAL
 
 		const linkFailureMessage = this.sandbox.linkInstances(receiverId, transportId);
 		return { success: linkFailureMessage ? false : true, reason: linkFailureMessage || 'na' };
@@ -143,7 +140,7 @@ export class ICECandidateEmitter { // --- ICE SIMULATION ---
 	// API
 	/** @param {string} transportId @param {'offer' | 'answer'} type */
 	buildSDP(transportId, type) {
-		const delayRange = NODE.ICE_DELAY || { min: 250, max: 3000 };
+		const delayRange = {min: SIMULATION.ICE_DELAY.min, max: SIMULATION.ICE_DELAY.max };
 		const delay = Math.floor(Math.random() * (delayRange.max - delayRange.min + 1)) + delayRange.min;
 		this.sdpToBuild.push({ transportId, type, time: Date.now() + delay });
 	}
@@ -237,12 +234,12 @@ export class Sandbox {
 		return { success: true, reason: 'na' };
 	}
 	destroyTransportAndAssociatedTransport(id) { // SimplePeer instances only
-		if (VERBOSE > 1) console.log(`[SANDBOX] Destroying transports: ${id} & ${remoteId}`);
 		const localInstance = this.transportInstances[id];
 		if (!localInstance) return; // already gone
 		
 		const remoteId = localInstance.remoteId;
 		const remoteInstance = remoteId ? this.transportInstances[remoteId] : null;
+		if (VERBOSE > 1) console.log(`[SANDBOX] Destroying transports: ${id} ${remoteInstance ? '& ' + remoteId : ''}`);
 		if (localInstance && remoteInstance) { // close remote instance if linked
 			delete this.transportInstances[remoteId];
 			// call destroyTransport again, does nothing because we deleted him from this.transportInstances
