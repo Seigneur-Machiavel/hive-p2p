@@ -1,5 +1,4 @@
-import { TestWsConnection } from '../simulation/test-transports.mjs';
-import { IDENTIFIERS, NODE, ENHANCER } from './global_parameters.mjs';
+import { TRANSPORT, IDENTIFIERS, NODE, ENHANCER } from './global_parameters.mjs';
 import { PeerConnection } from './peer-store-utils.mjs';
 
 /**
@@ -87,10 +86,8 @@ export class NetworkEnhancer {
 		const tooManyConnectedPeers = this.peerStore.neighbours.length >= ENHANCER.TARGET_NEIGHBORS_COUNT - 1;
 		if (!isTwitchUser && (tooManySharedPeers || tooManyConnectedPeers)) this.peerStore.kickPeer(senderId, 30_000);
 		
-		if (!this.peerStore.connecting[senderId]) {
-			if (signal.type === 'offer') this.peerStore.addConnectingPeer(senderId, signal);
-			else if (signal.type === 'answer') this.peerStore.addConnectingPeer(senderId, signal);
-		}
+		if (!this.peerStore.connecting[senderId])
+			if (!this.peerStore.addConnectingPeer(senderId, signal)) return; // already connecting
 
 		this.peerStore.assignSignal(senderId, signal);
 	}
@@ -131,17 +128,17 @@ export class NetworkEnhancer {
 		if (canMakeATry) this.#connectToPublicNode(id, publicUrl);
 		this.nBI = (this.nBI + 1) % this.bootstraps.length;
 	}
-	#connectToPublicNode(remoteId = 'toto', publicUrl = 'localhost:8080') {		
-		const Transport = NODE.USE_TEST_TRANSPORT ? TestWsConnection : WebSocket;
-		const ws = new Transport(publicUrl);
+	#connectToPublicNode(remoteId = 'toto', publicUrl = 'localhost:8080') {
+		const ws = new TRANSPORT.WS_CLIENT(publicUrl);
 		ws.onerror = (error) => console.error(`WebSocket error:`, error.stack);
 		ws.onclose = () => { for (const cb of this.peerStore.callbacks.disconnect) cb(remoteId, 'out'); }
 		ws.onopen = () => {
 			ws.onmessage = (data) => { for (const cb of this.peerStore.callbacks.data) cb(remoteId, data.data); };
-			const conn = new PeerConnection(remoteId, ws, 'out', true);
-			const res = this.peerStore.addConnectedPeer(remoteId, conn); // can get peerId from WS in the future
-			if (res) for (const cb of this.peerStore.callbacks.connect) cb(remoteId, conn.direction);
-			else ws.close(); // already connected, abort operation
+			if (this.peerStore.connecting[remoteId]) ws.close(); // already connecting, abort operation
+
+			this.peerStore.connecting[remoteId] = new PeerConnection(remoteId, ws, 'out', true);
+			this.peerStore.pendingConnections[remoteId] = Date.now() + NODE.WRTC.CONNECTION_UPGRADE_TIMEOUT;
+			for (const cb of this.peerStore.callbacks.connect) cb(remoteId, 'out');
 		};
 	}
 }

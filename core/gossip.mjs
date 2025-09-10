@@ -49,6 +49,7 @@ class DegenerateBloomFilter {
 	addMessage(senderId, topic, data, timestamp) {
 		const n = Date.now();
 		if (n - timestamp > GOSSIP.EXPIRATION) return; // ignore expired messages
+
 		const h = xxHash32(`${senderId}${topic}${JSON.stringify(data)}`);
 		this.xxHash32UsageCount++;
 
@@ -67,11 +68,24 @@ class DegenerateBloomFilter {
 		return { hash: h, isExpired, isPresent };
 	}
 
-	#cleanupOldestEntries(n = Date.now()) {
+	/*#cleanupOldestEntries(n = Date.now()) {
 		for (let i = 0; i < this.cache.length; i++)
 			if (this.cache[i].expiration <= n) delete this.seenTimeouts[this.cache[i].hash];
 			else if (i) return this.cache = this.cache.slice(i);
 			else return; // nothing to clean
+	}*/
+	#cleanupOldestEntries(n = Date.now()) {
+		let firstValidIndex = -1;
+		for (let i = 0; i < this.cache.length; i++) {
+			if (this.cache[i].expiration <= n) {
+				delete this.seenTimeouts[this.cache[i].hash];
+			} else if (firstValidIndex === -1) {
+				firstValidIndex = i;
+			}
+		}
+		
+		if (firstValidIndex > 0) this.cache = this.cache.slice(firstValidIndex);
+		else if (firstValidIndex === -1) this.cache = [];
 	}
 }
 export class Gossip {
@@ -98,8 +112,8 @@ export class Gossip {
 	broadcast(topic, data, targetId, timestamp = Date.now(), ttl) {
 		this.bloomFilter.addMessage(this.id, topic, data, timestamp); // avoid re-processing our own message
 		const serializedData = GossipMessage.serialize(this.id, topic, data, timestamp, ttl || GOSSIP.TTL[topic] || GOSSIP.TTL.default);
-		if (targetId) return this.#broadcastToPeer(targetId, serializedData);
-		for (const peerId in this.peerStore.connected) this.#broadcastToPeer(peerId, serializedData);
+		const targetsId = targetId ? [targetId] : Object.keys(this.peerStore.connected);
+		for (const peerId of targetsId) this.#broadcastToPeer(peerId, serializedData);
 	}
 	/** @param {string} targetId @param {any} serializedData */
 	#broadcastToPeer(targetId, serializedData) {
@@ -108,11 +122,13 @@ export class Gossip {
 		try { transportInstance.send(serializedData); }
 		catch (error) { this.peerStore.connected[targetId]?.close(); }
 	}
-	/** @param {string} from @param {GossipMessage} message @param {string | Uint8Array} serializedMessage @param {number} [verbose] */
-	handleGossipMessage(from, message, serializedMessage, verbose = 0) {
+	/** @param {string} from @param {GossipMessage} message @param {string | Uint8Array} serializedMessage */
+	handleGossipMessage(from, message, serializedMessage) {
 		if (this.peerStore.isBanned(from)) return; // ignore messages from banned peers
 
-		// HERE WE DECRYPT MESSAGE WITH (pubKey === 'from')
+		// FOR SECURITY WE CAN:
+		// DECRYPT MESSAGE WITH (pubKey === 'from')
+		// DECRYPT DATA WITH (pubKey === 'senderId')
 		const { senderId, topic, data, timestamp, TTL } = message;
 		for (const cb of this.callbacks['message_handle'] || []) cb(senderId, data); // mainly used in debug
 		
@@ -122,8 +138,8 @@ export class Gossip {
 		for (const cb of this.callbacks[topic] || []) cb(senderId, data);
 
 		if (TTL < 1) return; // stop forwarding if TTL is 0
-		if (this.id === senderId) return; // avoid sending our own message again
-		if (topic === 'hello_public') return { senderId: from, forwardedTo: 0, TTL, transmissionRate: 0 };
+		//if (this.id === senderId) return; // avoid sending our own message again => SHOULD NOT HAPPEN!!
+		if (topic === 'hello_public') return { from, senderId };
 
 		const neighbours = Object.entries(this.peerStore.connected);
 		const nCount = neighbours.length;
@@ -140,6 +156,6 @@ export class Gossip {
 			this.#broadcastToPeer(peerId, messageWithDecrementedTTL);
 		}
 
-		return { senderId: from, forwardedTo: nCount, TTL, transmissionRate };
+		return { from, senderId };
 	}
 }

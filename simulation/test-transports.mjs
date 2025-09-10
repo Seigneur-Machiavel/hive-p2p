@@ -1,5 +1,4 @@
-import { NODE, SIMULATION } from '../core/global_parameters.mjs';
-import { Sandbox } from './tranports-sandbox.mjs';
+import { Sandbox, ICECandidateEmitter } from './tranports-sandbox.mjs';
 
 class TestWsEventManager { // manage init() and close() to avoid timeout usage
 	/** @type {Array<{ connId: string, clientWsId: string, time: number }> } */ toInit = [];
@@ -39,47 +38,8 @@ class TestWsEventManager { // manage init() and close() to avoid timeout usage
 		for (const cb of remoteWs?.callbacks?.close || []) cb(); // emit close event (server)
 	}
 	// API
-	scheduleInit(connId, delay = 500) {
-		// IMPOSSIBLE SAFE MODE BECAUSE CALLED IN CONSTRUCTOR ?
-		//if (SIMULATION.SAFE_MODE) this.#connectToWebSocketServer(connId);
-		//else
-		this.toInit.push({ connId, time: Date.now() + delay }); 
-	}
-	scheduleClose(wsId, remoteWsId, delay = 100) {
-		// IMPOSSIBLE SAFE MODE BECAUSE CALLED IN CONSTRUCTOR ?
-		//if (SIMULATION.SAFE_MODE) this.#disconnectWsInstances(wsId, remoteWsId);
-		//else
-		this.toClose.push({ wsId, remoteWsId, time: Date.now() + delay }); 
-	}
-}
-class ICECandidateEmitter {
-	/** @type {Array<{ transport: TestTransport, SDP: string, time: number }>} */ sdpToEmit = [];
-
-	emitInterval = setInterval(() => {
-		if (this.sdpToEmit.length <= 0) return;
-		const n = Date.now();
-		const toEmit = this.sdpToEmit;
-		this.sdpToEmit = [];
-		for (const { transportId, SDP, time } of toEmit)
-			if (time > n) return this.sdpToEmit.push({ transportId, SDP, time }); // not yet
-			else this.#emitSignal(transportId, SDP);
-	}, 500);
-
-	#emitSignal(transportId, SDP) {
-		const transport = SANDBOX.transportInstances[transportId];
-		transport?.callbacks?.signal?.forEach(cb => cb(SDP)); // emit signal event
-	}
-	emit(transportId, SDP) {
-		// IMPOSSIBLE SAFE MODE BECAUSE CALLED IN CONSTRUCTOR ?
-		/*if (SIMULATION.SAFE_MODE) {
-			this.#emitSignal(transportId, SDP);
-			return;
-		}*/
-
-		const delayRange = NODE.ICE_DELAY || { min: 250, max: 3000 };
-		const delay = Math.floor(Math.random() * (delayRange.max - delayRange.min + 1)) + delayRange.min;
-		this.sdpToEmit.push({ transportId, SDP, time: Date.now() + delay });
-	}
+	scheduleInit(connId, delay = 500) { this.toInit.push({ connId, time: Date.now() + delay }); }
+	scheduleClose(wsId, remoteWsId, delay = 100) { this.toClose.push({ wsId, remoteWsId, time: Date.now() + delay }); }
 }
 
 // // HERE WE ARE BASICALLY COPYING THE PRINCIPLE OF "WebSocket"
@@ -192,8 +152,7 @@ export class TestTransport { // SimplePeer like
 		this.wrtc = opts.wrtc;
 
 		if (!this.initiator) return; // standby
-		const signalData = SANDBOX.buildSDP(this.id, 'offer'); // emit signal event 'offer'
-		ICE_CANDIDATE_EMITTER.emit(this.id, signalData);
+		ICE_CANDIDATE_EMITTER.buildSDP(this.id, 'offer');
 	}
 
 	on(event, callbacks) {
@@ -205,12 +164,9 @@ export class TestTransport { // SimplePeer like
 	signal(remoteSDP) {
 		if (this.closing) return;
 		if (this.remoteId) return this.dispatchError(`Transport instance already connected to a remote ID: ${this.remoteId}`);
-		if (remoteSDP.type === 'offer' && SANDBOX.PENDING_OFFERS[this.id]) return this.dispatchError(`Signal with ID ${this.id} already exists.`);
 		if (!remoteSDP.sdp || !remoteSDP.sdp.id || (remoteSDP.type !== 'offer' && remoteSDP.type !== 'answer')) return this.dispatchError('Invalid remote SDP:', remoteSDP);
 
-		const { success, signalData, reason } = SANDBOX.digestSignal(remoteSDP, this.id);
-		if (!success) return this.dispatchError(reason || `Failed to digest signal for peer: ${this.id}`);
-		if (signalData) ICE_CANDIDATE_EMITTER.emit(this.id, signalData);
+		ICE_CANDIDATE_EMITTER.digestSignal(remoteSDP, this.id);
 	}
 	/** @param {string | Uint8Array} message */
 	send(message) {
@@ -226,11 +182,11 @@ export class TestTransport { // SimplePeer like
 		if (errorMsg) this.dispatchError(errorMsg);
 
 		this.callbacks.close?.forEach(cb => cb());
-		SANDBOX.destroyTransport(this.id);
+		SANDBOX.destroyTransportAndAssociatedTransport(this.id);
 	}
 }
 
 // INSTANCIATE
 const SANDBOX = new Sandbox();
-const ICE_CANDIDATE_EMITTER = new ICECandidateEmitter();
+const ICE_CANDIDATE_EMITTER = new ICECandidateEmitter(SANDBOX);
 const TEST_WS_EVENT_MANAGER = new TestWsEventManager();

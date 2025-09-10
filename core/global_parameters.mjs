@@ -1,17 +1,21 @@
 // THIS FILE IS TEMPORARY, BUILDING IT OVER TIME
-// TO HOLD GLOBAL PARAMETERS FOR THE LIBRARY
+// HOLD GLOBAL PARAMETERS FOR THE LIBRARY
 // AND AVOID CIRCULAR DEPENDENCIES
-
 export const SIMULATION = {
-	SAFE_MODE: true, // if true, avoid any race Condition
+}
+export const TRANSPORT = {
+	WS_CLIENT: WebSocket,
+	//WS_SERVER: WebSocketServer,
+	//PEER: SimplePeer,
+	WS_SERVER: (typeof window === 'undefined') ? (await import('ws')).WebSocketServer : null,
+	PEER: (typeof window === 'undefined') ? (await import('simple-peer')).default : null
 }
 export const IDENTIFIERS = {
 	PUBLIC_NODE: 'public_',
 }
 
 export const NODE = {
-	DEFAULT_VERBOSE: 1, // 0: none, 1: errors, 2: +important info, 3: +debug, 4: +everything
-	USE_TEST_TRANSPORT: false, // useful for simulation
+	DEFAULT_VERBOSE: 3, // 0: none, 1: errors, 2: +important info, 3: +debug, 4: +everything
 	ICE_DELAY: { min: 250, max: 1000 }, // simulation delay range for ICE candidates in ms | default: { min: 250, max: 3000 }
 	SERVICE: {
 		PORT: 8080,

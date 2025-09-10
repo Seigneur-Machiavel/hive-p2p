@@ -1,25 +1,32 @@
 import path from 'path';
 import express from 'express';
-import { WebSocketServer } from 'ws';
 import { NodeP2P } from '../core/node.mjs';
 import { MessageQueue, Statician, SubscriptionsManager } from './simulator-utils.mjs';
 import { io } from 'socket.io-client'; // used for twitch events only
-import { NODE } from '../core/global_parameters.mjs';
-
+import { TRANSPORT, NODE } from '../core/global_parameters.mjs';
+import { WebSocketServer } from 'ws';
+import { TestWsServer } from '../simulation/test-transports.mjs';
+import { TestWsConnection } from '../simulation/test-transports.mjs';
+import { TestTransport } from '../simulation/test-transports.mjs';
 
 process.on('uncaughtException', (err) => {
 	console.error('There was an uncaught error', err.stack);
 	//throw err; //mandatory (as per the Node docs)
 });
 
-// TO ACCESS THE VISUALIZER GO TO: http://localhost:3000
-// LOGS COLORS :
-// BLUE:      SYSTEM
-// YELLOW:    SIMULATION INFO
-// FUCHSIA:   CURRENT PEER GOSSIP STATS
-// CYAN: 	  CURRENT PEER UNICAST STATS
+// TO ACCESS THE VISUALIZER GO TO: http://localhost:3000 ------\
+// LOGS COLORS :											   |
+// BLUE:      SYSTEM									 	   |
+// YELLOW:    SIMULATION INFO								   |   
+// FUCHSIA:   CURRENT PEER GOSSIP STATS						   |
+// CYAN: 	  CURRENT PEER UNICAST STATS					   |
+//-------------------------------------------------------------/
 
-NODE.USE_TEST_TRANSPORT = true; // force test transport for simulator
+// SETUP TEST TRANSPORT ---------------------------------------\
+TRANSPORT.WS_SERVER = TestWsServer; // WebSocketServer		   |
+TRANSPORT.WS_CLIENT = TestWsConnection; // default: WebSocket  |
+TRANSPORT.PEER = TestTransport; // default: SimplePeer         |
+//-------------------------------------------------------------/
 
 let initInterval = null;
 /** @type {TwitchChatCommandInterpreter} */ let cmdInterpreter = null;
@@ -31,16 +38,12 @@ const sVARS = { // SIMULATION VARIABLES
 	startTime: Date.now(),
 	// SETTINGS
 	autoStart: true,
-	publicPeersCount: 2,
-	peersCount: 5,
+	publicPeersCount: 3, // stable: 3,  medium: 100, strong: 200
+	peersCount: 25,	  	 // stable: 25, medium: 800, strong: 1600
 	bootstrapsPerPeer: 10, // will not be exact, more like a limit. null = all of them
 	delayBetweenInit: 10, // 0 = faster for simulating big networks but > 0 = should be more realistic
 	randomMessagePerSecondPerPeer: .1, // capped at a total of 500msg/sec
 };
-if (NODE.USE_TEST_TRANSPORT) {
-	sVARS.publicPeersCount = 3; // stable: 3,  medium: 100, strong: 200
-	sVARS.peersCount = 25;	  	// stable: 25, medium: 800, strong: 1600
-}
 
 const peers = {
 	/** @type {Record<string, NodeP2P>} */

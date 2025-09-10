@@ -1,11 +1,9 @@
-import { WebSocketServer } from 'ws';
-import { TestWsServer } from '../simulation/test-transports.mjs';
 import { PeerStore } from './peer-store.mjs';
 import { PeerConnection } from './peer-store-utils.mjs';
 import { NetworkEnhancer } from './network-enhancer.mjs';
 import { UnicastMessager, DirectMessage } from './unicast.mjs';
 import { Gossip, GossipMessage } from './gossip.mjs';
-import { IDENTIFIERS, DISCOVERY, NODE, GOSSIP } from './global_parameters.mjs';
+import { TRANSPORT, IDENTIFIERS, DISCOVERY, NODE } from './global_parameters.mjs';
 
 export class NodeP2P {
 	verbose;
@@ -57,8 +55,7 @@ export class NodeP2P {
 	// PRIVATE METHODS
 	/** @param {string} peerId @param {'in' | 'out'} direction */
 	#onConnect = (peerId, direction) => {
-		if (this.peerStore.isKicked(peerId)) return;
-		if (this.verbose > 2) console.log(`(${this.id}) ${direction === 'in' ? 'Incoming' : 'Outgoing'} connection established with peer ${peerId}`);
+		if (!this.peerStore.connected[peerId]) return; // can happen, no worry.
 
 		const [selfIsPublic, remoteIsPublic] = [this.publicUrl, peerId.startsWith(IDENTIFIERS.PUBLIC_NODE)];
 		if (remoteIsPublic) this.broadcast('hello_public', { peerId }); // inform public node of our id by sending his id
@@ -107,8 +104,10 @@ export class NodeP2P {
 		return node;
 	}
 	start() { this.networkEnhancer.init(); return true; }
-	/** @param {string} topic @param {string | Uint8Array} data @param {string} [targetId] @param {number} [TTL] */
-	broadcast(topic, data, targetId, TTL) { this.gossip.broadcast(topic, data, targetId, TTL); }
+	/** Broadcast a message to all connected peers or to a specified peer
+	 * @param {string} topic @param {string | Uint8Array} data @param {string} [targetId] default: broadcast to all
+	 * @param {number} [timestamp] default: Date.now() @param {number} [TTL] default: GOSSIP.TTL[topic] || GOSSIP.TTL.default */
+	broadcast(topic, data, targetId, timestamp = Date.now(), TTL) { this.gossip.broadcast(topic, data, targetId, timestamp, TTL); }
 	/** @param {string} remoteId @param {string} type @param {string | Uint8Array} data */
 	sendMessage(remoteId, type, data, spread = 1) { this.messager.sendMessage(remoteId, type, data, spread); }
 	async tryConnectToPeer(targetId = 'toto', retry = 5) {
@@ -134,8 +133,7 @@ export class NodeP2P {
 		});
 		
 		// create simple ws server to accept incoming connections (Require to open port)
-		const Transport = NODE.USE_TEST_TRANSPORT ? TestWsServer : WebSocketServer;
-		this.wsServer = new Transport({ port, host: domain });
+		this.wsServer = new TRANSPORT.WS_SERVER({ port, host: domain });
 		this.wsServer.on('error', (error) => console.error(`WebSocket error on Node #${this.id}:`, error));
 		this.wsServer.on('connection', (ws) => {
 			ws.on('close', () => { for (const cb of this.peerStore.callbacks.disconnect) cb(remoteId, 'in'); });
@@ -154,14 +152,16 @@ export class NodeP2P {
 				// RESTRICTED TO CONNECTION ENHANCEMENT UNTIL WE KNOW REMOTE ID
 				if (topic !== 'hello_public') return;
 
-				const result = this.gossip.handleGossipMessage(senderId, deserialized, message, this.verbose);
-				if (!result?.senderId || remoteId) return;
+				const result = this.gossip.handleGossipMessage(senderId, deserialized, message);
+				if (remoteId || !result?.senderId || !result?.from) return;
+				if (result.from !== result.senderId) return; // should not happen
 
 				remoteId = result.senderId;
-				const conn = new PeerConnection(remoteId, ws, 'in', true);
-				const res = this.peerStore.addConnectedPeer(remoteId, conn);
-				if (res) for (const cb of this.peerStore.callbacks.connect) cb(remoteId, conn.direction);
-				else ws.close(); // already connected, abort operation
+				if (this.peerStore.connecting[remoteId]) ws.close(); // already connecting, abort operation
+
+				this.peerStore.connecting[remoteId] = new PeerConnection(remoteId, ws, 'in', true);
+				this.peerStore.pendingConnections[remoteId] = Date.now() + NODE.WRTC.CONNECTION_UPGRADE_TIMEOUT;
+				for (const cb of this.peerStore.callbacks.connect) cb(remoteId, 'in');
 			} catch (error) { if (this.verbose > 0) console.error(error.stack); } });
 
 			setTimeout(() => { // better if we can kick IP address instead of id only
