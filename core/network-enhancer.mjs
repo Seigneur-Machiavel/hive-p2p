@@ -1,5 +1,6 @@
-import { TRANSPORT, IDENTIFIERS, NODE, ENHANCER } from './global_parameters.mjs';
-import { PeerConnection } from './peer-store-utils.mjs';
+import { SIMULATION, TRANSPORT, IDENTIFIERS, NODE, ENHANCER } from './global_parameters.mjs';
+import { PeerConnection } from './peer-store-managers.mjs';
+const { SANDBOX, ICE_CANDIDATE_EMITTER, TEST_WS_EVENT_MANAGER } = SIMULATION.ENABLED ? await import('../simulation/test-transports.mjs') : {};
 
 /**
  * @typedef {import('./gossip.mjs').Gossip} Gossip
@@ -26,7 +27,6 @@ export class NetworkEnhancer {
 	/** @type {Array<bootstrapInfo>} */ bootstraps = [];
 	/** @type {Record<string, string>} */ bootstrapsIds = {};
 	/** @type {number} next Bootstrap Index */ nBI = 0;
-	/** @type {number} */ lastReadyOfferShared = 0;
 
 	/** @param {string} selfId @param {Gossip} gossip @param {PeerStore} peerStore @param {Array<bootstrapInfo>} bootstraps */
 	constructor(selfId, gossip, peerStore, bootstraps) {
@@ -54,45 +54,40 @@ export class NetworkEnhancer {
 		if (this.interval) clearInterval(this.interval);
 	}
 	tryToSpreadSDP() {
-		const readyOffer = this.peerStore.sdpOfferManager.readyOffer;
-		if (!readyOffer) return; // Build in progress...
+		// LOOP TO SELECT UNSEND READY OFFER
+		for (const [offerHash, readyOffer] of Object.entries(this.peerStore.sdpOfferManager.offers)) {
+			const { isUsed, sentCounter, signal } = readyOffer;
+			if (isUsed || sentCounter > 0) continue; // already used or already sent at least once
+			
+			const { isEnough, connectedPeersCount } = this.#getConnectionInfo();
+			if (isEnough || !connectedPeersCount) return;
 
-		const { time, offer } = this.lastReadyOfferShared;
-		const tooSoon = time && time + ENHANCER.DELAY_BETWEEN_SDP_SPREAD > Date.now();
-		if (tooSoon && readyOffer === offer) return;
-
-		const timeToRenew = time && time + ENHANCER.DELAY_BETWEEN_SDP_RESET < Date.now();
-		if (timeToRenew) return this.peerStore.sdpOfferManager.reset();
-
-		const { isEnough, connectedPeersCount } = this.#getConnectionInfo();
-		if (isEnough || !connectedPeersCount) return;
-
-		this.gossip.broadcast('signal', { signal: readyOffer, neighbours: this.peerStore.neighbours });
-		this.lastReadyOfferShared = { time: Date.now(), offer: readyOffer };
+			this.gossip.broadcast('signal', { signal, neighbours: this.peerStore.neighbours, offerHash });
+			readyOffer.sentCounter++;
+			break; // only one per loop
+		}
 	}
 	/** @param {string} senderId @param {SignalData} data */
 	handleIncomingSignal(senderId, data) {
 		if (typeof data !== 'object') return;
-		const { signal, neighbours } = data || {}; // remoteInfo
+		const { signal, neighbours, offerHash } = data || {}; // remoteInfo
 		if (signal.type !== 'offer' && signal.type !== 'answer') return;
 		if (!senderId || typeof signal !== 'object' || !Array.isArray(neighbours)) return;
 		this.peerStore.digestPeerNeighbours(senderId, neighbours);
 
-		if (this.isPublicNode || this.peerStore.isKicked(senderId)) return;
 		if (this.peerStore.connected[senderId]) return; // already connected
+		if (this.isPublicNode || this.peerStore.isKicked(senderId)) return;
+		if (signal.type === 'offer' && this.peerStore.connecting[senderId]?.['in']) return; // already connecting in
+		if (signal.type === 'answer' && this.peerStore.connecting[senderId]?.['out']) return; // already connecting out
 
 		const { overlap } = this.peerStore.getOverlap(senderId);
 		const tooManySharedPeers = overlap > ENHANCER.MAX_OVERLAP;
 		const isTwitchUser = senderId.startsWith('f_');
 		const tooManyConnectedPeers = this.peerStore.neighbours.length >= ENHANCER.TARGET_NEIGHBORS_COUNT - 1;
 		if (!isTwitchUser && (tooManySharedPeers || tooManyConnectedPeers)) this.peerStore.kickPeer(senderId, 30_000);
-		
-		if (signal.type === 'offer' && !this.peerStore.connecting[senderId]?.in)
-			if (this.peerStore.addConnectingPeer(senderId, signal, 'in') !== true) return;
-		if (signal.type === 'answer' && !this.peerStore.connecting[senderId]?.out)
-			if (this.peerStore.addConnectingPeer(senderId, signal, 'out') !== true) return;
 
-		this.peerStore.assignSignal(senderId, signal);
+		if (this.peerStore.addConnectingPeer(senderId, signal, offerHash) !== true) return;
+		this.peerStore.assignSignal(senderId, signal, offerHash);
 	}
 	/** @param {string} senderId @param {SignalData} data */
 	handleSignalRejection(senderId, data) {
@@ -122,7 +117,7 @@ export class NetworkEnhancer {
 		const [connected, connecting] = [this.peerStore.connected, this.peerStore.connecting];
 		const connectingCount = Object.keys(connecting).filter(id => this.bootstrapsIds[id]).length;
 		const connectedCount = this.peerStore.neighbours.filter(id => this.bootstrapsIds[id]).length;
-		if (connectedCount + connectingCount >= ENHANCER.MAX_SERVICE_OUT_CONNS) return; // already connected to enough bootstraps
+		if (connectedCount + connectingCount >= NODE.SERVICE.MAX_WS_OUT_CONNS) return; // already connected to enough bootstraps
 		if (limitToOneBootstrap && connectedCount) return; // already connected to one bootstrap, wait next turn
 		if (limitToOneBootstrap && connectingCount) return; // already connecting to one bootstrap, wait next turn
 		
@@ -133,14 +128,11 @@ export class NetworkEnhancer {
 	}
 	#connectToPublicNode(remoteId = 'toto', publicUrl = 'localhost:8080') {
 		const ws = new TRANSPORT.WS_CLIENT(publicUrl);
+		this.peerStore.connecting[remoteId] = { out: new PeerConnection(remoteId, ws, 'out', true) };
 		ws.onerror = (error) => console.error(`WebSocket error:`, error.stack);
-		ws.onclose = () => { for (const cb of this.peerStore.callbacks.disconnect) cb(remoteId, 'out'); }
 		ws.onopen = () => {
+			ws.onclose = () => { for (const cb of this.peerStore.callbacks.disconnect) cb(remoteId, 'out'); }
 			ws.onmessage = (data) => { for (const cb of this.peerStore.callbacks.data) cb(remoteId, data.data); };
-			if (this.peerStore.connecting[remoteId]) return ws.close(); // already connecting, abort operation
-
-			this.peerStore.connecting[remoteId] = { out: new PeerConnection(remoteId, ws, 'out', true) };
-			this.peerStore.pendingConnections[remoteId] = Date.now() + NODE.CONNECTION_UPGRADE_TIMEOUT;
 			for (const cb of this.peerStore.callbacks.connect) cb(remoteId, 'out');
 		};
 	}

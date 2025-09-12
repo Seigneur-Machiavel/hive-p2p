@@ -1,16 +1,31 @@
 import path from 'path';
 import express from 'express';
-import { NodeP2P } from '../core/node.mjs';
 import { io } from 'socket.io-client'; // used for twitch events only
 import { WebSocketServer } from 'ws';
-
-import { TRANSPORT, NODE } from '../core/global_parameters.mjs';
-import { MessageQueue, Statician, SubscriptionsManager } from './simulator-utils.mjs';
+import { SIMULATION, TRANSPORT, IDENTIFIERS } from '../core/global_parameters.mjs';
 import { TestWsServer, TestWsConnection, TestTransport } from '../simulation/test-transports.mjs';
+import { MessageQueue, Statician, SubscriptionsManager } from './simulator-utils.mjs';
+// SETUP SIMULATION ENV ---------------------------------------\
+SIMULATION.ENABLED = true; // enable simulation features	   |
+TRANSPORT.WS_SERVER = TestWsServer; // WebSocketServer		   |
+TRANSPORT.WS_CLIENT = TestWsConnection; // default: WebSocket  |
+TRANSPORT.PEER = TestTransport; // default: SimplePeer         |
+//-------------------------------------------------------------/
 
-process.on('uncaughtException', (err) => {
+const { NodeP2P } = await import('../core/node.mjs'); // dynamic import to allow simulation overrides
+
+process.on('uncaughtException', (err) => { // DEBUGGING
 	console.error('There was an uncaught error', err.stack);
-	//throw err; //mandatory (as per the Node docs)
+	if (err.message?.includes('#')) {
+		// #${this.id}# #${from}# 
+		const parts = err.message.split('#');
+		const thisId = parts[1];
+		const fromId = parts[2];
+		const thisPeer = peers.all[thisId];
+		const fromPeer = peers.all[fromId];
+		console.log(`Error originated from peer ${thisId}, message sent by ${fromId}`);
+	}
+	throw err; //mandatory (as per the Node docs)
 });
 
 // TO ACCESS THE VISUALIZER GO TO: http://localhost:3000 ------\
@@ -19,12 +34,6 @@ process.on('uncaughtException', (err) => {
 // YELLOW:    SIMULATION INFO								   |   
 // FUCHSIA:   CURRENT PEER GOSSIP STATS						   |
 // CYAN: 	  CURRENT PEER UNICAST STATS					   |
-//-------------------------------------------------------------/
-
-// SETUP TEST TRANSPORT ---------------------------------------\
-TRANSPORT.WS_SERVER = TestWsServer; // WebSocketServer		   |
-TRANSPORT.WS_CLIENT = TestWsConnection; // default: WebSocket  |
-TRANSPORT.PEER = TestTransport; // default: SimplePeer         |
 //-------------------------------------------------------------/
 
 let initInterval = null;
@@ -38,10 +47,11 @@ const sVARS = { // SIMULATION VARIABLES
 	// SETTINGS
 	autoStart: true,
 	publicPeersCount: 1, // stable: 3,  medium: 100, strong: 200
-	peersCount: 2,	  	 // stable: 25, medium: 800, strong: 1600
+	peersCount: 10,	  	 // stable: 25, medium: 800, strong: 1600
 	bootstrapsPerPeer: 10, // will not be exact, more like a limit. null = all of them
 	delayBetweenInit: 10, // 0 = faster for simulating big networks but > 0 = should be more realistic
-	randomMessagePerSecondPerPeer: 0, // default: .1, capped at a total of 500msg/sec
+	randomUnicastPerSecondPerPeer: 1, // default: .1, capped at a total of 500msg/sec
+	randomGossipPerSecondPerPeer: 1, // default: 0, capped at a total of 200msg/sec
 };
 
 const peers = {
@@ -70,12 +80,12 @@ function pickUpRandomBootstraps(count = sVARS.bootstrapsPerPeer) {
 	for (let i = 0; i < c; i++) selected.push(sVARS.publicPeersCards[shuffledIndexes[i]]);
 	return selected;
 }
-function addPeer(type = 'public', i = 0, bootstraps = [], init = false, setPublic = false) {
-	const id = `${type === 'standard' ? 'peer' : type}_${i}`;
-	const selectedBootstraps = type === 'standard' ? pickUpRandomBootstraps() : bootstraps;
+function addPeer(type, i = 0, bootstraps = [], init = false, setPublic = false) {
+	const id = `${IDENTIFIERS[type]}${i}`;
+	const selectedBootstraps = type === 'STANDARD_NODE' ? pickUpRandomBootstraps() : bootstraps;
 	const peer = NodeP2P.createNode(id, selectedBootstraps, init);
 	peers.all[id] = peer;
-	peers[type].push(peer);
+	peers[type === 'STANDARD_NODE' ? 'standard' : 'public'].push(peer);
 	if (setPublic) sVARS.publicPeersCards.push(peer.setAsPublic(`localhost`, 8080 + i, 10_000));
 	peer.gossip.on('message_handle', (msg, fromId) => statician.gossip++);
 }
@@ -85,8 +95,8 @@ async function initPeers() {
 	peers.public = []; peers.standard = []; peers.all = {};
 	sVARS.publicPeersCards = []; sVARS.nextPeerToInit = 0; sVARS.publicInit = 0;
 	const d = sVARS.delayBetweenInit;
-	for (sVARS.publicInit; sVARS.publicInit < sVARS.publicPeersCount; sVARS.publicInit++) addPeer('public', sVARS.publicInit, [], true, true);
-	for (let i = 0; i < sVARS.peersCount; i++) addPeer('standard', i, sVARS.publicPeersCards, d === 0);
+	for (sVARS.publicInit; sVARS.publicInit < sVARS.publicPeersCount; sVARS.publicInit++) addPeer('PUBLIC_NODE', sVARS.publicInit, [], true, true);
+	for (let i = 0; i < sVARS.peersCount; i++) addPeer('STANDARD_NODE', i, sVARS.publicPeersCards, d === 0);
 
 	console.log(`%c| PEERS CREATED: { Public: ${peers.public.length}, Standard: ${peers.standard.length} } |`, 'color: yellow; font-weight: bold;');
 	if (d === 0) return; // already initialized
@@ -116,8 +126,8 @@ function getPeerInfo(peerId) {
 		}
 	}
 }
-async function randomMessagesLoop() {
-	const numberOfSender = Math.max(1, Math.floor(sVARS.randomMessagePerSecondPerPeer * (peers.public.length + peers.standard.length) / 10));
+async function randomMessagesLoop(type = 'U', mgPerPeerPerSecond = sVARS.randomUnicastPerSecondPerPeer) {
+	const numberOfSender = Math.max(1, Math.floor(mgPerPeerPerSecond * (peers.public.length + peers.standard.length) / 10));
 	while(true) {
 		const peerIds = Object.keys(peers.all);
 		const peersCount = peerIds.length;
@@ -128,7 +138,8 @@ async function randomMessagesLoop() {
 			if (!sender || senderKnowsPeers.length === 0) continue;
 
 			const recipientId = senderKnowsPeers[Math.floor(Math.random() * senderKnowsPeers.length)];
-			sender.sendMessage(recipientId, 'message',`Hello from ${sender.id}`);
+			if (type === 'U') sender.sendMessage(recipientId, 'test',`Hello from ${sender.id}`);
+			else if (type === 'G') sender.broadcast('test', `Hello to all from ${sender.id}`);
 		} } catch (error) { console.error('Error selecting random sender:', error); }
 
 		await new Promise(resolve => setTimeout(resolve, 1000));
@@ -138,7 +149,9 @@ async function randomMessagesLoop() {
 // INIT SIMULATION
 const statician = new Statician(sVARS, peers);
 if (sVARS.autoStart) initPeers();
-if (sVARS.randomMessagePerSecondPerPeer) randomMessagesLoop();
+if (sVARS.randomUnicastPerSecondPerPeer) randomMessagesLoop('U', sVARS.randomUnicastPerSecondPerPeer);
+if (sVARS.randomGossipPerSecondPerPeer) randomMessagesLoop('G', sVARS.randomGossipPerSecondPerPeer);
+
 const app = express(); // simple server to serve texts/p2p_simulator.html
 app.use('../rendering/visualizer.mjs', (req, res, next) => {
     res.set({ 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache', 'Expires': '0' });
@@ -163,7 +176,6 @@ const onMessage = async (data) => {
 	switch (data.type) {
 		case 'start':
 			sVARS.startTime = Date.now();
-			sManager = sManager ? sManager.destroy(true) : new SubscriptionsManager(send, peers);
 			for (const setting in data.settings) sVARS[setting] = data.settings[setting];
 			await initPeers();
 			send({ type: 'settings', data: sVARS });
@@ -177,8 +189,7 @@ const onMessage = async (data) => {
 		case 'getPeerInfo':
 			send({ type: 'peerInfo', data: { peerId: data.peerId, peerInfo: getPeerInfo(data.peerId) } });
 			if (sManager.onPeerMessage === data.peerId) break;
-			sManager = sManager.destroy(true);
-			sManager.addPeerMessageListener(data.peerId);
+			sManager.setPeerMessageListener(data.peerId);
 			break;
 		case 'tryToConnectNode':
 			const { fromId, targetId } = data;
@@ -188,13 +199,13 @@ const onMessage = async (data) => {
 	}
 }
 const msgQueue = new MessageQueue(onMessage);
-let sManager = new SubscriptionsManager(send, peers);
+const sManager = new SubscriptionsManager(send, peers);
 const wss = new WebSocketServer({ server });
 wss.on('connection', (ws) => {
 	if (clientWs) clientWs.close();
 	clientWs = ws;
 	ws.on('message', async (message) => msgQueue.push(JSON.parse(message)));
-	ws.on('close', () => { sManager.destroy(); msgQueue.reset(); });
+	ws.on('close', () => msgQueue.reset());
 	ws.send(JSON.stringify({ type: 'settings', data: sVARS }));
 	const zeroPeers = peers.public.length + peers.standard.length === 0;
 	if (!zeroPeers) ws.send(JSON.stringify({ type: 'peersIds', data: peersIdsObj() }));

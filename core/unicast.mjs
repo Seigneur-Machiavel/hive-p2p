@@ -1,5 +1,6 @@
-import { DISCOVERY, UNICAST } from "./global_parameters.mjs";
+import { SIMULATION, DISCOVERY, UNICAST } from "./global_parameters.mjs";
 import { RouteBuilder_V1, RouteBuilder_V2 } from "./route-builder.mjs";
+const { SANDBOX, ICE_CANDIDATE_EMITTER, TEST_WS_EVENT_MANAGER } = SIMULATION.ENABLED ? await import('../simulation/test-transports.mjs') : {};
 const RouteBuilder = RouteBuilder_V2; // temporary switch
 
 /**
@@ -26,6 +27,7 @@ export class DirectMessage {
 }
 
 export class UnicastMessager {
+	verbose;
 	/** @type {Record<string, Function[]>} */ callbacks = {};
 	id;
 	peerStore;
@@ -35,7 +37,8 @@ export class UnicastMessager {
 	maxNodes = UNICAST.MAX_NODES;
 
 	/** @param {string} selfId @param {PeerStore} peerStore */
-	constructor(selfId, peerStore) {
+	constructor(selfId, peerStore, verbose = 0) {
+		this.verbose = verbose;
 		this.id = selfId;
 		this.peerStore = peerStore;
 		this.pathFinder = new RouteBuilder(this.id, this.peerStore);
@@ -87,8 +90,20 @@ export class UnicastMessager {
 		if (!builtResult.success) return null;
 		return [...traveledRoute.slice(0, -1), ...builtResult.routes[0].path];
 	}
+	/** @param {string} selfId @param {DirectMessage} message @return {string | undefined} */
+	static handleHandshake(selfId, message) {
+		try { // RESTRICTED TO CONNECTION ENHANCEMENT UNTIL WE KNOW REMOTE ID
+			const deserialized = DirectMessage.deserialize(message);
+			const { route, type, data, timestamp } = deserialized;
+			if (type !== 'handshake' || route.length !== 2 || route[1] !== selfId) return;
+			
+			const [senderId, targetId] = [route[0], route[1]];
+			// DECRYPT THE DATA WITH SENDER ID TO ENSURE IT COMES FROM THE EXPECTED SENDER
+			if (senderId || targetId === selfId) return senderId;
+		} catch (error) { if (this.verbose > 0) console.error(error.stack); }
+	}
 	/** @param {string} from @param {DirectMessage} message @param {any} serialized */
-	handleDirectMessage(from, message, serialized, verbose = 0) {
+	handleDirectMessage(from, message, serialized) {
 		if (this.peerStore.isBanned(from)) return;
 		const { route, type, data, timestamp, isFlexible, reroutedBy } = message;
 		const { traveledRoute, selfPosition } = this.#extractTraveledRoute(route);
@@ -109,14 +124,14 @@ export class UnicastMessager {
 		if (prevId && from !== prevId)
 			return this.peerStore.kickPeer(from, 0); // race condition or not => ignore message
 		
-		if (verbose > 3)
-			if (senderId === from) console.log(`(${this.id}) Direct message ${type} from ${senderId}: ${data}`);
-			else console.log(`(${this.id}) Direct message ${type} from ${senderId} (lastRelay: ${from}): ${data}`);
+		if (this.verbose > 3)
+			if (senderId === from) console.log(`(${this.id}) Direct ${type} from ${senderId}: ${data}`);
+			else console.log(`(${this.id}) Direct ${type} from ${senderId} (lastRelay: ${from}): ${data}`);
 		
-		if (DISCOVERY.TRAVELED_ROUTE) this.peerStore.digestValidRoute(traveledRoute);
+		if (DISCOVERY.ON_UNICAST.DIGEST_TRAVELED_ROUTE) this.peerStore.digestValidRoute(traveledRoute);
 		if (this.id === targetId) { // selfIsDestination
 			for (const cb of this.callbacks[type] || []) cb(senderId, data);
-			return;
+			return { from, senderId, targetId };
 		}
 
 		// re-send the message to the next peer in the route
@@ -128,5 +143,7 @@ export class UnicastMessager {
 			const nextPeerId = patchedRoute[selfPosition + 1];
 			this.#sendMessageToPeer(nextPeerId, patchedMsg);
 		}
+
+		return { from, senderId, targetId };
 	}
 }

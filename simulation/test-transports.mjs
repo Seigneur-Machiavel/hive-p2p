@@ -65,7 +65,7 @@ export class TestWsConnection { // WebSocket like
 	init(remoteWsId) {
 		if (!this.readyState === 3 || this.remoteWsId) {
 			//this.close(); // TESTING
-			setTimeout(() => this.#dispatchError(new Error(`Failed to connect to WebSocket server at ${this.url}`)), 5_000);
+			setTimeout(() => this.#dispatchError(`Failed to connect to WebSocket server at ${this.url}`), 5_000);
 			return;
 		}
 
@@ -90,7 +90,7 @@ export class TestWsConnection { // WebSocket like
 			this.close(); // disconnected, abort operation
 			return;
 		}
-		SANDBOX.enqueueWsMessage(this.remoteWsId, message);
+		SANDBOX.enqueueWsMessage(this.id, this.remoteWsId, message);
 	}
 	#dispatchError(error) {
 		this.callbacks.error.forEach(cb => cb(error));
@@ -152,9 +152,7 @@ export class TestTransport { // SimplePeer like
 		this.initiator = opts.initiator;
 		this.trickle = opts.trickle;
 		this.wrtc = opts.wrtc;
-
-		if (!this.initiator) return; // standby
-		ICE_CANDIDATE_EMITTER.buildSDP(this.id, 'offer');
+		if (this.initiator) ICE_CANDIDATE_EMITTER.buildSDP(this.id, 'offer');
 	}
 
 	on(event, callbacks) {
@@ -167,8 +165,8 @@ export class TestTransport { // SimplePeer like
 		if (this.closing) return;
 		if (this.remoteId) return this.dispatchError(`Transport instance already connected to a remote ID: ${this.remoteId}`);
 		if (!remoteSDP.sdp || !remoteSDP.sdp.id) return this.dispatchError('Invalid remote SDP:', remoteSDP);
-		if (this.initiator && remoteSDP.type !== 'answer') return this.dispatchError('Invalid remote SDP type: expecting an answer.');
-		if (!this.initiator && remoteSDP.type !== 'offer') return this.dispatchError('Invalid remote SDP type: expecting an offer.');
+		if (remoteSDP.type === 'answer' && !this.initiator) return this.dispatchError('Invalid remote SDP type: expecting an answer.');
+		if (remoteSDP.type === 'offer' && this.initiator) return this.dispatchError('Invalid remote SDP type: expecting an offer.');
 
 		ICE_CANDIDATE_EMITTER.digestSignal(remoteSDP, this.id);
 	}

@@ -1,9 +1,14 @@
 import { PeerStore } from './peer-store.mjs';
-import { PeerConnection } from './peer-store-utils.mjs';
+import { PeerConnection } from './peer-store-managers.mjs';
 import { NetworkEnhancer } from './network-enhancer.mjs';
 import { UnicastMessager, DirectMessage } from './unicast.mjs';
 import { Gossip, GossipMessage } from './gossip.mjs';
-import { TRANSPORT, IDENTIFIERS, DISCOVERY, NODE } from './global_parameters.mjs';
+import { SIMULATION, TRANSPORT, IDENTIFIERS, DISCOVERY, NODE } from './global_parameters.mjs';
+
+/**
+ * @typedef {import('ws').WebSocket} WebSocket
+ * @typedef {import('simple-peer').Instance} SimplePeerInstance
+ */
 
 export class NodeP2P {
 	verbose;
@@ -45,50 +50,49 @@ export class NodeP2P {
 		gossip.on('my_neighbours', (senderId, data) => peerStore.digestPeerNeighbours(senderId, data));
 
 		if (verbose > 2) console.log(`NodeP2P initialized: ${id}`);
-
-		// TEST / UPDATE => the delay needs to be lowered => only used to improve network consistency
-		setInterval(() => {
-			if (DISCOVERY.NEIGHBOUR_GOSSIP) this.broadcast('my_neighbours', this.peerStore.neighbours);
-		}, 10_000);
 	}
 
 	// PRIVATE METHODS
 	/** @param {string} peerId @param {'in' | 'out'} direction */
 	#onConnect = (peerId, direction) => {
-		if (!this.peerStore.connected[peerId]) return; // can happen, no worry.
-
 		const [selfIsPublic, remoteIsPublic] = [this.publicUrl, peerId.startsWith(IDENTIFIERS.PUBLIC_NODE)];
-		if (remoteIsPublic) this.broadcast('hello_public', { peerId }); // inform public node of our id by sending his id
-		//if (selfIsPublic && direction === 'out') if (DISCOVERY.NEIGHBOUR_GOSSIP) this.broadcast('my_neighbours', this.peerStore.neighbours);
+		if (selfIsPublic) return; // public node do not need to do anything special on connect
 		
-		//if (selfIsPublic && direction === 'in') this.broadcast('my_neighbours', this.peerStore.neighbours);
-		//else this.gossip.broadcastToPeer(peerId, 'my_neighbours', this.peerStore.neighbours);
-				
-		//if (DISCOVERY.GOSSIP_HISTORY) this.sendMessage(peerId, 'gossip_history', this.gossip.bloomFilter.getGossipHistoryByTime());
+		if (!this.peerStore.connected[peerId])
+			return; // can happen, no worry.
+		if (this.verbose > ((selfIsPublic || remoteIsPublic) ? 3 : 2)) console.log(`(${this.id}) ${direction === 'in' ? 'Incoming' : 'Outgoing'} connection established with peer ${peerId}`);
+		
 		const dispatchEvents = () => {
-			if (DISCOVERY.NEIGHBOUR_GOSSIP) this.broadcast('my_neighbours', this.peerStore.neighbours);
-			if (DISCOVERY.CONNECTED_EVENT) this.broadcast('peer_connected', peerId);
+			const isHandshakeInitiator = (remoteIsPublic || direction === 'in');
+			if (isHandshakeInitiator) this.sendMessage(peerId, 'handshake', { peerId: this.id });
+			if (DISCOVERY.ON_CONNECT_DISPATCH.GOSSIP_HISTORY) this.sendMessage(peerId, 'gossip_history', this.gossip.bloomFilter.getGossipHistoryByTime());
+			if (DISCOVERY.ON_CONNECT_DISPATCH.GOSSIP_NEIGHBOUR) this.broadcast('my_neighbours', this.peerStore.neighbours);
+			if (DISCOVERY.ON_CONNECT_DISPATCH.SEND_EVENT) this.broadcast('peer_connected', peerId);
 		};
-		if (!DISCOVERY.ON_CONNECT_DISPATCH_DELAY) dispatchEvents();
-		else setTimeout(dispatchEvents, DISCOVERY.ON_CONNECT_DISPATCH_DELAY);
+		if (!DISCOVERY.ON_CONNECT_DISPATCH.DELAY) dispatchEvents();
+		else setTimeout(dispatchEvents, DISCOVERY.ON_CONNECT_DISPATCH.DELAY);
 	}
 	/** @param {string} peerId @param {'in' | 'out'} direction */
 	#onDisconnect = (peerId, direction) => {
-		if (this.verbose > 2) console.log(`(${this.id}) ${direction === 'in' ? 'Incoming' : 'Outgoing'} connection closed with peer ${peerId}`);
-		if (this.peerStore.connected[peerId]) return; // still connecting, ignore disconnection for now
-
-		//const connDuration = this.peerStore.connected[peerId]?.getConnectionDuration() || 0;
-		//if (connDuration < NODE.MIN_CONNECTION_TIME_TO_DISPATCH_EVENT) return;
-
-		if (DISCOVERY.DISCONNECTED_EVENT) this.broadcast('peer_disconnected', peerId);
+		const [selfIsPublic, remoteIsPublic] = [this.publicUrl, peerId.startsWith(IDENTIFIERS.PUBLIC_NODE)];
+		const connDuration = this.peerStore.connected[peerId]?.getConnectionDuration() || 0;
+		if (connDuration < DISCOVERY.ON_DISCONNECT_DISPATCH.MIN_CONNECTION_TIME) return;
+		if (this.peerStore.connected[peerId]) return; // still connected, ignore disconnection for now ?
+		if (this.verbose > ((selfIsPublic || remoteIsPublic) ? 3 : 2)) console.log(`(${this.id}) ${direction === 'in' ? 'Incoming' : 'Outgoing'} connection closed with peer ${peerId}`);
+		
+		const dispatchEvents = () => {
+			if (DISCOVERY.ON_DISCONNECT_DISPATCH.SEND_EVENT) this.broadcast('peer_disconnected', peerId);
+		};
+		if (!DISCOVERY.ON_DISCONNECT_DISPATCH.DELAY) dispatchEvents();
+		else setTimeout(dispatchEvents, DISCOVERY.ON_DISCONNECT_DISPATCH.DELAY);
 	}
 	#onData = (peerId, data) => {
 		// SHOULD BE BETTER TO NOT DESERIALIZE HERE
 		// WE WILL USE FIRST BIT TO DISTINGUISH UNICAST / GOSSIP
 		const identifier = data[0];
 		const deserialized = identifier === 'U' ? DirectMessage.deserialize(data) : GossipMessage.deserialize(data);
-		if (deserialized.route) this.messager.handleDirectMessage(peerId, deserialized, data, this.verbose);
-		else this.gossip.handleGossipMessage(peerId, deserialized, data, this.verbose);
+		if (deserialized.route) this.messager.handleDirectMessage(peerId, deserialized, data);
+		else this.gossip.handleGossipMessage(peerId, deserialized, data);
 	}
 	/** @param {string} from @param {Array<{senderId: string, topic: string, data: string | Uint8Array, timestamp: number}>} gossipHistory */
 	#handleIncomingGossipHistory(from, gossipHistory = []) {
@@ -116,61 +120,42 @@ export class NodeP2P {
 	/** @param {string} remoteId @param {string} type @param {string | Uint8Array} data */
 	sendMessage(remoteId, type, data, spread = 1) { this.messager.sendMessage(remoteId, type, data, spread); }
 	async tryConnectToPeer(targetId = 'toto', retry = 5) {
-		if (this.peerStore.connected[targetId]) return; // already connected
+		console.info('FUNCTION DISABLED FOR NOW');
+		/*if (this.peerStore.connected[targetId]) return; // already connected
 		do {
 			if (this.peerStore.sdpOfferManager.readyOffer) break;
 			else await new Promise(r => setTimeout(r, 1000)); // build in progress...
 		} while (retry-- > 0);
 		
 		const readyOffer = this.peerStore.sdpOfferManager.readyOffer;
-		this.messager.sendMessage(targetId, 'signal', { signal: readyOffer, neighbours: this.peerStore.neighbours });
+		this.messager.sendMessage(targetId, 'signal', { signal: readyOffer, neighbours: this.peerStore.neighbours });*/
 	}
 	setAsPublic(domain = 'localhost', port = NODE.SERVICE.PORT) {
 		this.publicUrl = `ws://${domain}:${port}`;
 		this.networkEnhancer.isPublicNode = true;
 		this.networkEnhancer.stopAutoEnhancement(); // avoid auto-connections
 		
-		// public node kick peer after 1min and ban it for 1min to improve network consistency
-		const [{min, max}, kickDuration] = [NODE.SERVICE.AUTO_KICK_DELAY, NODE.SERVICE.AUTO_KICK_DURATION];
-		const kickDelay = () => Math.round(Math.random() * (max - min) + min);
-		this.peerStore.on('connect', (peerId, direction) => { // kick all incoming peers after a delay
-			if (direction === 'in') setTimeout(() => this.peerStore.kickPeer(peerId, kickDuration), kickDelay());
-		});
-		
 		// create simple ws server to accept incoming connections (Require to open port)
 		this.wsServer = new TRANSPORT.WS_SERVER({ port, host: domain });
 		this.wsServer.on('error', (error) => console.error(`WebSocket error on Node #${this.id}:`, error));
 		this.wsServer.on('connection', (ws) => {
-			ws.on('close', () => { for (const cb of this.peerStore.callbacks.disconnect) cb(remoteId, 'in'); });
+			ws.on('close', () => { if (remoteId) for (const cb of this.peerStore.callbacks.disconnect) cb(remoteId, 'in'); });
 			ws.on('error', (error) => console.error(`WebSocket error on Node #${this.id} with peer ${remoteId}:`, error.stack));
 
 			let remoteId;
-			ws.on('message', (message) => {
-				if (remoteId) { // When peer proves his id, we can handle data normally
-					for (const cb of this.peerStore.callbacks.data) cb(remoteId, message);
-					return;
-				}
-
-				try {
-					const identifier = message[0];
-					const deserialized = identifier === 'U' ? DirectMessage.deserialize(message) : GossipMessage.deserialize(message);
-					const { senderId, topic, type, data, TTL } = deserialized;
-					// RESTRICTED TO CONNECTION ENHANCEMENT UNTIL WE KNOW REMOTE ID
-					if (topic !== 'hello_public') return;
-
-					const result = this.gossip.handleGossipMessage(senderId, deserialized, message);
-					if (remoteId || !result?.senderId || !result?.from) return;
-					if (result.from !== result.senderId) return; // should not happen
-
-					remoteId = result.senderId;
-					if (this.peerStore.connecting[remoteId]) return ws.close(); // already connecting, abort operation
-
+			ws.on('message', (message) => { // When peer proves his id, we can handle data normally
+				if (remoteId) for (const cb of this.peerStore.callbacks.data) cb(remoteId, message);
+				else { // First message should be handshake with id
+					remoteId = UnicastMessager.handleHandshake(this.id, message);
+					if (!remoteId || this.peerStore.connecting[remoteId]) return ws.close(); // already connecting, abort operation
+	
 					this.peerStore.connecting[remoteId] = { in: new PeerConnection(remoteId, ws, 'in', true) };
-					this.peerStore.pendingConnections[remoteId] = Date.now() + NODE.CONNECTION_UPGRADE_TIMEOUT;
 					for (const cb of this.peerStore.callbacks.connect) cb(remoteId, 'in');
-				} catch (error) { if (this.verbose > 0) console.error(error.stack); }
+				}
 			});
-
+			
+			const [{min, max}, kickDuration] = [NODE.SERVICE.AUTO_KICK_DELAY, NODE.SERVICE.AUTO_KICK_DURATION];
+			const kickDelay = () => Math.round(Math.random() * (max - min) + min);
 			setTimeout(() => { // better if we can kick IP address instead of id only
 				if (remoteId) this.peerStore.kickPeer(remoteId, kickDuration);
 				if (ws?.readyState === 1) ws?.close();
@@ -180,6 +165,7 @@ export class NodeP2P {
 		return { id: this.id, publicUrl: this.publicUrl };
 	}
 	destroy() {
+		if (this.discoveryLoop) clearInterval(this.discoveryLoop);
 		this.peerStore.destroy();
 		this.networkEnhancer.destroy();
 		if (this.wsServer) this.wsServer.close();

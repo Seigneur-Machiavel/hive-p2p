@@ -17,7 +17,6 @@ import { NODE, SIMULATION } from '../core/global_parameters.mjs';
  * @property {string} sdp.id
  */
 
-const VERBOSE = NODE.DEFAULT_VERBOSE; // 0=none, 1=links, 2=destroy, 3=all
 export class ICECandidateEmitter { // --- ICE SIMULATION ---
 	sandbox;
 	SIGNAL_OFFER_TIMEOUT = 30_000;
@@ -47,7 +46,7 @@ export class ICECandidateEmitter { // --- ICE SIMULATION ---
 			if (!emitterInstance || emitterInstance.closing) continue; // emitter gone
 
 			const { success, signalData, reason } = this.#buildSDP(transportId, type);
-			if (!success || !signalData) emitterInstance.dispatchError(new Error(reason || `Failed to build SDP for peer: ${this.id}`));
+			if (!success || !signalData) emitterInstance.dispatchError(reason || `Failed to build SDP for peer: ${this.id}`);
 			else emitterInstance.callbacks.signal?.forEach(cb => cb(signalData));
 		}
 
@@ -92,11 +91,11 @@ export class ICECandidateEmitter { // --- ICE SIMULATION ---
 			}
 		}
 
+		if (type === 'offer' && this.PENDING_OFFERS[id]?.[SDP_ID]) return { success: false, signalData: null, reason: `There is already a pending offer with the same SDP ID for transport ID: ${id} (extreme case)` };
 		if (type === 'offer' && !this.PENDING_OFFERS[id]) this.PENDING_OFFERS[id] = {};
-		if (type === 'offer' && this.PENDING_OFFERS[id][SDP_ID]) return { success: false, signalData: null, reason: `There is already a pending offer with the same SDP ID for transport ID: ${id} (extreme case)` };
-		
 		if (type === 'offer') this.PENDING_OFFERS[id][SDP_ID] = signalData;
-		else if (type === 'answer') this.PENDING_ANSWERS[id] = signalData;
+
+		if (type === 'answer') this.PENDING_ANSWERS[id] = signalData;
 		return { success: true, signalData, reason: 'na' };
 	}
 	/** @param {SignalData} signalData @param {string} receiverId */
@@ -139,6 +138,7 @@ export class ICECandidateEmitter { // --- ICE SIMULATION ---
 	}
 }
 export class Sandbox {
+	verbose = NODE.DEFAULT_VERBOSE; // 0=none, 1=links, 2=destroy, 3=all
 	wsGlobalIndex = 1; // index to attribute wsInstances IDs
 	tGlobalIndex = 1; // index to attribute transportInstances IDs
 	/** @type {Record<string, TestTransport>} */ transportInstances = {};
@@ -156,7 +156,7 @@ export class Sandbox {
 		const id = (this.wsGlobalIndex++).toString();
 		testWsConnection.id = id;
 		this.wsConnections[id] = testWsConnection;
-		if (VERBOSE > 2) console.log(`[SANDBOX] Inscribed wsConnection: ${testWsConnection.id}`);
+		if (this.verbose > 3) console.log(`[SANDBOX] Inscribed wsConnection: ${testWsConnection.id}`);
 	}
 	connectToWebSocketServer(url, clientWsConnectionId, instancier) {
 		const clientWsConnection = this.wsConnections[clientWsConnectionId];
@@ -177,25 +177,25 @@ export class Sandbox {
 		const transportId = (this.tGlobalIndex++).toString();
 		transportInstance.id = transportId;
 		this.transportInstances[transportId] = transportInstance;
-		if (VERBOSE > 2) console.log(`[SANDBOX] Inscribed transport: ${transportId}`);
+		if (this.verbose > 3) console.log(`[SANDBOX] Inscribed transport: ${transportId}`);
 	}
-	linkInstances(idA, idB) { // SimplePeer instances only
-		const [ tA, tB ] = [ this.transportInstances[idA], this.transportInstances[idB] ];
-		if (!tA || !tB) return `Missing transport instances: ${idA}=>${!!tA}, ${idB}=>${!!tB}`;
-		if (tB.initiator && tA.initiator) return `Both transport instances cannot be initiators: ${idA}, ${idB}`;
-		if (tA.closing || tB.closing) return `One of the transport instances is closing: ${idA}=>${tA.closing}, ${idB}=>${tB.closing}`;
-		if (tA.remoteId) return `Transport instance tA: ${idA} is already linked to remoteId: ${tA.remoteId}`;
-		if (tB.remoteId) return `Transport instance tB: ${idB} is already linked to remoteId: ${tB.remoteId}`;
+	linkInstances(offererId, answererId) { // SimplePeer instances only
+		const [ tA, tB ] = [ this.transportInstances[offererId], this.transportInstances[answererId] ];
+		if (!tA || !tB) return `Missing transport instances: ${offererId}=>${!!tA}, ${answererId}=>${!!tB}`;
+		if (tA.initiator && tB.initiator) return `Both transport instances cannot be initiators: ${offererId}, ${answererId}`;
+		if (tA.closing || tB.closing) return `One of the transport instances is closing: ${offererId}=>${tA.closing}, ${answererId}=>${tB.closing}`;
+		if (tA.remoteId) return `Transport instance tA: ${offererId} is already linked to remoteId: ${tA.remoteId}`;
+		if (tB.remoteId) return `Transport instance tB: ${answererId} is already linked to remoteId: ${tB.remoteId}`;
 
 		// LINK THEM
-		tA.remoteId = idB;
-		tB.remoteId = idA;
+		tA.remoteId = answererId;
+		tB.remoteId = offererId;
 
-		if (VERBOSE > 0) console.log(`[SANDBOX] Linked transports: ${idA} <-> ${idB}`);
+		if (this.verbose > 1) console.log(`[SANDBOX] Linked transports: ${offererId} <-> ${answererId}`);
 
 		// EMIT CONNECT EVENT ON BOTH SIDES
-		tA.callbacks.connect.forEach(cb => cb()); // emit connect event for transportInstance A
-		tB.callbacks.connect.forEach(cb => cb()); // emit connect event for transportInstance B
+		tA.callbacks.connect.forEach(cb => cb()); // emit connect event for offerer Instance
+		tB.callbacks.connect.forEach(cb => cb()); // emit connect event for answerer Instance
 	}
 	sendData(fromId, toId, data) {
 		if (fromId === undefined) return { success: false, reason: `Cannot send message from id: ${fromId}` };
@@ -203,23 +203,17 @@ export class Sandbox {
 		
 		const senderInstance = this.transportInstances[fromId];
 		if (!senderInstance) return { success: false, reason: `No transport instance found for id: ${fromId}` };
-		
-		const senderIsClosing = senderInstance.closing || senderInstance.readyState === 3;
-		if (senderIsClosing) return { success: false, reason: `Transport instance ${fromId} is closing` };
-
 		if (!senderInstance.remoteId) return { success: false, reason: `Transport instance ${fromId} is not linked to any remoteId` };
+		if (senderInstance.id !== fromId) return { success: false, reason: `Wrong id for senderInstance ${fromId} !== ${senderInstance.id}` };
 		if (senderInstance.remoteId !== toId) return { success: false, reason: `Transport instance ${fromId} is not linked to remoteId: ${toId}` };
 
 		const remoteInstance = this.transportInstances[toId];
 		if (!remoteInstance) return { success: false, reason: `No transport instance found for id: ${toId}` };
-		
-		const remoteIsClosing = remoteInstance.closing || remoteInstance.readyState === 3;
-		if (remoteIsClosing) return { success: false, reason: `Transport instance ${toId} is closing` };
-		
+		if (!remoteInstance.remoteId) return { success: false, reason: `Transport instance ${toId} is not linked to any remoteId` };
 		if (remoteInstance.id !== toId) return { success: false, reason: `Wrong id for remoteInstance ${fromId} !== ${toId}` };
 		if (remoteInstance.remoteId !== fromId) return { success: false, reason: `Transport instance ${fromId} is not linked to remoteId: ${toId}` };
 
-		this.enqueueTransportData(remoteInstance.id, remoteInstance.remoteId, data);
+		this.enqueueTransportData(fromId, toId, data);
 		return { success: true, reason: 'na' };
 	}
 	destroyTransportAndAssociatedTransport(id) { // SimplePeer instances only
@@ -228,8 +222,9 @@ export class Sandbox {
 		
 		const remoteId = localInstance.remoteId;
 		const remoteInstance = remoteId ? this.transportInstances[remoteId] : null;
-		if (VERBOSE > 1) console.log(`[SANDBOX] Destroying transports: ${id} ${remoteInstance ? '& ' + remoteId : ''}`);
+		if (this.verbose > 3) console.log(`[SANDBOX] Destroying transports: ${id}`);
 		if (localInstance && remoteInstance) { // close remote instance if linked
+			if (this.verbose > 2) console.log(`[SANDBOX] Destroying linked transports: ${id} & ${remoteId}`);
 			delete this.transportInstances[remoteId];
 			// call destroyTransport again, does nothing because we deleted him from this.transportInstances
 			remoteInstance.destroy(`Remote transport instance ${id} closed the connection.`);
@@ -252,9 +247,9 @@ export class Sandbox {
         
         const endIndex = Math.min(this.queueIndex + this.batchSize, queueLength);
         for (let index = this.queueIndex; index < endIndex; index++) {
-			const [type, id, data, remoteId] = this.messageQueue[index];
+			const [type, id, remoteId, data] = this.messageQueue[index];
 			if (type === 'transport_data') this.#processInstanceMessage(id, remoteId, data);
-            else if (type === 'ws_message') this.#processWsMessage(id, data);
+            else if (type === 'ws_message') this.#processWsMessage(id, remoteId, data);
         }
         this.queueIndex = endIndex;
         
@@ -264,8 +259,7 @@ export class Sandbox {
     }
 
 	#processInstanceMessage(id, remoteId, data) {
-		const remoteInstance = this.transportInstances[id];
-		const senderInstance = this.transportInstances[remoteId];
+		const [senderInstance, remoteInstance] = [this.transportInstances[id], this.transportInstances[remoteId]];
 		if (!senderInstance || !remoteInstance || senderInstance.closing || remoteInstance.closing) {
 			senderInstance?.close();
 			remoteInstance?.close();
@@ -274,14 +268,19 @@ export class Sandbox {
 
 		for (const cb of remoteInstance.callbacks.data) cb(data);
 	}
-	#processWsMessage(id, message) {
-		const remoteWs = this.wsConnections[id];
-		if (!remoteWs || remoteWs.readyState !== 1) return;
-		for (const cb of remoteWs.callbacks.message) cb(message);
-		if (remoteWs.onmessage) remoteWs.onmessage({ data: message });
+	#processWsMessage(id, remoteId, message) {
+		const [senderWs, remoteWs] = [this.wsConnections[id], this.wsConnections[remoteId]];
+		if (!remoteWs || !senderWs || remoteWs.readyState !== 1 || senderWs.readyState !== 1) {
+			remoteWs?.close();
+			senderWs?.close();
+			return;
+		}
+
+		if (remoteWs.onmessage) remoteWs.onmessage({ data: message }); 	// client only
+		else for (const cb of remoteWs.callbacks.message) cb(message); 		// server only
 	}
 
 	// MESSAGE QUEUE API
-	enqueueTransportData(id, remoteId, data) { this.messageQueue.push(['transport_data', id, data, remoteId]); }
-	enqueueWsMessage(remoteWsId, message) { this.messageQueue.push(['ws_message', remoteWsId, message]); }
+	enqueueTransportData(id, remoteId, data) { this.messageQueue.push(['transport_data', id, remoteId, data]); }
+	enqueueWsMessage(id, remoteWsId, message) { this.messageQueue.push(['ws_message', id, remoteWsId, message]); }
 }

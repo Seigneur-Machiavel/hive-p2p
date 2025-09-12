@@ -55,47 +55,35 @@ class DegenerateBloomFilter {
 
 		const isPresent = this.seenTimeouts[h];
 		const isExpired = this.seenTimeouts[h] && n >= this.seenTimeouts[h];
-		if (isPresent && !isExpired) return; // already exists and not expired
-		
 		const expiration = n + GOSSIP.CACHE_DURATION;
 		if (!isPresent) this.cache.push({ hash: h, senderId, topic, data, timestamp, expiration });
-		this.seenTimeouts[h] = expiration;
-
-		if (--this.cleanupIn > 0) return { hash: h, isExpired, isPresent };
-
-		this.#cleanupOldestEntries(n); // cleanup expired cache
-		this.cleanupIn = this.cleanupFrequency;
+		this.seenTimeouts[h] = expiration; // set or update expiration
+		
+		if (isPresent && !isExpired) return; // already exists and not expired
+		if (--this.cleanupIn <= 0) this.#cleanupOldestEntries(n); // cleanup expired cache
 		return { hash: h, isExpired, isPresent };
 	}
-
-	/*#cleanupOldestEntries(n = Date.now()) {
-		for (let i = 0; i < this.cache.length; i++)
-			if (this.cache[i].expiration <= n) delete this.seenTimeouts[this.cache[i].hash];
-			else if (i) return this.cache = this.cache.slice(i);
-			else return; // nothing to clean
-	}*/
 	#cleanupOldestEntries(n = Date.now()) {
 		let firstValidIndex = -1;
-		for (let i = 0; i < this.cache.length; i++) {
-			if (this.cache[i].expiration <= n) {
-				delete this.seenTimeouts[this.cache[i].hash];
-			} else if (firstValidIndex === -1) {
-				firstValidIndex = i;
-			}
-		}
+		for (let i = 0; i < this.cache.length; i++)
+			if (this.cache[i].expiration <= n) delete this.seenTimeouts[this.cache[i].hash];
+			else if (firstValidIndex === -1) firstValidIndex = i;
 		
 		if (firstValidIndex > 0) this.cache = this.cache.slice(firstValidIndex);
 		else if (firstValidIndex === -1) this.cache = [];
+		this.cleanupIn = this.cleanupFrequency;
 	}
 }
 export class Gossip {
+	verbose;
 	id;
 	peerStore;
 	bloomFilter = new DegenerateBloomFilter();
 	/** @type {Record<string, Function[]>} */ callbacks = {};
 
 	/** @param {string} peerId @param {PeerStore} peerStore */
-	constructor(peerId, peerStore) {
+	constructor(peerId, peerStore, verbose = 0) {
+		this.verbose = verbose;
 		this.id = peerId;
 		this.peerStore = peerStore;
 		this.bloomFilter.id = peerId; // DEBUG
@@ -110,9 +98,11 @@ export class Gossip {
 	 * @param {string} topic @param {string | Uint8Array} data @param {number} [timestamp]
 	 * @param {string} [targetId] @param {number} [ttl] */
 	broadcast(topic, data, targetId, timestamp = Date.now(), ttl) {
-		this.bloomFilter.addMessage(this.id, topic, data, timestamp); // avoid re-processing our own message
+		if (!this.bloomFilter.addMessage(this.id, topic, data, timestamp)) return; // avoid re-processing our own message
+		
 		const serializedData = GossipMessage.serialize(this.id, topic, data, timestamp, ttl || GOSSIP.TTL[topic] || GOSSIP.TTL.default);
 		const targetsId = targetId ? [targetId] : Object.keys(this.peerStore.connected);
+		if (this.verbose > 3) console.log(`(${this.id}) Gossip ${topic}, to ${JSON.stringify(targetsId)}: ${data}`);
 		for (const peerId of targetsId) this.#broadcastToPeer(peerId, serializedData);
 	}
 	/** @param {string} targetId @param {any} serializedData */
@@ -131,15 +121,19 @@ export class Gossip {
 		// DECRYPT DATA WITH (pubKey === 'senderId')
 		const { senderId, topic, data, timestamp, TTL } = message;
 		for (const cb of this.callbacks['message_handle'] || []) cb(senderId, data); // mainly used in debug
-		
 		if (!this.bloomFilter.addMessage(senderId, topic, data, timestamp)) return; // already processed this message
+		
+		if (this.verbose > 3)
+			if (senderId === from) console.log(`(${this.id}) Gossip ${topic} from ${senderId}: ${data}`);
+			else console.log(`(${this.id}) Gossip ${topic} from ${senderId} (by: ${from}): ${data}`);
+
 		if (senderId === this.id) // DEBUG
-			throw new Error(`Received our own message back from peer ${from}.`);
+			throw new Error(`#${this.id}#${from}# Received our own message back from peer ${from}.`);
 		for (const cb of this.callbacks[topic] || []) cb(senderId, data);
 
 		if (TTL < 1) return; // stop forwarding if TTL is 0
 		//if (this.id === senderId) return; // avoid sending our own message again => SHOULD NOT HAPPEN!!
-		if (topic === 'hello_public') return { from, senderId };
+		if (topic === 'handshake') return { from, senderId };
 
 		const neighbours = Object.entries(this.peerStore.connected);
 		const nCount = neighbours.length;

@@ -100,7 +100,8 @@ export class SubscriptionsManager {
 		if (Object.values(stats).every(v => v === 0)) return null;
 		return !formating ? stats : statsFormating(stats);
 	}
-	addPeerMessageListener(peerId) {
+	setPeerMessageListener(peerId) {
+		this.#removeExistingPeerMessageListener();
 		const peer = this.peers.all[peerId];
 		if (!peer) return false;
 		
@@ -126,14 +127,10 @@ export class SubscriptionsManager {
 		});
 		return true;
 	}
-	removePeerMessageListener() {
+	#removeExistingPeerMessageListener() {
+		if (this.onPeerMessage === null) return;
 		const peer = this.peers.all[this.onPeerMessage];
-		if (peer) peer.peerStore.callbacks.data.splice(0, 1);
+		if (peer) peer.peerStore.callbacks.data.pop(); // BUG ?
 		this.onPeerMessage = null;
-	}
-	destroy(returnNewInstance = false) {
-		this.removePeerMessageListener();
-		if (this.interval) clearInterval(this.interval);
-		if (returnNewInstance) return new SubscriptionsManager(this.sendFnc, this.peers);
 	}
 };
