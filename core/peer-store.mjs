@@ -49,7 +49,7 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 			instance.on('data', data => {
 				if (peerId) for (const cb of this.callbacks.data) cb(peerId, data);
 				else { // First data should be handshake with id
-					peerId = UnicastMessager.handleHandshake(this.id, data);
+					peerId = UnicastMessager.handleHandshake(this.id, data, this.verbose);
 					if (!peerId) return; // handled another message or invalid handshake
 					for (const cb of this.callbacks.connect) cb(peerId, instance.initiator ? 'out' : 'in');
 					// already connecting the other way, but this one succeded first => close the other one

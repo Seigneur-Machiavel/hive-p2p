@@ -1,5 +1,6 @@
 import { SIMULATION, DISCOVERY, UNICAST } from "./global_parameters.mjs";
 import { RouteBuilder_V1, RouteBuilder_V2 } from "./route-builder.mjs";
+import { Serializer } from './serializer.mjs';
 const { SANDBOX, ICE_CANDIDATE_EMITTER, TEST_WS_EVENT_MANAGER } = SIMULATION.ENABLED ? await import('../simulation/test-transports.mjs') : {};
 const RouteBuilder = RouteBuilder_V2; // temporary switch
 
@@ -10,19 +11,10 @@ export class DirectMessage {
 	/** @type {number} */ timestamp;
 	/** @type {boolean} */ isFlexible;
 	/** @type {string | undefined} */ reroutedBy;
-
-	/** 
-	 * @param {string[]} route @param {'signal' | 'message'} type @param {string | Uint8Array} data
-	 * @param {number} timestamp @param {boolean} isFlexible */
-	static serialize(route, type, data, timestamp, isFlexible = false, reroutedBy = undefined) {
-		return 'U' + UNICAST.SERIALIZER({ route, type, data, timestamp, isFlexible, reroutedBy });
-	}
-	static deserialize(serialized) {
-		return UNICAST.DESERIALIZER(serialized.slice(1));
-	}
 }
 
 export class UnicastMessager {
+	serializer = new Serializer();
 	verbose;
 	/** @type {Record<string, Function[]>} */ callbacks = {};
 	id;
@@ -59,7 +51,7 @@ export class UnicastMessager {
 		const finalSpread = flexibleRouting ? 1 : spread; // Spread only if re-routing is false
 		for (let i = 0; i < Math.min(finalSpread, builtResult.routes.length); i++) {
 			const route = builtResult.routes[i].path;
-			const msg = DirectMessage.serialize(route, type, data, timestamp, flexibleRouting);
+			const msg = this.serializer.serializeUnicast(route, type, data, timestamp, flexibleRouting);
 			this.#sendMessageToPeer(route[1], msg); // send to next peer
 		}
 		return true;
@@ -87,16 +79,17 @@ export class UnicastMessager {
 		return [...traveledRoute.slice(0, -1), ...builtResult.routes[0].path];
 	}
 	/** @param {string} selfId @param {DirectMessage} message @return {string | undefined} */
-	static handleHandshake(selfId, message) {
+	static handleHandshake(selfId, message, verbose = 0) {
+		const serializer = new Serializer();
 		try { // RESTRICTED TO CONNECTION ENHANCEMENT UNTIL WE KNOW REMOTE ID
-			const deserialized = DirectMessage.deserialize(message);
-			const { route, type, data, timestamp } = deserialized;
+			const { route, type, data, timestamp } = serializer.deserialize(message);
 			if (type !== 'handshake' || route.length !== 2 || route[1] !== selfId) return;
 			
 			const [senderId, targetId] = [route[0], route[1]];
 			// DECRYPT THE DATA WITH SENDER ID TO ENSURE IT COMES FROM THE EXPECTED SENDER
 			if (senderId || targetId === selfId) return senderId;
-		} catch (error) { if (this.verbose > 0) console.error(error.stack); }
+		} catch (error) {
+			 if (verbose > 0) console.error(error.stack); }
 	}
 	/** @param {string} from @param {DirectMessage} message @param {any} serialized */
 	handleDirectMessage(from, message, serialized) {
@@ -133,7 +126,7 @@ export class UnicastMessager {
 		if (!success && isFlexible && !reroutedBy) { // try to patch the route
 			const patchedRoute = this.#patchRouteToReachTarget(traveledRoute, targetId);
 			if (!patchedRoute) return;
-			const patchedMsg = DirectMessage.serialize(patchedRoute, type, data, timestamp, isFlexible, true);
+			const patchedMsg = this.serializer.serializeUnicast(patchedRoute, type, data, timestamp, isFlexible, from);
 			const nextPeerId = patchedRoute[selfPosition + 1];
 			this.#sendMessageToPeer(nextPeerId, patchedMsg);
 		}

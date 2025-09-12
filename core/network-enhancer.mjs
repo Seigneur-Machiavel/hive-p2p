@@ -58,6 +58,7 @@ export class NetworkEnhancer {
 		for (const [offerHash, readyOffer] of Object.entries(this.peerStore.sdpOfferManager.offers)) {
 			const { isUsed, sentCounter, signal } = readyOffer;
 			if (isUsed || sentCounter > 0) continue; // already used or already sent at least once
+			if (neighboursCount >= DISCOVERY.TARGET_NEIGHBORS_COUNT) break; // already enough, do nothing
 
 			this.gossip.broadcast('signal', { signal, neighbours: this.peerStore.neighbours, offerHash });
 			readyOffer.sentCounter++;
@@ -115,6 +116,7 @@ export class NetworkEnhancer {
 	}
 	#connectToPublicNode(remoteId = 'toto', publicUrl = 'localhost:8080') {
 		const ws = new TRANSPORTS.WS_CLIENT(publicUrl);
+		ws.binaryType = 'arraybuffer';
 		this.peerStore.connecting[remoteId] = { out: new PeerConnection(remoteId, ws, 'out', true) };
 		ws.onerror = (error) => console.error(`WebSocket error:`, error.stack);
 		ws.onopen = () => {

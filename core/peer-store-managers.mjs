@@ -89,6 +89,7 @@ export class SdpOfferManager { // Manages the creation of SDP offers and handlin
 		// CLEAR USED AND EXPIRED OFFERS
 		const now = Date.now();
 		for (const [hash, offer] of Object.entries(this.offers)) {
+			if (offer.offererInstance.destroyed) { delete this.offers[hash]; continue; } // offerer destroyed
 			if (offer.isUsed) { delete this.offers[hash]; continue; } // used offer => remove it (handled by peerStore)
 			if (offer.timestamp + TRANSPORTS.SDP_OFFER_EXPIRATION > now) continue; // not expired yet
 			offer.offererInstance?.destroy();
@@ -98,6 +99,7 @@ export class SdpOfferManager { // Manages the creation of SDP offers and handlin
 		// TRY TO USE AVAILABLE ANSWERS
 		for (const [hash, offer] of Object.entries(this.offers)) {
 			if (!offer.answers.length) continue; // no answers available
+			if (offer.offererInstance.destroyed) continue; // offerer destroyed
 			const randomIndex = Math.random() * offer.answers.length | 0;
 			const answer = offer.answers[randomIndex];
 			offer.offererInstance.signal(answer.signal);
@@ -114,7 +116,7 @@ export class SdpOfferManager { // Manages the creation of SDP offers and handlin
 			this.offerCreationTimeout = null;
 			instance?.destroy();
 			this.creatingOffer = false; // release flag
-		}, 5_000);
+		}, TRANSPORTS.SIGNAL_CREATION_TIMEOUT || 8000); // should be above SimplePeer internal timeout of 5 seconds
 	}, 500);
 	#createOffererInstance() {
 		const instance = new TRANSPORTS.PEER({ initiator: true, trickle: false, wrtc });
@@ -141,6 +143,12 @@ export class SdpOfferManager { // Manages the creation of SDP offers and handlin
 	}
 	#onError = (error) => {
 		if (this.verbose < 1) return; // avoid logging
+		// PRODUCTION (SimplePeer ERRORS)
+		if (this.verbose < 2 && error.message.includes('Ice connection failed') ) return; // avoid logging
+		if (this.verbose > 1 && error.message.includes('Ice connection failed') ) return console.info(`%c WRTC => ${error.message}`, 'color: orange;');
+		if (this.verbose < 2 && error.message.includes('Connection failed')) return; // avoid logging
+		if (this.verbose > 1 && error.message.includes('Connection failed')) return console.info(`%c WRTC => ${error.message}`, 'color: orange;');
+
 		if (this.verbose < 3 && error.message.startsWith('Simulated failure')) return; // avoid logging
 		if (this.verbose < 2 && error.message.startsWith('Failed to digest')) return; // avoid logging
 		if (this.verbose < 2 && error.message.startsWith('No peer found')) return; // avoid logging
@@ -160,7 +168,8 @@ export class SdpOfferManager { // Manages the creation of SDP offers and handlin
 		
 		if (this.verbose < 3 && error.message.includes('closed the connection')) return; // avoid logging
 		if (this.verbose > 2 && error.message.includes('closed the connection')) return console.info(`%c${error.message}`, 'color: orange;');
-		console.error(`transportInstance ERROR => `, error.stack);
+		
+		if (this.verbose > 0) console.error(`transportInstance ERROR => `, error.stack);
 	};
 	addSignalAnswer(remoteId, signal, offerHash) {
 		if (!signal || signal.type !== 'answer' || !offerHash) return; // ignore non-answers or missing offerHash

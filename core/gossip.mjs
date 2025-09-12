@@ -1,5 +1,6 @@
 import { GOSSIP } from './global_parameters.mjs';
 import { xxHash32 } from '../utils/xxhash32.mjs';
+import { Serializer } from './serializer.mjs';
 
 export class GossipMessage {
 	/** @type {string} */ senderId;
@@ -7,15 +8,6 @@ export class GossipMessage {
 	/** @type {string | Uint8Array} */ data;
 	/** @type {number} */ timestamp;
 	/** @type {number} */ TTL;
-
-	/** @param {string} senderId @param {string} topic @param {string | Uint8Array} data
-	 * @param {number} timestamp @param {number} [TTL] default: 3 */
-	static serialize(senderId, topic, data, timestamp, TTL = 3) {
-		return 'G' + GOSSIP.SERIALIZER({ senderId, topic, data, timestamp, TTL });
-	}
-	static deserialize(serialized) {
-		return GOSSIP.DESERIALIZER(serialized.slice(1));
-	}
 }
 
 /** - 'BloomFilterCacheEntry' Definition
@@ -71,6 +63,7 @@ class DegenerateBloomFilter {
 }
 
 export class Gossip {
+	serializer = new Serializer();
 	id;
 	verbose;
 	peerStore;
@@ -95,7 +88,7 @@ export class Gossip {
 	broadcast(topic, data, targetId, timestamp = Date.now(), ttl) {
 		if (!this.bloomFilter.addMessage(this.id, topic, data, timestamp)) return; // avoid re-processing our own message
 		
-		const serializedData = GossipMessage.serialize(this.id, topic, data, timestamp, ttl || GOSSIP.TTL[topic] || GOSSIP.TTL.default);
+		const serializedData = this.serializer.serializeGossip(this.id, topic, data, timestamp, ttl || GOSSIP.TTL[topic] || GOSSIP.TTL.default);
 		const targetsId = targetId ? [targetId] : Object.keys(this.peerStore.connected);
 		if (this.verbose > 3) console.log(`(${this.id}) Gossip ${topic}, to ${JSON.stringify(targetsId)}: ${data}`);
 		for (const peerId of targetsId) this.#broadcastToPeer(peerId, serializedData);
@@ -133,7 +126,7 @@ export class Gossip {
 		const tRateBase = GOSSIP.TRANSMISSION_RATE[topic] || GOSSIP.TRANSMISSION_RATE.default;
 		const transmissionRate = Math.pow(tRateBase, trm);
 		const avoidTransmissionRate = nCount < GOSSIP.TRANSMISSION_RATE.MIN_NEIGHBOURS_TO_APPLY_PONDERATION;
-		const messageWithDecrementedTTL = GossipMessage.serialize(senderId, topic, data, timestamp, TTL - 1);
+		const messageWithDecrementedTTL = this.serializer.serializeGossip(senderId, topic, data, timestamp, TTL - 1);
 		for (const [peerId, conn] of neighbours) {
 			if (peerId === from) continue; // avoid sending back to sender
 			if (!avoidTransmissionRate && Math.random() > transmissionRate) continue; // apply gossip transmission rate

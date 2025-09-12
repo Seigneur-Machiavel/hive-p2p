@@ -4,15 +4,15 @@ const isNode = (typeof window === 'undefined');
 // SIMPLIFY: IMPORTS, SIMULATOR AND BROWSER SUPPORT
 
 export const SIMULATION = {
-	ENABLED: false, // enable simulation features
-	ICE_DELAY: { min: 250, max: 3000 }, // simulation delay range for ICE candidates in ms | default: { min: 250, max: 3000 }
+	USE_TEST_TRANSPORTS: true, 	// enable simulation features
+	ICE_DELAY: { min: 250, max: 3000 }, // ICE candidates in ms | default: { min: 250, max: 3000 }
 	ICE_OFFER_FAILURE_RATE: .2, 	// default: .2, 20% offer failure
 	ICE_ANSWER_FAILURE_RATE: .15, 	// default: .15, 15% answer failure
 
 	AVOID_FOLLOWERS_NODES: true, 	// avoid twitch nodes creation | default: true
 	AUTO_START: true,				// auto start the simulation, false to wait the frontend | default: true
-	PUBLIC_PEERS_COUNT: 3,			// stable: 3,  medium: 100, strong: 200 | default: 3
-	PEERS_COUNT: 100,				// stable: 25, medium: 800, strong: 1600 | default: 10
+	PUBLIC_PEERS_COUNT: 100,		// stable: 3,  medium: 100, strong: 200 | default: 2
+	PEERS_COUNT: 1000,				// stable: 25, medium: 800, strong: 1600 | default: 12
 	BOOTSTRAPS_PER_PEER: 10,		// will not be exact, more like a limit. null = all of them | default: 10
 	DELAY_BETWEEN_INIT: 10,			// 0 = faster for simulating big networks but > 0 = should be more realistic | default: 10
 	RANDOM_UNICAST_PER_SEC: 1,		// default: .1, capped at a total of 500msg/sec | default: 1
@@ -23,10 +23,10 @@ export const SIMULATION = {
 export const NODE = {
 	IS_BROWSER: (typeof window !== 'undefined'),
 	DEFAULT_VERBOSE: 1, // 0: none, 1: errors, 2: +important info, 3: +debug, 4: +everything
-	CONNECTION_UPGRADE_TIMEOUT: 10_000,
+	CONNECTION_UPGRADE_TIMEOUT: 15_000, // time to close connection of connecting peer | default: 15_000 (15 seconds), to make signal throw: 4_000 (4 seconds)
 	SERVICE: {
 		PORT: 8080,
-		AUTO_KICK_DELAY: { min: 15_000, max: 60_000 }, // default: { min: 30_000, max: 60_000 }
+		AUTO_KICK_DELAY: { min: 20_000, max: 60_000 }, // default: { min: 20_000, max: 60_000 }
 		AUTO_KICK_DURATION: 120_000, // default: 60_000 (1 minute)
 		MAX_WS_OUT_CONNS: 2, 		// Max outgoing WebSocket connections to public nodes | default: 2
 	},
@@ -34,6 +34,7 @@ export const NODE = {
 
 export const TRANSPORTS = {
 	MAX_SDP_OFFERS: 3, 				// max SDP offers to create in advance | default: 3
+	SIGNAL_CREATION_TIMEOUT: 8_000, // time to wait for signal before destroying WTRC connection | default: 8_000 (8 seconds) | note: SimplePeer have a internal timeout of 5 secondes, we should be above that
 	SDP_OFFER_EXPIRATION: 30_000, 	// duration to consider an SDP offer as valid | default: 30_000 (30 seconds)
 	WS_CLIENT: WebSocket,			// Simulation: patched with TestWsConnection (this one can be used as a server too)
 	WS_SERVER: isNode ? (await import('ws')).WebSocketServer : null, // Simulation: patched with TestWsServer
@@ -65,18 +66,18 @@ export const DISCOVERY = {
 }
 
 export const UNICAST = {
-	SERIALIZER: JSON.stringify,
-	DESERIALIZER: JSON.parse,
+	MARKER: 'U', // to identify unicast messages
+	MARKER_BYTE: 85, // 'U' > 85
 	MAX_HOPS: 6,	// default: 6, light: 4, super-light: 2
 	MAX_NODES: 512, // default: 1728 (12³), light: 512 (8³), super-light: 144 (8²)
 	MAX_ROUTES: 5 	// default: 5, light: 3, super-light: 1
 }
 
 export const GOSSIP = {
+	MARKER: 'G', // to identify gossip messages
+	MARKER_BYTE: 71, // 'G' > 71
 	EXPIRATION: 10_000, 	// Time to consider a message as valid | default: 10_000 (10 seconds)
 	CACHE_DURATION: 20_000, // Duration to keep messages in cache
-	SERIALIZER: JSON.stringify,
-	DESERIALIZER: JSON.parse,
 	TTL: {
 		default: 10,
 		// signal: 5,
@@ -87,8 +88,8 @@ export const GOSSIP = {
 	TRANSMISSION_RATE: {
 		MIN_NEIGHBOURS_TO_APPLY_PONDERATION: 4, // DECREASE TO APPLY PONDERATION SOONER, default: 4
 		NEIGHBOURS_PONDERATION: 2, 	// DECREASE TO LOWER TRANSMISSION RATE BASED ON NEIGHBOURS COUNT, default: 2
-		default: 1, // .51 === 50%
-		peer_connected: .618, // we can reduce this, but lowering the map quality
+		default: 1, 				// .51 === 50%
+		peer_connected: .618, 		// we can reduce this, but lowering the map quality
 		//peer_disconnected: .618
 	},
 }

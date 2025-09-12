@@ -43,7 +43,7 @@ export class ICECandidateEmitter { // --- ICE SIMULATION ---
 			}
 			
 			const emitterInstance = this.sandbox.transportInstances[transportId];
-			if (!emitterInstance || emitterInstance.closing) continue; // emitter gone
+			if (!emitterInstance || emitterInstance.destroying || emitterInstance.destroyed) continue; // emitter gone
 
 			const { success, signalData, reason } = this.#buildSDP(transportId, type);
 			if (!success || !signalData) emitterInstance.dispatchError(reason || `Failed to build SDP for peer: ${this.id}`);
@@ -55,7 +55,7 @@ export class ICECandidateEmitter { // --- ICE SIMULATION ---
 		this.signalsToDigest = []; // reset, can be filled during the operation
 		for (const { signalData, receiverId } of signalsToDigest) {
 			const receiverInstance = this.sandbox.transportInstances[receiverId];
-			if (!receiverInstance || receiverInstance.closing) continue; // receiver gone
+			if (!receiverInstance || receiverInstance.destroying || receiverInstance.destroyed) continue; // receiver gone
 
 			const { success, reason } = this.#digestSignal(signalData, receiverId);
 			if (!success) receiverInstance.dispatchError(reason || `Failed to digest signal for peer: ${this.id}`);
@@ -183,7 +183,8 @@ export class Sandbox {
 		const [ tA, tB ] = [ this.transportInstances[offererId], this.transportInstances[answererId] ];
 		if (!tA || !tB) return `Missing transport instances: ${offererId}=>${!!tA}, ${answererId}=>${!!tB}`;
 		if (tA.initiator && tB.initiator) return `Both transport instances cannot be initiators: ${offererId}, ${answererId}`;
-		if (tA.closing || tB.closing) return `One of the transport instances is closing: ${offererId}=>${tA.closing}, ${answererId}=>${tB.closing}`;
+		if (tA.destroying || tB.destroying) return `One of the transport instances is destroying: ${offererId}=>${tA.destroying}, ${answererId}=>${tB.destroying}`;
+		if (tA.destroyed || tB.destroyed) return `One of the transport instances is destroyed: ${offererId}=>${tA.destroyed}, ${answererId}=>${tB.destroyed}`;
 		if (tA.remoteId) return `Transport instance tA: ${offererId} is already linked to remoteId: ${tA.remoteId}`;
 		if (tB.remoteId) return `Transport instance tB: ${answererId} is already linked to remoteId: ${tB.remoteId}`;
 
@@ -260,11 +261,13 @@ export class Sandbox {
 
 	#processInstanceMessage(id, remoteId, data) {
 		const [senderInstance, remoteInstance] = [this.transportInstances[id], this.transportInstances[remoteId]];
-		if (!senderInstance || !remoteInstance || senderInstance.closing || remoteInstance.closing) {
+		if (!senderInstance || !remoteInstance || senderInstance.destroying || remoteInstance.destroying) {
 			senderInstance?.close();
 			remoteInstance?.close();
 			return;
 		}
+		if (senderInstance.destroyed) { remoteInstance.close(); return; }
+		if (remoteInstance.destroyed) { senderInstance.close(); return; }
 
 		for (const cb of remoteInstance.callbacks.data) cb(data);
 	}

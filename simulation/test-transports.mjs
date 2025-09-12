@@ -139,6 +139,8 @@ class TestTransportOptions {
 }
 
 export class TestTransport { // SimplePeer like
+	destroying;
+	destroyed;
 	id = null;
 	isTestTransport = true;
 	remoteId = null; // Can send message only if corresponding remoteId on both sides
@@ -163,7 +165,9 @@ export class TestTransport { // SimplePeer like
 		this.callbacks.error.forEach(cb => cb(new Error(message)));
 	}
 	signal(remoteSDP) {
-		if (this.closing) return;
+		if (this.destroying) return;
+		if (this.destroyed) 
+			throw new Error(`Transport instance already destroyed: ${this.id}`);
 		if (this.remoteId) return this.dispatchError(`Transport instance already connected to a remote ID: ${this.remoteId}`);
 		if (!remoteSDP.sdp || !remoteSDP.sdp.id) return this.dispatchError('Invalid remote SDP:', remoteSDP);
 		if (remoteSDP.type === 'answer' && !this.initiator) return this.dispatchError('Invalid remote SDP type: expecting an answer.');
@@ -180,12 +184,14 @@ export class TestTransport { // SimplePeer like
 		this.destroy();
 	}
 	destroy(errorMsg = null) {
-		if (this.closing) return;
-		this.closing = true;
+		if (this.destroying) return;
+		this.destroying = true;
 		if (errorMsg) this.dispatchError(errorMsg);
 
 		this.callbacks.close?.forEach(cb => cb());
 		SANDBOX.destroyTransportAndAssociatedTransport(this.id);
+		this.destroyed = true;
+		this.destroying = false;
 	}
 }
 

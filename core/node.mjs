@@ -1,11 +1,13 @@
+import { SIMULATION, TRANSPORTS, IDENTIFIERS, DISCOVERY, NODE } from './global_parameters.mjs';
 import { PeerStore } from './peer-store.mjs';
 import { PeerConnection } from './peer-store-managers.mjs';
 import { NetworkEnhancer } from './network-enhancer.mjs';
 import { UnicastMessager, DirectMessage } from './unicast.mjs';
 import { Gossip, GossipMessage } from './gossip.mjs';
-import { SIMULATION, TRANSPORTS, IDENTIFIERS, DISCOVERY, NODE } from './global_parameters.mjs';
+import { Serializer } from './serializer.mjs';
 
 export class NodeP2P {
+	serializer = new Serializer();
 	verbose;
 	/** @type {string | undefined} WebSocket URL (public node only) */ publicUrl;
 	/** should be based on crypto */ id;
@@ -78,10 +80,9 @@ export class NodeP2P {
 	#onData = (peerId, data) => {
 		// SHOULD BE BETTER TO NOT DESERIALIZE HERE
 		// WE WILL USE FIRST BIT TO DISTINGUISH UNICAST / GOSSIP
-		const identifier = data[0];
-		const deserialized = identifier === 'U' ? DirectMessage.deserialize(data) : GossipMessage.deserialize(data);
-		if (deserialized.route) this.messager.handleDirectMessage(peerId, deserialized, data);
-		else this.gossip.handleGossipMessage(peerId, deserialized, data);
+		const d = this.serializer.deserialize(data);
+		if (d.topic) this.gossip.handleGossipMessage(peerId, d, data);
+		else if (d.route) this.messager.handleDirectMessage(peerId, d, data);
 	}
 	/** @param {string} from @param {Array<{senderId: string, topic: string, data: string | Uint8Array, timestamp: number}>} gossipHistory */
 	#handleIncomingGossipHistory(from, gossipHistory = []) {
@@ -134,7 +135,7 @@ export class NodeP2P {
 			ws.on('message', (message) => { // When peer proves his id, we can handle data normally
 				if (remoteId) for (const cb of this.peerStore.callbacks.data) cb(remoteId, message);
 				else { // First message should be handshake with id
-					remoteId = UnicastMessager.handleHandshake(this.id, message);
+					remoteId = UnicastMessager.handleHandshake(this.id, message, this.verbose);
 					if (!remoteId || this.peerStore.connecting[remoteId]) return ws.close(); // already connecting, abort operation
 	
 					this.peerStore.connecting[remoteId] = { in: new PeerConnection(remoteId, ws, 'in', true) };

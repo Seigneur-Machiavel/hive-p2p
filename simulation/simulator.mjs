@@ -6,14 +6,15 @@ import { SIMULATION, TRANSPORTS, IDENTIFIERS } from '../core/global_parameters.m
 import { TestWsServer, TestWsConnection, TestTransport } from '../simulation/test-transports.mjs';
 import { MessageQueue, Statician, SubscriptionsManager } from './simulator-utils.mjs';
 
-// SETUP SIMULATION ENV --------------------------------------------\
-SIMULATION.ENABLED = true; // enable simulation features	   		|
-TRANSPORTS.WS_SERVER = TestWsServer; // default: WebSocketServer	|
-TRANSPORTS.WS_CLIENT = TestWsConnection; // default: WebSocket		|
-TRANSPORTS.PEER = TestTransport; // default: SimplePeer				|
-IDENTIFIERS.PUBLIC_NODE = 'public_'; //	default: 'P'				|
-IDENTIFIERS.STANDARD_NODE = 'peer_'; //	default: undefined			|
-//------------------------------------------------------------------/
+// SETUP SIMULATION ENV -----------------------------------------------\
+IDENTIFIERS.PUBLIC_NODE = 'Public_'; //	default: 'P'					|
+IDENTIFIERS.STANDARD_NODE = 'peer_'; //	default: undefined				|
+if (SIMULATION.USE_TEST_TRANSPORTS) {//									|
+	TRANSPORTS.WS_SERVER = TestWsServer; // default: WebSocketServer	|
+	TRANSPORTS.WS_CLIENT = TestWsConnection; // default: WebSocket		|
+	TRANSPORTS.PEER = TestTransport; // default: SimplePeer				|
+}//																		|
+//---------------------------------------------------------------------/
 
 // IMPORT NODE AFTER SIMULATION ENV SETUP
 const { NodeP2P } = await import('../core/node.mjs'); // dynamic import to allow simulation overrides
@@ -35,11 +36,11 @@ const sVARS = { // SIMULATION VARIABLES
 };
 
 const peers = {
-	/** @type {Record<string, NodeP2P>} */
+	/** @type {Record<string, import('../core/node.mjs').NodeP2P>} */
 	all: {},
-	/** @type {Array<NodeP2P>} */
+	/** @type {Array<import('../core/node.mjs').NodeP2P>} */
 	public: [],
-	/** @type {Array<NodeP2P>} */
+	/** @type {Array<import('../core/node.mjs').NodeP2P>} */
 	standard: [],
 }
 
@@ -118,7 +119,7 @@ async function randomMessagesLoop(type = 'U', mgPerPeerPerSecond = SIMULATION.RA
 			if (!sender || senderKnowsPeers.length === 0) continue;
 
 			const recipientId = senderKnowsPeers[Math.floor(Math.random() * senderKnowsPeers.length)];
-			if (type === 'U') sender.sendMessage(recipientId, 'test',`Hello from ${sender.id}`);
+			if (type === 'U') sender.sendMessage(recipientId, 'test', `Hello from ${sender.id}`);
 			else if (type === 'G') sender.broadcast('test', `Hello to all from ${sender.id}`);
 		} } catch (error) { console.error('Error selecting random sender:', error); }
 
@@ -144,7 +145,7 @@ app.get('/', (req, res) => res.sendFile('rendering/visualizer.html', { root: '.'
 
 /** @type {WebSocket} */
 let clientWs;
-const send = (msgObj, startTime) => {
+const send = (msgObj, startTime) => { // Send message to visualizer (front)
 	if (!startTime) clientWs.send(JSON.stringify(msgObj));
 	else clientWs.send(JSON.stringify(msgObj), () => {
 		const tt = Date.now() - startTime;
@@ -156,9 +157,10 @@ const onMessage = async (data) => {
 	switch (data.type) {
 		case 'start':
 			sVARS.startTime = Date.now();
-			for (const setting in data.settings) sVARS[setting] = data.settings[setting];
+			SIMULATION.PUBLIC_PEERS_COUNT = data.settings.publicPeersCount || SIMULATION.PUBLIC_PEERS_COUNT;
+			SIMULATION.PEERS_COUNT = data.settings.peersCount || SIMULATION.PEERS_COUNT;
 			await initPeers();
-			send({ type: 'settings', data: sVARS });
+			send({ type: 'settings', data: { publicPeersCount: SIMULATION.PUBLIC_PEERS_COUNT, peersCount: SIMULATION.PEERS_COUNT } });
 			send({ type: 'peersIds', data: peersIdsObj() });
 			send({ type: 'simulationStarted' });
 			if (commandInterpreter) commandInterpreter = await commandInterpreter.restart();
@@ -167,7 +169,8 @@ const onMessage = async (data) => {
 			send({ type: 'peersIds', data: peersIdsObj() });
 			break;
 		case 'getPeerInfo':
-			send({ type: 'peerInfo', data: { peerId: data.peerId, peerInfo: getPeerInfo(data.peerId) } });
+			const peerInfo = getPeerInfo(data.peerId);
+			send({ type: 'peerInfo', data: { peerId: data.peerId, peerInfo } });
 			if (sManager.onPeerMessage === data.peerId) break;
 			sManager.setPeerMessageListener(data.peerId);
 			break;
@@ -186,7 +189,7 @@ wss.on('connection', (ws) => {
 	clientWs = ws;
 	ws.on('message', async (message) => msgQueue.push(JSON.parse(message)));
 	ws.on('close', () => msgQueue.reset());
-	ws.send(JSON.stringify({ type: 'settings', data: sVARS }));
+	ws.send(JSON.stringify({ type: 'settings', data: { publicPeersCount: SIMULATION.PUBLIC_PEERS_COUNT, peersCount: SIMULATION.PEERS_COUNT } }));
 	const zeroPeers = peers.public.length + peers.standard.length === 0;
 	if (!zeroPeers) ws.send(JSON.stringify({ type: 'peersIds', data: peersIdsObj() }));
 });

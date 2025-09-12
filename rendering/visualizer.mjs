@@ -1,5 +1,6 @@
 import { NetworkRenderer } from './NetworkRenderer.mjs';
 import { IDENTIFIERS } from '../core/global_parameters.mjs';
+import { Serializer } from '../core/serializer.mjs';
 
 class SimulationInterface {
 	#connectingWs = false;
@@ -63,6 +64,7 @@ class SimulationInterface {
 }
 
 class NetworkVisualizer {
+	serializer = new Serializer();
 	autoSelectCurrentPeerCategory = ['standard', 'public']; // 'public' | 'standard' | false
 	currentPeerId;
 	lastPeerInfo;
@@ -90,9 +92,13 @@ class NetworkVisualizer {
 			);
 
 			this.simulationInterface.onPeerMessage = (remoteId, data) => {
-				const d = JSON.parse(data);
+				//const array = data.data ? data.data : Object.values(data); // handle both { data: ... } and raw data
+				//if (!array?.length) return; // c'est une dinguerie !!
+				//const d = this.serializer.deserialize(array);
+				// Now I send it clear from server
+				const d = data;
 				if (d.route) this.networkRenderer.displayDirectMessageRoute(remoteId, d.route);
-				else this.networkRenderer.displayGossipMessageRoute(remoteId, d.senderId, d.topic, d.data);
+				else if (d.topic) this.networkRenderer.displayGossipMessageRoute(remoteId, d.senderId, d.topic, d.data);
 			};
 
 			this.networkRenderer.onNodeLeftClick = (nodeId) => this.simulationInterface.tryToConnectNode(this.currentPeerId,nodeId);
