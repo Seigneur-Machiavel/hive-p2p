@@ -33,14 +33,12 @@ export class NodeP2P {
 		const { peerStore, networkEnhancer, messager, gossip } = this;
 		// SETUP TRANSPORTS LISTENERS
 		peerStore.on('signal', (peerId, data) => this.messager.sendMessage(peerId, 'signal', data)); // answer created => send it to offerer
-		peerStore.on('signal_rejected', (peerId, neighbours) => this.messager.sendMessage(peerId, 'signal_rejected', neighbours));
 		peerStore.on('connect', (peerId, direction) => this.#onConnect(peerId, direction));
 		peerStore.on('disconnect', (peerId, direction) => this.#onDisconnect(peerId, direction));
 		peerStore.on('data', (peerId, data) => this.#onData(peerId, data));
 		
 		// UNICAST LISTENERS
 		messager.on('signal', (senderId, data) => networkEnhancer.handleIncomingSignal(senderId, data));
-		messager.on('signal_rejected', (senderId, data) => networkEnhancer.handleSignalRejection(senderId, data));
 		messager.on('gossip_history', (senderId, messages) => this.#handleIncomingGossipHistory(senderId, messages));
 
 		// GOSSIP LISTENERS
@@ -63,7 +61,6 @@ export class NodeP2P {
 			const isHandshakeInitiator = (remoteIsPublic || direction === 'in');
 			if (isHandshakeInitiator) this.sendMessage(peerId, 'handshake', { peerId: this.id });
 			if (DISCOVERY.ON_CONNECT_DISPATCH.GOSSIP_HISTORY) this.sendMessage(peerId, 'gossip_history', this.gossip.bloomFilter.getGossipHistoryByTime());
-			if (DISCOVERY.ON_CONNECT_DISPATCH.GOSSIP_NEIGHBOUR) this.broadcast('my_neighbours', this.peerStore.neighbours);
 			if (DISCOVERY.ON_CONNECT_DISPATCH.SEND_EVENT && !remoteIsPublic) this.broadcast('peer_connected', peerId);
 		};
 		if (!DISCOVERY.ON_CONNECT_DISPATCH.DELAY) dispatchEvents();

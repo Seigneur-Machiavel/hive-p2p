@@ -71,7 +71,7 @@ export class ICECandidateEmitter { // --- ICE SIMULATION ---
 			if (n > answer.expiration) delete this.PENDING_ANSWERS[transportId];
 	}
 	/** @param {string} receiverId @param {string} senderId */
-	#buildSDP(id, type) { // UN PEU TRICKY, MAIS EN VRAI CA DEVRAIT PASSER.
+	#buildSDP(id, type) { // A BIT TRICKY, BUT IT SHOULD WORK
 		if (type !== 'offer' && type !== 'answer') return { success: false, signalData: null, reason: `Invalid signal type: ${type}.` };
 		if (type === 'answer' && this.PENDING_ANSWERS[id]) return { success: false, signalData: null, reason: `There is already a pending answer for transport ID: ${id}` };
 

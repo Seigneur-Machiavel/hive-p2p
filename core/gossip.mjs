@@ -73,18 +73,17 @@ class DegenerateBloomFilter {
 	}
 }
 export class Gossip {
-	verbose;
 	id;
+	verbose;
 	peerStore;
 	bloomFilter = new DegenerateBloomFilter();
 	/** @type {Record<string, Function[]>} */ callbacks = {};
 
 	/** @param {string} peerId @param {PeerStore} peerStore */
 	constructor(peerId, peerStore, verbose = 0) {
-		this.verbose = verbose;
 		this.id = peerId;
+		this.verbose = verbose;
 		this.peerStore = peerStore;
-		this.bloomFilter.id = peerId; // DEBUG
 	}
 
 	/** @param {string} callbackType @param {Function} callback */
@@ -105,6 +104,7 @@ export class Gossip {
 	}
 	/** @param {string} targetId @param {any} serializedData */
 	#broadcastToPeer(targetId, serializedData) {
+		if (targetId === this.id) throw new Error(`Refusing to send a gossip message to self (${this.id}).`);
 		const transportInstance = this.peerStore.connected[targetId]?.transportInstance;
 		if (!transportInstance) return { success: false, reason: `Transport instance is not available for peer ${targetId}.` };
 		try { transportInstance.send(serializedData); }
@@ -114,7 +114,7 @@ export class Gossip {
 	handleGossipMessage(from, message, serializedMessage) {
 		if (this.peerStore.isBanned(from)) return; // ignore messages from banned peers
 
-		// FOR SECURITY WE CAN:
+		// FOR SECURITY WE CAN: ==> NOTE: WE SHOULD SIGN THE MESSAGE INSTEAD
 		// DECRYPT MESSAGE WITH (pubKey === 'from')
 		// DECRYPT DATA WITH (pubKey === 'senderId')
 		const { senderId, topic, data, timestamp, TTL } = message;
@@ -124,26 +124,20 @@ export class Gossip {
 		if (this.verbose > 3)
 			if (senderId === from) console.log(`(${this.id}) Gossip ${topic} from ${senderId}: ${data}`);
 			else console.log(`(${this.id}) Gossip ${topic} from ${senderId} (by: ${from}): ${data}`);
+		if (senderId === this.id) throw new Error(`#${this.id}#${from}# Received our own message back from peer ${from}.`);
 
-		if (senderId === this.id) // DEBUG
-			throw new Error(`#${this.id}#${from}# Received our own message back from peer ${from}.`);
-		for (const cb of this.callbacks[topic] || []) cb(senderId, data);
-
+		for (const cb of this.callbacks[topic] || []) cb(senderId, data); // specific topic callback
 		if (TTL < 1) return; // stop forwarding if TTL is 0
-		//if (this.id === senderId) return; // avoid sending our own message again => SHOULD NOT HAPPEN!!
-		if (topic === 'handshake') return { from, senderId };
 
 		const neighbours = Object.entries(this.peerStore.connected);
 		const nCount = neighbours.length;
-		const trm = Math.max(1, nCount / GOSSIP.TRANSMISSION_RATE_MOD);
+		const trm = Math.max(1, nCount / GOSSIP.TRANSMISSION_RATE.NEIGHBOURS_PONDERATION);
 		const tRateBase = GOSSIP.TRANSMISSION_RATE[topic] || GOSSIP.TRANSMISSION_RATE.default;
 		const transmissionRate = Math.pow(tRateBase, trm);
-		const avoidTransmissionRate = nCount < GOSSIP.MIN_NEIGHBOURS_TO_APPLY_TRANSMISSION_RATE; // 4: true, 5: false
+		const avoidTransmissionRate = nCount < GOSSIP.TRANSMISSION_RATE.MIN_NEIGHBOURS_TO_APPLY_PONDERATION;
 		const messageWithDecrementedTTL = GossipMessage.serialize(senderId, topic, data, timestamp, TTL - 1);
 		for (const [peerId, conn] of neighbours) {
 			if (peerId === from) continue; // avoid sending back to sender
-			if (peerId === this.id) // DEBUG
-				throw new Error(`Refusing to send a gossip message to self (${this.id}).`);
 			if (!avoidTransmissionRate && Math.random() > transmissionRate) continue; // apply gossip transmission rate
 			this.#broadcastToPeer(peerId, messageWithDecrementedTTL);
 		}

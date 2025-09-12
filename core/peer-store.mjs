@@ -25,7 +25,6 @@ export class PeerStore {
 		'connect': [(peerId, direction) => this.#handleConnect(peerId, direction)],
 		'disconnect': [(peerId, direction) => this.#handleDisconnect(peerId, direction)],
 		'signal': [],
-		'signal_rejected': [],
 		'data': []
 	};
 
@@ -161,7 +160,7 @@ export class PeerStore {
 	 * @param {string} remoteId @param {{type: 'offer' | 'answer', sdp: Record<string, string>}} signal
 	 * @param {string} [offerHash] offer only */
 	addConnectingPeer(remoteId, signal, offerHash) {
-		if (remoteId === this.id) throw new Error(`Refusing to connect to self (${this.id}).`); // DEBUG
+		if (remoteId === this.id) throw new Error(`Refusing to connect to self (${this.id}).`);
 		
 		const peerConnection = this.sdpOfferManager.getPeerConnexionForSignal(remoteId, signal, offerHash);
 		if (!peerConnection) return this.verbose > 3 ? console.info(`%cFailed to get/create a peer connection for ID ${remoteId}.`, 'color: orange;') : null;

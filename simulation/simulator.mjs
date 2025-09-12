@@ -5,29 +5,18 @@ import { WebSocketServer } from 'ws';
 import { SIMULATION, TRANSPORTS, IDENTIFIERS } from '../core/global_parameters.mjs';
 import { TestWsServer, TestWsConnection, TestTransport } from '../simulation/test-transports.mjs';
 import { MessageQueue, Statician, SubscriptionsManager } from './simulator-utils.mjs';
+
 // SETUP SIMULATION ENV --------------------------------------------\
 SIMULATION.ENABLED = true; // enable simulation features	   		|
 TRANSPORTS.WS_SERVER = TestWsServer; // default: WebSocketServer	|
 TRANSPORTS.WS_CLIENT = TestWsConnection; // default: WebSocket		|
 TRANSPORTS.PEER = TestTransport; // default: SimplePeer				|
+IDENTIFIERS.PUBLIC_NODE = 'public_'; //	default: 'P'				|
+IDENTIFIERS.STANDARD_NODE = 'peer_'; //	default: undefined			|
 //------------------------------------------------------------------/
 
+// IMPORT NODE AFTER SIMULATION ENV SETUP
 const { NodeP2P } = await import('../core/node.mjs'); // dynamic import to allow simulation overrides
-
-process.on('uncaughtException', (err) => { // DEBUGGING
-	console.error('There was an uncaught error', err.stack);
-	if (err.message?.includes('#')) {
-		// #${this.id}# #${from}# 
-		const parts = err.message.split('#');
-		const thisId = parts[1];
-		const fromId = parts[2];
-		const thisPeer = peers.all[thisId];
-		const fromPeer = peers.all[fromId];
-		console.log(`Error originated from peer ${thisId}, message sent by ${fromId}`);
-	}
-	throw err; //mandatory (as per the Node docs)
-});
-
 // TO ACCESS THE VISUALIZER GO TO: http://localhost:3000 ------\
 // LOGS COLORS :											   |
 // BLUE:      SYSTEM									 	   |
@@ -36,8 +25,8 @@ process.on('uncaughtException', (err) => { // DEBUGGING
 // CYAN: 	  CURRENT PEER UNICAST STATS					   |
 //-------------------------------------------------------------/
 
+/** @type {TwitchChatCommandInterpreter} */ let commandInterpreter = null; // initialized at the end of the file.
 let initInterval = null;
-/** @type {TwitchChatCommandInterpreter} */ let cmdInterpreter = null;
 const sVARS = { // SIMULATION VARIABLES
 	publicInit: 0,
 	nextPeerToInit: 0,
@@ -172,7 +161,7 @@ const onMessage = async (data) => {
 			send({ type: 'settings', data: sVARS });
 			send({ type: 'peersIds', data: peersIdsObj() });
 			send({ type: 'simulationStarted' });
-			if (cmdInterpreter) cmdInterpreter = await cmdInterpreter.restart();
+			if (commandInterpreter) commandInterpreter = await commandInterpreter.restart();
 			break;
 		case 'getPeersIds':
 			send({ type: 'peersIds', data: peersIdsObj() });
@@ -237,4 +226,4 @@ class TwitchChatCommandInterpreter {
 		return new TwitchChatCommandInterpreter();
 	}
 }
-cmdInterpreter = new TwitchChatCommandInterpreter();
+commandInterpreter = new TwitchChatCommandInterpreter();

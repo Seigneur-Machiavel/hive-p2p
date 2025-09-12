@@ -1,3 +1,4 @@
+import { SIMULATION } from '../core/global_parameters.mjs';
 import { Sandbox, ICECandidateEmitter } from './tranports-sandbox.mjs';
 
 class TestWsEventManager { // manage init() and close() to avoid timeout usage
@@ -64,8 +65,8 @@ export class TestWsConnection { // WebSocket like
 	}
 	init(remoteWsId) {
 		if (!this.readyState === 3 || this.remoteWsId) {
-			//this.close(); // TESTING
-			setTimeout(() => this.#dispatchError(`Failed to connect to WebSocket server at ${this.url}`), 5_000);
+			this.close(); // => ensure closure
+			setTimeout(() => this.#dispatchError(`Failed to connect to WebSocket server at ${this.url}`), 1_000);
 			return;
 		}
 
@@ -100,7 +101,7 @@ export class TestWsConnection { // WebSocket like
 export class TestWsServer { // WebSocket like
 	url;
 	clients = new Set();
-	maxClients = 20;
+	maxClients = SIMULATION.MAX_WS_IN_CONNS || 20;
 	callbacks = {
 		connection: [],
 		close: [],

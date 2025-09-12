@@ -89,12 +89,6 @@ export class NetworkEnhancer {
 		if (this.peerStore.addConnectingPeer(senderId, signal, offerHash) !== true) return;
 		this.peerStore.assignSignal(senderId, signal, offerHash);
 	}
-	/** @param {string} senderId @param {SignalData} data */
-	handleSignalRejection(senderId, data) {
-		if (typeof data !== 'object') return;
-		if (!senderId || !Array.isArray(data.neighbours)) return;
-		this.peerStore.digestPeerNeighbours(senderId, data.neighbours);
-	}
 
 	// INTERNAL METHODS
 	#kickPeersIfNeeded() { // only for public nodes
