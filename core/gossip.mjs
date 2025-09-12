@@ -47,21 +47,19 @@ class DegenerateBloomFilter {
 		return order === 'asc' ? lightenHistory : lightenHistory.reverse();
 	}
 	addMessage(senderId, topic, data, timestamp) {
-		const n = Date.now();
-		if (n - timestamp > GOSSIP.EXPIRATION) return; // ignore expired messages
+    	const n = Date.now();
+		if (n - timestamp > GOSSIP.EXPIRATION) return;
 
 		const h = xxHash32(`${senderId}${topic}${JSON.stringify(data)}`);
 		this.xxHash32UsageCount++;
+		if (this.seenTimeouts[h]) return;
 
-		const isPresent = this.seenTimeouts[h];
-		const isExpired = this.seenTimeouts[h] && n >= this.seenTimeouts[h];
 		const expiration = n + GOSSIP.CACHE_DURATION;
-		if (!isPresent) this.cache.push({ hash: h, senderId, topic, data, timestamp, expiration });
-		this.seenTimeouts[h] = expiration; // set or update expiration
-		
-		if (isPresent && !isExpired) return; // already exists and not expired
-		if (--this.cleanupIn <= 0) this.#cleanupOldestEntries(n); // cleanup expired cache
-		return { hash: h, isExpired, isPresent };
+		this.cache.push({ hash: h, senderId, topic, data, timestamp, expiration });
+		this.seenTimeouts[h] = expiration;
+
+		if (--this.cleanupIn <= 0) this.#cleanupOldestEntries(n);
+		return { hash: h, isNew: !this.seenTimeouts[h] };
 	}
 	#cleanupOldestEntries(n = Date.now()) {
 		let firstValidIndex = -1;

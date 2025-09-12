@@ -10,7 +10,7 @@ export const SIMULATION = {
 	AVOID_FOLLOWERS_NODES: true, 	// avoid twitch nodes creation | default: true
 	AUTO_START: true,				// auto start the simulation, false to wait the frontend | default: true
 	PUBLIC_PEERS_COUNT: 3,			// stable: 3,  medium: 100, strong: 200 | default: 3
-	PEERS_COUNT: 10,				// stable: 25, medium: 800, strong: 1600 | default: 10
+	PEERS_COUNT: 100,				// stable: 25, medium: 800, strong: 1600 | default: 10
 	BOOTSTRAPS_PER_PEER: 10,		// will not be exact, more like a limit. null = all of them | default: 10
 	DELAY_BETWEEN_INIT: 10,			// 0 = faster for simulating big networks but > 0 = should be more realistic | default: 10
 	RANDOM_UNICAST_PER_SEC: 1,		// default: .1, capped at a total of 500msg/sec | default: 1
@@ -33,7 +33,7 @@ export const IDENTIFIERS = {
 }
 
 export const NODE = {
-	DEFAULT_VERBOSE: 3, // 0: none, 1: errors, 2: +important info, 3: +debug, 4: +everything
+	DEFAULT_VERBOSE: 1, // 0: none, 1: errors, 2: +important info, 3: +debug, 4: +everything
 	CONNECTION_UPGRADE_TIMEOUT: 10_000,
 	SERVICE: {
 		PORT: 8080,
@@ -51,7 +51,7 @@ export const DISCOVERY = {
 	ON_CONNECT_DISPATCH: {
 		DELAY: 100, // delay before dispatching the 'connected' event | default: 500 (.5 seconds)
 		SEND_EVENT: true,
-		GOSSIP_NEIGHBOUR: true,
+		GOSSIP_NEIGHBOUR: false, // => totally useless now, sprayed with SDP signals
 		GOSSIP_HISTORY: false
 	},
 	ON_DISCONNECT_DISPATCH: {

@@ -46,10 +46,8 @@ export class PeerStore {
 
 			// RACE CONDITION CAN OCCUR IN SIMULATION !! 
 			// ref: simulation/race-condition-demonstration.js
-			if (instance.isTestTransport && (!instance.remoteId && !instance.remoteWsId))
-				throw new Error(`Transport instance is corrupted for peer ${remoteId}.`);
-			if (remoteId === this.id) // DEBUG
-				throw new Error(`Refusing to connect to self (${this.id}).`);
+			if (instance.isTestTransport && (!instance.remoteId && !instance.remoteWsId)) throw new Error(`Transport instance is corrupted for peer ${remoteId}.`);
+			if (remoteId === this.id) throw new Error(`Refusing to connect to self (${this.id}).`);
 
 			let peerId = remoteId;
 			instance.on('close', () => { if (peerId) for (const cb of this.callbacks.disconnect) cb(peerId, instance.initiator ? 'out' : 'in'); });
@@ -89,8 +87,7 @@ export class PeerStore {
 		// RACE CONDITION CAN OCCUR IN SIMULATION !!
 		// ref: simulation/race-condition-demonstration.js
 		const tI = peerConn.transportInstance; // If corrupted => close and abort operation
-		if (tI.isTestTransport && (!tI.remoteId && !tI.remoteWsId))
-			return peerConn.close();
+		if (tI.isTestTransport && (!tI.remoteId && !tI.remoteWsId)) throw new Error(`Transport instance is corrupted for peer ${peerId}.`);
 		
 		// CONTINUE NORMAL FLOW
 		peerConn.setConnected(); // set connStartTime

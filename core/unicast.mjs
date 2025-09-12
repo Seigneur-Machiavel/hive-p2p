@@ -110,8 +110,7 @@ export class UnicastMessager {
 
 		// RACE CONDITION CAN OCCUR IN SIMULATION !!
 		// ref: simulation/race-condition-demonstration.js
-		if (selfPosition === -1)
-			return this.peerStore.kickPeer(from, 0); // race condition or not => ignore message
+		if (selfPosition === -1) throw new Error(`DirectMessage selfPosition is -1 for peer ${from}.`); // race condition or not => ignore message
 		
 		const [senderId, prevId, nextId, targetId] = [route[0], route[selfPosition - 1], route[selfPosition + 1], route[route.length - 1]];
 		if (from === senderId && from === this.id) // FATAL ERROR
@@ -121,8 +120,7 @@ export class UnicastMessager {
 				
 		// RACE CONDITION CAN OCCUR IN SIMULATION !!
 		// ref: simulation/race-condition-demonstration.js
-		if (prevId && from !== prevId)
-			return this.peerStore.kickPeer(from, 0); // race condition or not => ignore message
+		if (prevId && from !== prevId) throw new Error(`DirectMessage previous hop id (${prevId}) does not match the actual from id (${from}).`);
 		
 		if (this.verbose > 3)
 			if (senderId === from) console.log(`(${this.id}) Direct ${type} from ${senderId}: ${data}`);
