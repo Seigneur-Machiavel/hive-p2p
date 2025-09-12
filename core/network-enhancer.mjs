@@ -2,19 +2,16 @@ import { SIMULATION, TRANSPORTS, IDENTIFIERS, NODE, DISCOVERY } from './global_p
 import { PeerConnection } from './peer-store-managers.mjs';
 const { SANDBOX, ICE_CANDIDATE_EMITTER, TEST_WS_EVENT_MANAGER } = SIMULATION.ENABLED ? await import('../simulation/test-transports.mjs') : {};
 
-/**
- * @typedef {import('./gossip.mjs').Gossip} Gossip
- * @typedef {import('./peer-store.mjs').PeerStore} PeerStore
- * 
+/** - 'bootstrapInfo' Definition & 'SignalData' Definition
  * @typedef {Object} bootstrapInfo
  * @property {string} id
  * @property {string} publicUrl
  * 
  * @typedef {Object} SignalData
+ * @property {Array<string>} neighbours
  * @property {Object} signal
  * @property {'offer' | 'answer'} signal.type
  * @property {string} signal.sdp
- * @property {Array<string>} neighbours
  * */
 
 export class NetworkEnhancer {
@@ -28,7 +25,7 @@ export class NetworkEnhancer {
 	/** @type {Record<string, string>} */ bootstrapsIds = {};
 	nextBootstrapIndex = 0;
 
-	/** @param {string} selfId @param {Gossip} gossip @param {PeerStore} peerStore @param {Array<bootstrapInfo>} bootstraps */
+	/** @param {string} selfId @param {import('./gossip.mjs').Gossip} gossip @param {import('./peer-store.mjs').PeerStore} peerStore @param {Array<bootstrapInfo>} bootstraps */
 	constructor(selfId, gossip, peerStore, bootstraps) {
 		this.id = selfId;
 		this.gossip = gossip;

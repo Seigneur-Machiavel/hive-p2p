@@ -3,10 +3,6 @@ import { RouteBuilder_V1, RouteBuilder_V2 } from "./route-builder.mjs";
 const { SANDBOX, ICE_CANDIDATE_EMITTER, TEST_WS_EVENT_MANAGER } = SIMULATION.ENABLED ? await import('../simulation/test-transports.mjs') : {};
 const RouteBuilder = RouteBuilder_V2; // temporary switch
 
-/**
- * @typedef {import('./peer-store.mjs').PeerStore} PeerStore
- */
-
 export class DirectMessage {
 	/** @type {string[]} */ route;
 	/** @type {'signal' | 'message'} */ type = 'signal';
@@ -36,7 +32,7 @@ export class UnicastMessager {
 	maxRoutes = UNICAST.MAX_ROUTES;
 	maxNodes = UNICAST.MAX_NODES;
 
-	/** @param {string} selfId @param {PeerStore} peerStore */
+	/** @param {string} selfId @param {import('./peer-store.mjs').PeerStore} peerStore */
 	constructor(selfId, peerStore, verbose = 0) {
 		this.verbose = verbose;
 		this.id = selfId;

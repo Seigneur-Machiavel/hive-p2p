@@ -3,11 +3,7 @@ import { PeerConnection, KnownPeer, SdpOfferManager, Punisher } from './peer-sto
 import { UnicastMessager } from './unicast.mjs';
 const { SANDBOX, ICE_CANDIDATE_EMITTER, TEST_WS_EVENT_MANAGER } = SIMULATION.ENABLED ? await import('../simulation/test-transports.mjs') : {};
 
-/**
- * @typedef {import('simple-peer').Instance} SimplePeerInstance
- */
-
-export class PeerStore {
+export class PeerStore { // Manages all peers informations and connections (WebSocket and WebRTC)
 	verbose;
 	id;
 	sdpOfferManager;
@@ -39,7 +35,7 @@ export class PeerStore {
 			if (this.isDestroy || this.punisher.isSanctioned(remoteId)) return; // not accepted
 			for (const cb of this.callbacks.signal) cb(remoteId, { signal: signalData, neighbours: this.neighbours, offerHash });
 		};
-		/** @param {string | undefined} remoteId @param {SimplePeerInstance} instance */
+		/** @param {string | undefined} remoteId @param {import('simple-peer').Instance} instance */
 		this.sdpOfferManager.onConnect = (remoteId, instance) => {
 			if (this.isDestroy) return instance?.destroy();
 

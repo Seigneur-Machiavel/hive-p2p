@@ -1,10 +1,6 @@
 import { GOSSIP } from './global_parameters.mjs';
 import { xxHash32 } from '../utils/xxhash32.mjs';
 
-/**
- * @typedef {import('./peer-store.mjs').PeerStore} PeerStore
- */
-
 export class GossipMessage {
 	/** @type {string} */ senderId;
 	/** @type {string} */ topic;
@@ -22,7 +18,7 @@ export class GossipMessage {
 	}
 }
 
-/**
+/** - 'BloomFilterCacheEntry' Definition
  * @typedef {Object} BloomFilterCacheEntry
  * @property {string} hash
  * @property {string} senderId
@@ -30,6 +26,7 @@ export class GossipMessage {
  * @property {string | Uint8Array} data
  * @property {number} expiration
  */
+
 class DegenerateBloomFilter {
 	xxHash32UsageCount = 0;
 	/** @type {Record<string, number>} */
@@ -72,6 +69,7 @@ class DegenerateBloomFilter {
 		this.cleanupIn = this.cleanupFrequency;
 	}
 }
+
 export class Gossip {
 	id;
 	verbose;
@@ -79,7 +77,7 @@ export class Gossip {
 	bloomFilter = new DegenerateBloomFilter();
 	/** @type {Record<string, Function[]>} */ callbacks = {};
 
-	/** @param {string} peerId @param {PeerStore} peerStore */
+	/** @param {string} peerId @param {import('./peer-store.mjs').PeerStore} peerStore */
 	constructor(peerId, peerStore, verbose = 0) {
 		this.id = peerId;
 		this.verbose = verbose;

@@ -5,11 +5,6 @@ import { UnicastMessager, DirectMessage } from './unicast.mjs';
 import { Gossip, GossipMessage } from './gossip.mjs';
 import { SIMULATION, TRANSPORTS, IDENTIFIERS, DISCOVERY, NODE } from './global_parameters.mjs';
 
-/**
- * @typedef {import('ws').WebSocket} WebSocket
- * @typedef {import('simple-peer').Instance} SimplePeerInstance
- */
-
 export class NodeP2P {
 	verbose;
 	/** @type {string | undefined} WebSocket URL (public node only) */ publicUrl;

@@ -3,12 +3,7 @@ import { SIMULATION, NODE, TRANSPORTS } from './global_parameters.mjs';
 import { xxHash32 } from '../utils/xxhash32.mjs';
 const { SANDBOX, ICE_CANDIDATE_EMITTER, TEST_WS_EVENT_MANAGER } = SIMULATION.ENABLED ? await import('../simulation/test-transports.mjs') : {};
 
-/** 
- * @typedef {import('ws').WebSocket} WebSocket
- * @typedef {import('simple-peer').Instance} SimplePeerInstance
- */
-
-export class PeerConnection {
+export class PeerConnection { // WebSocket or WebRTC connection wrapper
 	pendingUntil;
 	transportInstance;
 	connStartTime;
@@ -16,8 +11,10 @@ export class PeerConnection {
 	direction;
 	peerId;
 
-	/** 
-	 * @param {string} peerId @param {SimplePeerInstance | WebSocket} transportInstance @param {'in' | 'out'} direction @param {boolean} [isWebSocket] default: false */
+	/** Connection to a peer, can be WebSocket or WebRTC, can be connecting or connected
+	 * @param {string} peerId
+	 * @param {import('simple-peer').Instance | import('ws').WebSocket} transportInstance
+	 * @param {'in' | 'out'} direction @param {boolean} [isWebSocket] default: false */
 	constructor(peerId, transportInstance, direction, isWebSocket = false) {
 		this.transportInstance = transportInstance;
 		this.isWebSocket = isWebSocket;
@@ -29,7 +26,7 @@ export class PeerConnection {
 	getConnectionDuration() { return this.connStartTime ? Date.now() - this.connStartTime : 0; }
 	close() { this.isWebSocket ? this.transportInstance?.close() : this.transportInstance?.destroy(); }
 }
-export class KnownPeer {
+export class KnownPeer { // known peer, not necessarily connected
 	id;
 	neighbours;
 	connectionsCount;
@@ -50,7 +47,7 @@ export class KnownPeer {
 		delete this.neighbours[peerId];
 	}
 }
-export class Punisher {
+export class Punisher { // manage kick and ban of peers
 	/** @type {Record<string, number>} */ ban = {};
 	/** @type {Record<string, number>} */ kick = {};
 
@@ -64,16 +61,18 @@ export class Punisher {
 		else return true;
 	}
 }
-/**
+
+/** - 'OfferObj' Definition
  * @typedef {Object} OfferObj
  * @property {number} timestamp
  * @property {boolean} isUsed // => if true => should be deleted
  * @property {number} sentCounter
  * @property {Object} signal
- * @property {SimplePeerInstance} offererInstance
+ * @property {import('simple-peer').Instance} offererInstance
  * @property {Array<{peerId: string, signal: any, score: number}>} answers
  * @property {Record<string, boolean>} answerers key: peerId, value: true */
-export class SdpOfferManager {
+
+export class SdpOfferManager { // Manages the creation of SDP offers and handling of answers
 	id;
 	verbose = 0;
 	constructor(id = 'toto', verbose = 0) { this.id = id; this.verbose = verbose; }
