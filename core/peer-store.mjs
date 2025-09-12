@@ -93,7 +93,7 @@ export class PeerStore {
 			return peerConn.close();
 		
 		// CONTINUE NORMAL FLOW
-		peerConn.connStartTime = Date.now();
+		peerConn.setConnected(); // set connStartTime
 		this.connected[peerId] = peerConn;
 		this.neighbours.push(peerId);
 		this.#linkPeers(this.id, peerId); // Add link in self store

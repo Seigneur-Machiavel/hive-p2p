@@ -6,9 +6,19 @@ export const SIMULATION = {
 	ICE_DELAY: { min: 250, max: 3000 }, // simulation delay range for ICE candidates in ms | default: { min: 250, max: 3000 }
 	ICE_OFFER_FAILURE_RATE: .2, 	// default: .2, 20% offer failure
 	ICE_ANSWER_FAILURE_RATE: .15, 	// default: .15, 15% answer failure
+
+	AVOID_FOLLOWERS_NODES: true, 	// avoid twitch nodes creation | default: true
+	AUTO_START: true,				// auto start the simulation, false to wait the frontend | default: true
+	PUBLIC_PEERS_COUNT: 3,			// stable: 3,  medium: 100, strong: 200 | default: 3
+	PEERS_COUNT: 10,				// stable: 25, medium: 800, strong: 1600 | default: 10
+	BOOTSTRAPS_PER_PEER: 10,		// will not be exact, more like a limit. null = all of them | default: 10
+	DELAY_BETWEEN_INIT: 10,			// 0 = faster for simulating big networks but > 0 = should be more realistic | default: 10
+	RANDOM_UNICAST_PER_SEC: 1,		// default: .1, capped at a total of 500msg/sec | default: 1
+	RANDOM_GOSSIP_PER_SEC: 1,		// default: 0, capped at a total of 200msg/sec | default: 1
 }
-export const TRANSPORT = {
-	SDP_OFFERS_TO_CREATE: 3, // number of SDP offers to create in advance | default: 3
+
+export const TRANSPORTS = {
+	MAX_SDP_OFFERS: 3, // max SDP offers to create in advance | default: 3
 	SDP_OFFER_EXPIRATION: 30_000, // duration to consider an SDP offer as valid | default: 30_000 (30 seconds)
 	WS_CLIENT: WebSocket,
 	//WS_SERVER: WebSocketServer,
@@ -16,6 +26,7 @@ export const TRANSPORT = {
 	WS_SERVER: (typeof window === 'undefined') ? (await import('ws')).WebSocketServer : null,
 	PEER: (typeof window === 'undefined') ? (await import('simple-peer')).default : null
 }
+
 export const IDENTIFIERS = {
 	PUBLIC_NODE: 'public_',
 	STANDARD_NODE: 'peer_',
@@ -27,19 +38,16 @@ export const NODE = {
 	SERVICE: {
 		PORT: 8080,
 		AUTO_KICK_DELAY: { min: 15_000, max: 60_000 }, // default: { min: 30_000, max: 60_000 }
-		AUTO_KICK_DURATION: 60_000, // default: 60_000 (1 minute)
+		AUTO_KICK_DURATION: 120_000, // default: 60_000 (1 minute)
 		MAX_WS_IN_CONNS: 20, // default: 10
 		MAX_WS_OUT_CONNS: 2, // default: 2
 	},
 }
 
-export const ENHANCER = {
-	LOOP_DELAY: 2_500, // delay between connection attempts | default: 2_500 (2.5 seconds)
-	MAX_OVERLAP: 5, // Max of shared neighbours | default: 5, strict: 2
-	TARGET_NEIGHBORS_COUNT: 12, // default: 12
-}
-
 export const DISCOVERY = {
+	MAX_OVERLAP: 5, // Max of shared neighbours | default: 5, strict: 2
+	LOOP_DELAY: 2_500, // delay between connection attempts | default: 2_500 (2.5 seconds)
+	TARGET_NEIGHBORS_COUNT: 12, // default: 12
 	ON_CONNECT_DISPATCH: {
 		DELAY: 100, // delay before dispatching the 'connected' event | default: 500 (.5 seconds)
 		SEND_EVENT: true,

@@ -1,4 +1,4 @@
-import { SIMULATION, TRANSPORT, IDENTIFIERS, NODE, ENHANCER } from './global_parameters.mjs';
+import { SIMULATION, TRANSPORTS, IDENTIFIERS, NODE, DISCOVERY } from './global_parameters.mjs';
 import { PeerConnection } from './peer-store-managers.mjs';
 const { SANDBOX, ICE_CANDIDATE_EMITTER, TEST_WS_EVENT_MANAGER } = SIMULATION.ENABLED ? await import('../simulation/test-transports.mjs') : {};
 
@@ -26,7 +26,7 @@ export class NetworkEnhancer {
 	/** @type {NodeJS.Timeout | null} optimized nodes connexions interval */ interval = null;
 	/** @type {Array<bootstrapInfo>} */ bootstraps = [];
 	/** @type {Record<string, string>} */ bootstrapsIds = {};
-	/** @type {number} next Bootstrap Index */ nBI = 0;
+	nextBootstrapIndex = 0;
 
 	/** @param {string} selfId @param {Gossip} gossip @param {PeerStore} peerStore @param {Array<bootstrapInfo>} bootstraps */
 	constructor(selfId, gossip, peerStore, bootstraps) {
@@ -36,7 +36,7 @@ export class NetworkEnhancer {
 		const shuffledIndexes = [...Array(bootstraps.length).keys()].sort(() => Math.random() - 0.5);
 		for (const i of shuffledIndexes) this.bootstraps.push(bootstraps[i]);
 		for (const b of bootstraps) this.bootstrapsIds[b.id] = b.publicUrl;
-		this.nBI = Math.random() * bootstraps.length | 0;
+		this.nextBootstrapIndex = Math.random() * bootstraps.length | 0;
 	}
 
 	// PUBLIC METHODS
@@ -44,27 +44,27 @@ export class NetworkEnhancer {
 		this.#tryConnectNextBootstrap(); // first shot ASAP
 		let phase = 0;
 		this.interval = setInterval(() => {
+			const neighboursCount = this.peerStore.neighbours.length;
+			const isEnough = neighboursCount >= DISCOVERY.TARGET_NEIGHBORS_COUNT;
+			const offersToCreate = neighboursCount >= DISCOVERY.TARGET_NEIGHBORS_COUNT / 3 ? 1 : TRANSPORTS.MAX_SDP_OFFERS;
+			this.peerStore.sdpOfferManager.offersToCreate = isEnough ? 0 : offersToCreate;
+			if (this.isPublicNode) { this.#kickPeersIfNeeded(); return; } // public node only kick peers if needed
+
 			phase = phase ? 0 : 1;
-			if (phase) this.#tryConnectNextBootstrap();
-			else this.tryToSpreadSDP();
-		}, ENHANCER.LOOP_DELAY);
+			if (isEnough) return; // already enough, do nothing
+			if (phase) this.#tryConnectNextBootstrap(neighboursCount);
+			else this.tryToSpreadSDP(neighboursCount);
+		}, DISCOVERY.LOOP_DELAY);
 	}
 	stopAutoEnhancement() { if (this.interval) clearInterval(this.interval); this.interval = null; }
-	destroy() {
-		if (this.interval) clearInterval(this.interval);
-	}
-	tryToSpreadSDP() {
-		// LOOP TO SELECT UNSEND READY OFFER
+	tryToSpreadSDP(neighboursCount = 0) { // LOOP TO SELECT ONE UNSEND READY OFFER
 		for (const [offerHash, readyOffer] of Object.entries(this.peerStore.sdpOfferManager.offers)) {
 			const { isUsed, sentCounter, signal } = readyOffer;
 			if (isUsed || sentCounter > 0) continue; // already used or already sent at least once
-			
-			const { isEnough, connectedPeersCount } = this.#getConnectionInfo();
-			if (isEnough || !connectedPeersCount) return;
 
 			this.gossip.broadcast('signal', { signal, neighbours: this.peerStore.neighbours, offerHash });
 			readyOffer.sentCounter++;
-			break; // only one per loop
+			break; // limit to one per loop
 		}
 	}
 	/** @param {string} senderId @param {SignalData} data */
@@ -81,9 +81,9 @@ export class NetworkEnhancer {
 		if (signal.type === 'answer' && this.peerStore.connecting[senderId]?.['out']) return; // already connecting out
 
 		const { overlap } = this.peerStore.getOverlap(senderId);
-		const tooManySharedPeers = overlap > ENHANCER.MAX_OVERLAP;
+		const tooManySharedPeers = overlap > DISCOVERY.MAX_OVERLAP;
 		const isTwitchUser = senderId.startsWith('f_');
-		const tooManyConnectedPeers = this.peerStore.neighbours.length >= ENHANCER.TARGET_NEIGHBORS_COUNT - 1;
+		const tooManyConnectedPeers = this.peerStore.neighbours.length >= DISCOVERY.TARGET_NEIGHBORS_COUNT - 1;
 		if (!isTwitchUser && (tooManySharedPeers || tooManyConnectedPeers)) this.peerStore.kickPeer(senderId, 30_000);
 
 		if (this.peerStore.addConnectingPeer(senderId, signal, offerHash) !== true) return;
@@ -97,37 +97,33 @@ export class NetworkEnhancer {
 	}
 
 	// INTERNAL METHODS
-	#getConnectionInfo() {
-		const connectedPeersCount = this.peerStore.neighbours.length;
-		const missingCount = (ENHANCER.TARGET_NEIGHBORS_COUNT - connectedPeersCount);
-		return { 
-			isEnough: connectedPeersCount >= ENHANCER.TARGET_NEIGHBORS_COUNT,
-			limitToOneBootstrap: connectedPeersCount >= ENHANCER.TARGET_NEIGHBORS_COUNT / 3,
-			limitToZeroBootstrap: connectedPeersCount >= ENHANCER.TARGET_NEIGHBORS_COUNT / 2,
-			missingCount,
-			connectedPeersCount,
-			knownPeersCount: Object.keys(this.peerStore.known).length
-		};
+	#kickPeersIfNeeded() { // only for public nodes
+		const { min, max } = NODE.SERVICE.AUTO_KICK_DELAY;
+		for (const [peerId, conn] of Object.entries(this.peerStore.connected)) {
+			const delay = Math.round(Math.random() * (max - min) + min);
+			if (conn.getConnectionDuration() < delay) continue;
+			this.peerStore.kickPeer(peerId, NODE.SERVICE.AUTO_KICK_DURATION);
+		}
 	}
-	#tryConnectNextBootstrap() {
-		const { isEnough, limitToOneBootstrap, limitToZeroBootstrap } = this.#getConnectionInfo();
+	#tryConnectNextBootstrap(neighboursCount = 0) {
 		if (this.bootstraps.length === 0) return;
-		if (isEnough || limitToZeroBootstrap) return; // already connected to enough peers
 		
 		const [connected, connecting] = [this.peerStore.connected, this.peerStore.connecting];
 		const connectingCount = Object.keys(connecting).filter(id => this.bootstrapsIds[id]).length;
 		const connectedCount = this.peerStore.neighbours.filter(id => this.bootstrapsIds[id]).length;
-		if (connectedCount + connectingCount >= NODE.SERVICE.MAX_WS_OUT_CONNS) return; // already connected to enough bootstraps
-		if (limitToOneBootstrap && connectedCount) return; // already connected to one bootstrap, wait next turn
-		if (limitToOneBootstrap && connectingCount) return; // already connecting to one bootstrap, wait next turn
 		
-		const { id, publicUrl } = this.bootstraps[this.nBI];
+		// MINIMIZE BOOTSTRAP CONNECTIONS DEPENDING ON HOW MANY NEIGHBOURS WE HAVE
+		if (connectedCount + connectingCount >= NODE.SERVICE.MAX_WS_OUT_CONNS) return; // already connected to enough bootstraps
+		if (connectedCount && neighboursCount >= DISCOVERY.TARGET_NEIGHBORS_COUNT / 2) return; // no more bootstrap needed (half of target)
+		if (connectingCount && neighboursCount >= DISCOVERY.TARGET_NEIGHBORS_COUNT / 2) return; // no more bootstrap needed (half of target)
+		
+		const { id, publicUrl } = this.bootstraps[this.nextBootstrapIndex];
 		const canMakeATry = id && publicUrl && !connected[id] && !connecting[id];
 		if (canMakeATry) this.#connectToPublicNode(id, publicUrl);
-		this.nBI = (this.nBI + 1) % this.bootstraps.length;
+		this.nextBootstrapIndex = (this.nextBootstrapIndex + 1) % this.bootstraps.length;
 	}
 	#connectToPublicNode(remoteId = 'toto', publicUrl = 'localhost:8080') {
-		const ws = new TRANSPORT.WS_CLIENT(publicUrl);
+		const ws = new TRANSPORTS.WS_CLIENT(publicUrl);
 		this.peerStore.connecting[remoteId] = { out: new PeerConnection(remoteId, ws, 'out', true) };
 		ws.onerror = (error) => console.error(`WebSocket error:`, error.stack);
 		ws.onopen = () => {

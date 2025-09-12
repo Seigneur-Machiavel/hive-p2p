@@ -2,15 +2,15 @@ import path from 'path';
 import express from 'express';
 import { io } from 'socket.io-client'; // used for twitch events only
 import { WebSocketServer } from 'ws';
-import { SIMULATION, TRANSPORT, IDENTIFIERS } from '../core/global_parameters.mjs';
+import { SIMULATION, TRANSPORTS, IDENTIFIERS } from '../core/global_parameters.mjs';
 import { TestWsServer, TestWsConnection, TestTransport } from '../simulation/test-transports.mjs';
 import { MessageQueue, Statician, SubscriptionsManager } from './simulator-utils.mjs';
-// SETUP SIMULATION ENV ---------------------------------------\
-SIMULATION.ENABLED = true; // enable simulation features	   |
-TRANSPORT.WS_SERVER = TestWsServer; // WebSocketServer		   |
-TRANSPORT.WS_CLIENT = TestWsConnection; // default: WebSocket  |
-TRANSPORT.PEER = TestTransport; // default: SimplePeer         |
-//-------------------------------------------------------------/
+// SETUP SIMULATION ENV --------------------------------------------\
+SIMULATION.ENABLED = true; // enable simulation features	   		|
+TRANSPORTS.WS_SERVER = TestWsServer; // default: WebSocketServer	|
+TRANSPORTS.WS_CLIENT = TestWsConnection; // default: WebSocket		|
+TRANSPORTS.PEER = TestTransport; // default: SimplePeer				|
+//------------------------------------------------------------------/
 
 const { NodeP2P } = await import('../core/node.mjs'); // dynamic import to allow simulation overrides
 
@@ -41,17 +41,8 @@ let initInterval = null;
 const sVARS = { // SIMULATION VARIABLES
 	publicInit: 0,
 	nextPeerToInit: 0,
-	avoidFollowersNodes: true,
 	publicPeersCards: [],
 	startTime: Date.now(),
-	// SETTINGS
-	autoStart: true,
-	publicPeersCount: 1, // stable: 3,  medium: 100, strong: 200
-	peersCount: 10,	  	 // stable: 25, medium: 800, strong: 1600
-	bootstrapsPerPeer: 10, // will not be exact, more like a limit. null = all of them
-	delayBetweenInit: 10, // 0 = faster for simulating big networks but > 0 = should be more realistic
-	randomUnicastPerSecondPerPeer: 1, // default: .1, capped at a total of 500msg/sec
-	randomGossipPerSecondPerPeer: 1, // default: 0, capped at a total of 200msg/sec
 };
 
 const peers = {
@@ -70,7 +61,7 @@ async function destroyAllExistingPeers(pauseDuration = 2000) {
 	if (totalDestroyed !== 0) await new Promise(resolve => setTimeout(resolve, pauseDuration)); // wait for destruction to complete
 	console.log(`%c| ° ${totalDestroyed} EXISTING PEERS DESTROYED ° |`, 'color: yellow; font-weight: bold;');
 }
-function pickUpRandomBootstraps(count = sVARS.bootstrapsPerPeer) {
+function pickUpRandomBootstraps(count = SIMULATION.BOOTSTRAPS_PER_PEER) {
 	if (count === null) return sVARS.publicPeersCards; // all of them
 
 	const selected = [];
@@ -94,9 +85,9 @@ async function initPeers() {
 	await destroyAllExistingPeers();
 	peers.public = []; peers.standard = []; peers.all = {};
 	sVARS.publicPeersCards = []; sVARS.nextPeerToInit = 0; sVARS.publicInit = 0;
-	const d = sVARS.delayBetweenInit;
-	for (sVARS.publicInit; sVARS.publicInit < sVARS.publicPeersCount; sVARS.publicInit++) addPeer('PUBLIC_NODE', sVARS.publicInit, [], true, true);
-	for (let i = 0; i < sVARS.peersCount; i++) addPeer('STANDARD_NODE', i, sVARS.publicPeersCards, d === 0);
+	const d = SIMULATION.DELAY_BETWEEN_INIT;
+	for (sVARS.publicInit; sVARS.publicInit < SIMULATION.PUBLIC_PEERS_COUNT; sVARS.publicInit++) addPeer('PUBLIC_NODE', sVARS.publicInit, [], true, true);
+	for (let i = 0; i < SIMULATION.PEERS_COUNT; i++) addPeer('STANDARD_NODE', i, sVARS.publicPeersCards, d === 0);
 
 	console.log(`%c| PEERS CREATED: { Public: ${peers.public.length}, Standard: ${peers.standard.length} } |`, 'color: yellow; font-weight: bold;');
 	if (d === 0) return; // already initialized
@@ -126,7 +117,7 @@ function getPeerInfo(peerId) {
 		}
 	}
 }
-async function randomMessagesLoop(type = 'U', mgPerPeerPerSecond = sVARS.randomUnicastPerSecondPerPeer) {
+async function randomMessagesLoop(type = 'U', mgPerPeerPerSecond = SIMULATION.RANDOM_UNICAST_PER_SEC) {
 	const numberOfSender = Math.max(1, Math.floor(mgPerPeerPerSecond * (peers.public.length + peers.standard.length) / 10));
 	while(true) {
 		const peerIds = Object.keys(peers.all);
@@ -148,9 +139,9 @@ async function randomMessagesLoop(type = 'U', mgPerPeerPerSecond = sVARS.randomU
 
 // INIT SIMULATION
 const statician = new Statician(sVARS, peers);
-if (sVARS.autoStart) initPeers();
-if (sVARS.randomUnicastPerSecondPerPeer) randomMessagesLoop('U', sVARS.randomUnicastPerSecondPerPeer);
-if (sVARS.randomGossipPerSecondPerPeer) randomMessagesLoop('G', sVARS.randomGossipPerSecondPerPeer);
+if (SIMULATION.AUTO_START) initPeers();
+if (SIMULATION.RANDOM_UNICAST_PER_SEC) randomMessagesLoop('U', SIMULATION.RANDOM_UNICAST_PER_SEC);
+if (SIMULATION.RANDOM_GOSSIP_PER_SEC) randomMessagesLoop('G', SIMULATION.RANDOM_GOSSIP_PER_SEC);
 
 const app = express(); // simple server to serve texts/p2p_simulator.html
 app.use('../rendering/visualizer.mjs', (req, res, next) => {
@@ -228,7 +219,7 @@ class TwitchChatCommandInterpreter {
 		const command = splitted[0].trim().toLowerCase();
 		const args = splitted.slice(1).map(arg => arg.trim());
 		const targetNodeId = args[0] ? args[0].startsWith('f_') ? args[0] : `f_${args[0]}` : null;
-		if (user === 'bot' && command === '!addfollower' && !sVARS.avoidFollowersNodes) this.#createUserNode(args[0]);
+		if (user === 'bot' && command === '!addfollower' && !SIMULATION.AVOID_FOLLOWERS_NODES) this.#createUserNode(args[0]);
 		if (command === '!connectto' && targetNodeId) this.userNodes[user]?.tryConnectToPeer(targetNodeId);
 	}
 	#createUserNode(user) {

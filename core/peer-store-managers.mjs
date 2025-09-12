@@ -1,5 +1,5 @@
 import wrtc from 'wrtc';
-import { SIMULATION, NODE, TRANSPORT } from './global_parameters.mjs';
+import { SIMULATION, NODE, TRANSPORTS } from './global_parameters.mjs';
 import { xxHash32 } from '../utils/xxhash32.mjs';
 const { SANDBOX, ICE_CANDIDATE_EMITTER, TEST_WS_EVENT_MANAGER } = SIMULATION.ENABLED ? await import('../simulation/test-transports.mjs') : {};
 
@@ -25,6 +25,7 @@ export class PeerConnection {
 		this.peerId = peerId;
 		this.pendingUntil = Date.now() + NODE.CONNECTION_UPGRADE_TIMEOUT;
 	}
+	setConnected() { this.connStartTime = Date.now(); }
 	getConnectionDuration() { return this.connStartTime ? Date.now() - this.connStartTime : 0; }
 	close() { this.isWebSocket ? this.transportInstance?.close() : this.transportInstance?.destroy(); }
 }
@@ -81,7 +82,7 @@ export class SdpOfferManager {
 	onConnect = null; // function(remoteId, transportInstance)
 	
 	creatingOffer = false; // flag
-	offers_to_create = TRANSPORT.SDP_OFFERS_TO_CREATE;
+	offersToCreate = TRANSPORTS.MAX_SDP_OFFERS;
 	/** @type {Record<string, OfferObj>} key: offerHash **/ offers = {};
 
 	offerCreationTimeout = null;
@@ -90,7 +91,7 @@ export class SdpOfferManager {
 		const now = Date.now();
 		for (const [hash, offer] of Object.entries(this.offers)) {
 			if (offer.isUsed) { delete this.offers[hash]; continue; } // used offer => remove it (handled by peerStore)
-			if (offer.timestamp + TRANSPORT.SDP_OFFER_EXPIRATION > now) continue; // not expired yet
+			if (offer.timestamp + TRANSPORTS.SDP_OFFER_EXPIRATION > now) continue; // not expired yet
 			offer.offererInstance?.destroy();
 			delete this.offers[hash];
 		}
@@ -105,7 +106,7 @@ export class SdpOfferManager {
 		}
 
 		if (this.creatingOffer) return; // already creating one
-		if (Object.keys(this.offers).length >= this.offers_to_create) return; // already have enough offers
+		if (Object.keys(this.offers).length >= this.offersToCreate) return; // already have enough offers
 		
 		// CREATE NEW OFFER
 		this.creatingOffer = true;
@@ -117,7 +118,7 @@ export class SdpOfferManager {
 		}, 5_000);
 	}, 500);
 	#createOffererInstance() {
-		const instance = new TRANSPORT.PEER({ initiator: true, trickle: false, wrtc });
+		const instance = new TRANSPORTS.PEER({ initiator: true, trickle: false, wrtc });
 		instance.on('error', error => this.#onError(error));
 		instance.on('signal', data => { // trickle: false => only one signal event with the full offer
 			const { candidate, type } = data; // with trickle, we need to adapt the approach.
@@ -162,7 +163,7 @@ export class SdpOfferManager {
 		if (this.verbose > 2 && error.message.includes('closed the connection')) return console.info(`%c${error.message}`, 'color: orange;');
 		console.error(`transportInstance ERROR => `, error.stack);
 	};
-	addSignalAnswer(remoteId, signal, offerHash) { // OFFER HASH NEEDED IN HERE
+	addSignalAnswer(remoteId, signal, offerHash) {
 		if (!signal || signal.type !== 'answer' || !offerHash) return; // ignore non-answers or missing offerHash
 		if (!this.offers[offerHash] || this.offers[offerHash].answerers[remoteId]) return; // already have an answer from this peerId
 		this.offers[offerHash].answerers[remoteId] = true; // mark as having answered - one answer per peerId
@@ -186,7 +187,7 @@ export class SdpOfferManager {
 			}
 			
 			// type === 'offer' => CREATE ANSWERER INSTANCE
-			const instance = new TRANSPORT.PEER({ initiator: false, trickle: false, wrtc });
+			const instance = new TRANSPORTS.PEER({ initiator: false, trickle: false, wrtc });
 			instance.on('error', (error) => this.#onError(error));
 			instance.on('signal', (data) => this.onSignal(remoteId, data, offerHash));
 			instance.on('connect', () => this.onConnect(remoteId, instance));

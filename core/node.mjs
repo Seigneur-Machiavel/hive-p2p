@@ -3,7 +3,7 @@ import { PeerConnection } from './peer-store-managers.mjs';
 import { NetworkEnhancer } from './network-enhancer.mjs';
 import { UnicastMessager, DirectMessage } from './unicast.mjs';
 import { Gossip, GossipMessage } from './gossip.mjs';
-import { SIMULATION, TRANSPORT, IDENTIFIERS, DISCOVERY, NODE } from './global_parameters.mjs';
+import { SIMULATION, TRANSPORTS, IDENTIFIERS, DISCOVERY, NODE } from './global_parameters.mjs';
 
 /**
  * @typedef {import('ws').WebSocket} WebSocket
@@ -31,7 +31,7 @@ export class NodeP2P {
 		this.networkEnhancer = new NetworkEnhancer(id, this.gossip, this.peerStore, bootstraps);
 
 		const { peerStore, networkEnhancer, messager, gossip } = this;
-		// SETUP TRANSPORT LISTENERS
+		// SETUP TRANSPORTS LISTENERS
 		peerStore.on('signal', (peerId, data) => this.messager.sendMessage(peerId, 'signal', data)); // answer created => send it to offerer
 		peerStore.on('signal_rejected', (peerId, neighbours) => this.messager.sendMessage(peerId, 'signal_rejected', neighbours));
 		peerStore.on('connect', (peerId, direction) => this.#onConnect(peerId, direction));
@@ -57,9 +57,6 @@ export class NodeP2P {
 	#onConnect = (peerId, direction) => {
 		const [selfIsPublic, remoteIsPublic] = [this.publicUrl, peerId.startsWith(IDENTIFIERS.PUBLIC_NODE)];
 		if (selfIsPublic) return; // public node do not need to do anything special on connect
-		
-		if (!this.peerStore.connected[peerId])
-			return; // can happen, no worry.
 		if (this.verbose > ((selfIsPublic || remoteIsPublic) ? 3 : 2)) console.log(`(${this.id}) ${direction === 'in' ? 'Incoming' : 'Outgoing'} connection established with peer ${peerId}`);
 		
 		const dispatchEvents = () => {
@@ -67,7 +64,7 @@ export class NodeP2P {
 			if (isHandshakeInitiator) this.sendMessage(peerId, 'handshake', { peerId: this.id });
 			if (DISCOVERY.ON_CONNECT_DISPATCH.GOSSIP_HISTORY) this.sendMessage(peerId, 'gossip_history', this.gossip.bloomFilter.getGossipHistoryByTime());
 			if (DISCOVERY.ON_CONNECT_DISPATCH.GOSSIP_NEIGHBOUR) this.broadcast('my_neighbours', this.peerStore.neighbours);
-			if (DISCOVERY.ON_CONNECT_DISPATCH.SEND_EVENT) this.broadcast('peer_connected', peerId);
+			if (DISCOVERY.ON_CONNECT_DISPATCH.SEND_EVENT && !remoteIsPublic) this.broadcast('peer_connected', peerId);
 		};
 		if (!DISCOVERY.ON_CONNECT_DISPATCH.DELAY) dispatchEvents();
 		else setTimeout(dispatchEvents, DISCOVERY.ON_CONNECT_DISPATCH.DELAY);
@@ -81,7 +78,7 @@ export class NodeP2P {
 		if (this.verbose > ((selfIsPublic || remoteIsPublic) ? 3 : 2)) console.log(`(${this.id}) ${direction === 'in' ? 'Incoming' : 'Outgoing'} connection closed with peer ${peerId}`);
 		
 		const dispatchEvents = () => {
-			if (DISCOVERY.ON_DISCONNECT_DISPATCH.SEND_EVENT) this.broadcast('peer_disconnected', peerId);
+			if (DISCOVERY.ON_DISCONNECT_DISPATCH.SEND_EVENT && !remoteIsPublic) this.broadcast('peer_disconnected', peerId);
 		};
 		if (!DISCOVERY.ON_DISCONNECT_DISPATCH.DELAY) dispatchEvents();
 		else setTimeout(dispatchEvents, DISCOVERY.ON_DISCONNECT_DISPATCH.DELAY);
@@ -133,10 +130,9 @@ export class NodeP2P {
 	setAsPublic(domain = 'localhost', port = NODE.SERVICE.PORT) {
 		this.publicUrl = `ws://${domain}:${port}`;
 		this.networkEnhancer.isPublicNode = true;
-		this.networkEnhancer.stopAutoEnhancement(); // avoid auto-connections
 		
 		// create simple ws server to accept incoming connections (Require to open port)
-		this.wsServer = new TRANSPORT.WS_SERVER({ port, host: domain });
+		this.wsServer = new TRANSPORTS.WS_SERVER({ port, host: domain });
 		this.wsServer.on('error', (error) => console.error(`WebSocket error on Node #${this.id}:`, error));
 		this.wsServer.on('connection', (ws) => {
 			ws.on('close', () => { if (remoteId) for (const cb of this.peerStore.callbacks.disconnect) cb(remoteId, 'in'); });
@@ -153,21 +149,13 @@ export class NodeP2P {
 					for (const cb of this.peerStore.callbacks.connect) cb(remoteId, 'in');
 				}
 			});
-			
-			const [{min, max}, kickDuration] = [NODE.SERVICE.AUTO_KICK_DELAY, NODE.SERVICE.AUTO_KICK_DURATION];
-			const kickDelay = () => Math.round(Math.random() * (max - min) + min);
-			setTimeout(() => { // better if we can kick IP address instead of id only
-				if (remoteId) this.peerStore.kickPeer(remoteId, kickDuration);
-				if (ws?.readyState === 1) ws?.close();
-			}, kickDelay());
 		});
 
 		return { id: this.id, publicUrl: this.publicUrl };
 	}
 	destroy() {
-		if (this.discoveryLoop) clearInterval(this.discoveryLoop);
+		this.networkEnhancer.stopAutoEnhancement();
 		this.peerStore.destroy();
-		this.networkEnhancer.destroy();
 		if (this.wsServer) this.wsServer.close();
 	}
 }
