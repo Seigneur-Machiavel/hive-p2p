@@ -1,4 +1,4 @@
-import { SIMULATION, TRANSPORTS, IDENTIFIERS, NODE, DISCOVERY } from './global_parameters.mjs';
+import { SIMULATION, TRANSPORTS, NODE, DISCOVERY } from './global_parameters.mjs';
 import { PeerConnection } from './peer-store-managers.mjs';
 const { SANDBOX, ICE_CANDIDATE_EMITTER, TEST_WS_EVENT_MANAGER } = SIMULATION.ENABLED ? await import('../simulation/test-transports.mjs') : {};
 
@@ -60,7 +60,7 @@ export class NetworkEnhancer {
 			if (isUsed || sentCounter > 0) continue; // already used or already sent at least once
 			if (neighboursCount >= DISCOVERY.TARGET_NEIGHBORS_COUNT) break; // already enough, do nothing
 
-			this.gossip.broadcast('signal', { signal, neighbours: this.peerStore.neighbours, offerHash });
+			this.gossip.broadcastToAll({ signal, neighbours: this.peerStore.neighbours, offerHash }, 'signal_offer');
 			readyOffer.sentCounter++;
 			break; // limit to one per loop
 		}
@@ -80,7 +80,7 @@ export class NetworkEnhancer {
 
 		const { overlap } = this.peerStore.getOverlap(senderId);
 		const tooManySharedPeers = overlap > DISCOVERY.MAX_OVERLAP;
-		const isTwitchUser = senderId.startsWith('f_');
+		const isTwitchUser = senderId.startsWith('F_');
 		const tooManyConnectedPeers = this.peerStore.neighbours.length >= DISCOVERY.TARGET_NEIGHBORS_COUNT - 1;
 		if (!isTwitchUser && (tooManySharedPeers || tooManyConnectedPeers)) this.peerStore.kickPeer(senderId, 30_000);
 

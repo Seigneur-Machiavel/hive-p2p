@@ -1,9 +1,10 @@
-import { SIMULATION, IDENTIFIERS, NODE } from './global_parameters.mjs';
+import { SIMULATION, IDENTITY, DISCOVERY } from './global_parameters.mjs';
 import { PeerConnection, KnownPeer, SdpOfferManager, Punisher } from './peer-store-managers.mjs';
 import { UnicastMessager } from './unicast.mjs';
 const { SANDBOX, ICE_CANDIDATE_EMITTER, TEST_WS_EVENT_MANAGER } = SIMULATION.ENABLED ? await import('../simulation/test-transports.mjs') : {};
 
 export class PeerStore { // Manages all peers informations and connections (WebSocket and WebRTC)
+	cryptoCodec;
 	verbose;
 	id;
 	sdpOfferManager;
@@ -24,14 +25,15 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 		'data': []
 	};
 
-	/** @param {string} selfId @param {number} [verbose] default: 0 */
-	constructor(selfId, verbose = 0) { // SETUP SDP_OFFER_MANAGER CALLBACKS
-		this.id = selfId;
+	/** @param {string} selfId @param {import('./crypto-codec.mjs').CryptoCodec} cryptoCodec @param {number} [verbose] default: 0 */
+	constructor(selfId, cryptoCodec, verbose = 0) { // SETUP SDP_OFFER_MANAGER CALLBACKS
+		this.cryptoCodec = cryptoCodec;
 		this.verbose = verbose;
+		this.id = selfId;
 		this.sdpOfferManager = new SdpOfferManager(selfId, verbose);
 
 		/** @param {string} remoteId @param {any} signalData @param {string} [offerHash] answer only */
-		this.sdpOfferManager.onSignal = (remoteId, signalData, offerHash) => {
+		this.sdpOfferManager.onSignalAnswer = (remoteId, signalData, offerHash) => { // answer only
 			if (this.isDestroy || this.punisher.isSanctioned(remoteId)) return; // not accepted
 			for (const cb of this.callbacks.signal) cb(remoteId, { signal: signalData, neighbours: this.neighbours, offerHash });
 		};
@@ -49,7 +51,15 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 			instance.on('data', data => {
 				if (peerId) for (const cb of this.callbacks.data) cb(peerId, data);
 				else { // First data should be handshake with id
-					peerId = UnicastMessager.handleHandshake(this.id, data, this.verbose);
+					// C'EST PAS TERRIBLE (non plus)
+					if (data[0] > 127) return; // not unicast, ignore
+					const message = cryptoCodec.readUnicastMessage(data);
+					const { route, type } = message || {};
+					if (type !== 'handshake' || route.length !== 2 || route[1] !== this.id) return;
+					const [senderId, targetId] = [route[0], route[1]];
+					if (!senderId || targetId !== this.id) return;
+					peerId = senderId;
+
 					if (!peerId) return; // handled another message or invalid handshake
 					for (const cb of this.callbacks.connect) cb(peerId, instance.initiator ? 'out' : 'in');
 					// already connecting the other way, but this one succeded first => close the other one
@@ -89,7 +99,7 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 		this.connected[peerId] = peerConn;
 		this.neighbours.push(peerId);
 		this.#linkPeers(this.id, peerId); // Add link in self store
-		if (this.verbose > (peerId.startsWith(IDENTIFIERS.PUBLIC_NODE) ? 3 : 2)) console.log(`(${this.id}) ${direction === 'in' ? 'Incoming' : 'Outgoing'} ${peerConn.isWebSocket ? 'WebSocket' : 'WRTC'} connection established with peer ${peerId}`);
+		if (this.verbose > (peerId.startsWith(IDENTITY.PUBLIC_PREFIX) ? 3 : 2)) console.log(`(${this.id}) ${direction === 'in' ? 'Incoming' : 'Outgoing'} ${peerConn.isWebSocket ? 'WebSocket' : 'WRTC'} connection established with peer ${peerId}`);
 	}
 	#handleDisconnect(peerId, direction) { // First callback assigned in constructor
 		this.#removePeer(peerId, 'connected', direction);
@@ -118,8 +128,8 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 		delete this.connecting[remoteId]; // no more connection direction => remove entirely
 	}
 	#linkPeers(peerId1 = 'toto', peerId2 = 'tutu') {
-		if (!this.known[peerId1]) this.known[peerId1] = new KnownPeer(peerId1);
-		if (!this.known[peerId2]) this.known[peerId2] = new KnownPeer(peerId2);
+		if (!this.known[peerId1]) this.known[peerId1] = new KnownPeer();
+		if (!this.known[peerId2]) this.known[peerId2] = new KnownPeer();
 		this.known[peerId1].setNeighbour(peerId2);
 		this.known[peerId2].setNeighbour(peerId1);
 	}
@@ -178,7 +188,7 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 	/** Link two peers if both declared the connection in a short delay(10s), trigger on:
 	 * - 'peer_connected' gossip message
 	 * - 'peer_connected' from gossipHistory (unicast message following onConnect) */
-	handlePeerConnectedGossipEvent(peerId1 = 'toto', peerId2 = 'tutu', timeout = 10_000) {
+	handlePeerConnectedGossipEvent(peerId1 = 'toto', peerId2 = 'tutu', timeout = DISCOVERY.PEER_LINK_DELAY) {
 		const key1 = `${peerId1}:${peerId2}`;
 		const key2 = `${peerId2}:${peerId1}`;
 		const pendingLinkExpiration = this.pendingLinks[key1] || this.pendingLinks[key2];
@@ -189,7 +199,7 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 			this.#linkPeers(peerId1, peerId2);
 		}
 	}
-		/** Improve discovery by considering used route as peer links @param {string[]} route */
+	/** Improve discovery by considering used route as peer links @param {string[]} route */
 	digestValidRoute(route = []) { for (let i = 1; i < route.length; i++) this.#linkPeers(route[i - 1], route[i]); }
 	/** @param {string} peerId @param {string[]} neighbours */
 	digestPeerNeighbours(peerId, neighbours = []) { // Update known neighbours
@@ -210,7 +220,7 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 		const p1Neighbours = Object.keys(this.known[peerId1]?.neighbours || {});
 		const p2Neighbours = peerId2 === this.id ? this.neighbours : Object.keys(this.known[peerId2]?.neighbours || {});
 		const sharedNeighbours = ignorePublic
-		? p1Neighbours.filter(id => { if (p2Neighbours[id] && !id.startsWith(IDENTIFIERS.PUBLIC_NODE)) return p2Neighbours[id]; })
+		? p1Neighbours.filter(id => { if (p2Neighbours[id] && !id.startsWith(IDENTITY.PUBLIC_PREFIX)) return p2Neighbours[id]; })
 		: p1Neighbours.filter(id => p2Neighbours[id]);
 		return { sharedNeighbours, overlap: sharedNeighbours.length };
 	}

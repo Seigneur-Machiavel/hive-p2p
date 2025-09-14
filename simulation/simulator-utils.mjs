@@ -1,4 +1,4 @@
-import { Serializer } from '../core/serializer.mjs';
+import { UNICAST, GOSSIP } from '../core/global_parameters.mjs';
 
 export class MessageQueue {
 	typesInTheQueue = [];
@@ -56,7 +56,7 @@ export class Statician { // DO NOT ADD VARIABLES, JUST COUNTERS !!
 }
 
 export class SubscriptionsManager {
-	serializer = new Serializer();
+	cryptoCodec;
 	/** @type {Function} */ sendFnc;
 	/** @type {Record<string, Record<string, import('../core/node.mjs').NodeP2P>} */ peers;
 	unicastCount = { session: 0, total: 0 };
@@ -69,10 +69,12 @@ export class SubscriptionsManager {
 	onPeerMessage = null; // currently subscribed peer
 	interval;
 
-	constructor(sendFnc, peers, delay = 10_000) {
+	/** @param {Function} sendFnc @param {Record<string, Record<string, import('../core/node.mjs').NodeP2P}>} peers @param {import('../core/crypto-codec.mjs').CryptoCodec} cryptoCodec @param {number} [delay] default: 10 seconds */
+	constructor(sendFnc, peers, cryptoCodec, delay = 10_000) {
 		console.info('SubscriptionsManager initialized');
 		this.sendFnc = sendFnc;
 		this.peers = peers;
+		this.cryptoCodec = cryptoCodec;
 		const divider = delay / 1000;
 		this.interval = setInterval(() => {
 			const sessionGossipSec = Math.round(this.gossipCount.session / divider);
@@ -105,20 +107,26 @@ export class SubscriptionsManager {
 		this.onPeerMessage = peerId; // set flag
 			
 		// Listen to all GOSSIP messages from this peer
+		/** @param {string} remoteId @param {Uint8Array} data */
 		peer.peerStore.on('data', (remoteId, data) => {
-			const d = this.serializer.deserialize(data);
-			this.sendFnc({ type: 'peerMessage', remoteId, data: d }); // without identifier
-			if (d.topic) { // gossip message
-				this.tmpTopic[d.topic] ? this.tmpTopic[d.topic]++ : this.tmpTopic[d.topic] = 1;
-				this.mpTopic[d.topic] ? this.mpTopic[d.topic]++ : this.mpTopic[d.topic] = 1;
-				this.gossipCount.total++;
-				this.gossipCount.session++;
-			} else if (d.route) { // unicast message
-				this.tmpType[d.type] ? this.tmpType[d.type]++ : this.tmpType[d.type] = 1;
-				this.mpType[d.type] ? this.mpType[d.type]++ : this.mpType[d.type] = 1;
-				this.unicastCount.total++;
-				this.unicastCount.session++;
-			}
+			const markerByte = data[0];
+			try {
+				if (GOSSIP.MARKERS_BYTES[markerByte]) { // gossip message
+					const d = this.cryptoCodec.readGossipMessage(data);
+					this.tmpTopic[d.topic] ? this.tmpTopic[d.topic]++ : this.tmpTopic[d.topic] = 1;
+					this.mpTopic[d.topic] ? this.mpTopic[d.topic]++ : this.mpTopic[d.topic] = 1;
+					this.gossipCount.total++;
+					this.gossipCount.session++;
+					this.sendFnc({ type: 'peerMessage', remoteId, data: d }); // without identifier
+				} else if (UNICAST.MARKERS_BYTES[markerByte]) { // unicast message
+					const d = this.cryptoCodec.readUnicastMessage(data);
+					this.tmpType[d.type] ? this.tmpType[d.type]++ : this.tmpType[d.type] = 1;
+					this.mpType[d.type] ? this.mpType[d.type]++ : this.mpType[d.type] = 1;
+					this.unicastCount.total++;
+					this.unicastCount.session++;
+					this.sendFnc({ type: 'peerMessage', remoteId, data: d }); // without identifier
+				}
+			} catch (error) { console.error(`Error processing message from ${remoteId}, markerByte ${markerByte}:`, error.stack); }
 		});
 		return true;
 	}

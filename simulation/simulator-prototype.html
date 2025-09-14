@@ -147,7 +147,7 @@
 				newlyUpdated[id] = true;
 			}
 
-			for (const peer of Object.values(peerInfo.known)) digestPeerUpdate(peer.id, 'known');
+			for (const [id, peer] of Object.entries(peerInfo.known)) digestPeerUpdate(id, 'known');
 			for (const id of peerInfo.connecting) digestPeerUpdate(id, 'connecting');
 			for (const id of peerInfo.connected) digestPeerUpdate(id, 'connected');
 			if (peerInfo.id) digestPeerUpdate(peerInfo.id, 'current'); // ensure current peer is updated

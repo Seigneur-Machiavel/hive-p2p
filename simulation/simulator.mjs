@@ -2,13 +2,15 @@ import path from 'path';
 import express from 'express';
 import { io } from 'socket.io-client'; // used for twitch events only
 import { WebSocketServer } from 'ws';
-import { SIMULATION, TRANSPORTS, IDENTIFIERS } from '../core/global_parameters.mjs';
+import { SIMULATION, NODE, TRANSPORTS, IDENTITY } from '../core/global_parameters.mjs';
 import { TestWsServer, TestWsConnection, TestTransport } from '../simulation/test-transports.mjs';
 import { MessageQueue, Statician, SubscriptionsManager } from './simulator-utils.mjs';
 
 // SETUP SIMULATION ENV -----------------------------------------------\
-IDENTIFIERS.PUBLIC_NODE = 'Public_'; //	default: 'P'					|
-IDENTIFIERS.STANDARD_NODE = 'peer_'; //	default: undefined				|
+SIMULATION.AVOID_CRYPTO = true; // to speed up simulation				|
+IDENTITY.PUBLIC_PREFIX = 'P_'; //										|
+IDENTITY.STANDARD_PREFIX = 'N_'; //										|
+IDENTITY.FOLLOWER_PREFIX = 'F_'; //										|
 if (SIMULATION.USE_TEST_TRANSPORTS) {//									|
 	TRANSPORTS.WS_SERVER = TestWsServer; // default: WebSocketServer	|
 	TRANSPORTS.WS_CLIENT = TestWsConnection; // default: WebSocket		|
@@ -17,6 +19,7 @@ if (SIMULATION.USE_TEST_TRANSPORTS) {//									|
 //---------------------------------------------------------------------/
 
 // IMPORT NODE AFTER SIMULATION ENV SETUP
+const { CryptoIdCard, CryptoCodec } = await import('../core/crypto-codec.mjs');
 const { NodeP2P } = await import('../core/node.mjs'); // dynamic import to allow simulation overrides
 // TO ACCESS THE VISUALIZER GO TO: http://localhost:3000 ------\
 // LOGS COLORS :											   |
@@ -43,7 +46,6 @@ const peers = {
 	/** @type {Array<import('../core/node.mjs').NodeP2P>} */
 	standard: [],
 }
-
 async function destroyAllExistingPeers(pauseDuration = 2000) {
 	let totalDestroyed = 0;
 	for (const peer of peers.public) { peer.destroy(); totalDestroyed ++; }
@@ -62,13 +64,16 @@ function pickUpRandomBootstraps(count = SIMULATION.BOOTSTRAPS_PER_PEER) {
 	return selected;
 }
 function addPeer(type, i = 0, bootstraps = [], init = false, setPublic = false) {
-	const id = `${IDENTIFIERS[type]}${i}`;
 	const selectedBootstraps = type === 'STANDARD_NODE' ? pickUpRandomBootstraps() : bootstraps;
-	const peer = NodeP2P.createNode(id, selectedBootstraps, init);
-	peers.all[id] = peer;
+	const domain = setPublic ? 'localhost' : undefined;
+	const port = setPublic ? 8080 + i : undefined;
+	const idCard = CryptoIdCard.generate(`${type === 'STANDARD_NODE' ? IDENTITY.STANDARD_PREFIX : IDENTITY.PUBLIC_PREFIX}${i}`);
+	const peer = NodeP2P.createNode(selectedBootstraps, idCard, init, domain, port);
+	peers.all[peer.id] = peer;
 	peers[type === 'STANDARD_NODE' ? 'standard' : 'public'].push(peer);
-	if (setPublic) sVARS.publicPeersCards.push(peer.setAsPublic(`localhost`, 8080 + i, 10_000));
+	if (setPublic) sVARS.publicPeersCards.push({ id: peer.id, publicUrl: peer.publicUrl });
 	peer.gossip.on('message_handle', (msg, fromId) => statician.gossip++);
+	peer.messager.on('message_handle', (msg, fromId) => statician.unicast++);
 }
 async function initPeers() {
 	if (initInterval) clearInterval(initInterval);
@@ -119,8 +124,8 @@ async function randomMessagesLoop(type = 'U', mgPerPeerPerSecond = SIMULATION.RA
 			if (!sender || senderKnowsPeers.length === 0) continue;
 
 			const recipientId = senderKnowsPeers[Math.floor(Math.random() * senderKnowsPeers.length)];
-			if (type === 'U') sender.sendMessage(recipientId, 'test', `Hello from ${sender.id}`);
-			else if (type === 'G') sender.broadcast('test', `Hello to all from ${sender.id}`);
+			if (type === 'U') sender.sendMessage(recipientId, `Hello from ${sender.id}`);
+			else if (type === 'G') sender.broadcast(`Hello to all from ${sender.id}`);
 		} } catch (error) { console.error('Error selecting random sender:', error); }
 
 		await new Promise(resolve => setTimeout(resolve, 1000));
@@ -182,7 +187,7 @@ const onMessage = async (data) => {
 	}
 }
 const msgQueue = new MessageQueue(onMessage);
-const sManager = new SubscriptionsManager(send, peers);
+const sManager = new SubscriptionsManager(send, peers, new CryptoCodec());
 const wss = new WebSocketServer({ server });
 wss.on('connection', (ws) => {
 	if (clientWs) clientWs.close();
@@ -210,14 +215,19 @@ class TwitchChatCommandInterpreter {
 		const splitted  = message.split(':');
 		const command = splitted[0].trim().toLowerCase();
 		const args = splitted.slice(1).map(arg => arg.trim());
-		const targetNodeId = args[0] ? args[0].startsWith('f_') ? args[0] : `f_${args[0]}` : null;
+		const targetNodeId = args[0] ? args[0].startsWith(IDENTITY.FOLLOWER_PREFIX) ? args[0] : `${IDENTITY.FOLLOWER_PREFIX}${args[0]}` : null;
 		if (user === 'bot' && command === '!addfollower' && !SIMULATION.AVOID_FOLLOWERS_NODES) this.#createUserNode(args[0]);
 		if (command === '!connectto' && targetNodeId) this.userNodes[user]?.tryConnectToPeer(targetNodeId);
 	}
 	#createUserNode(user) {
 		if (this.userNodes[user]?.peerStore?.isDestroy) this.userNodes[user] = undefined;
 		if (this.userNodes[user]) return;
-		const peer = NodeP2P.createNode(`f_${user}`, pickUpRandomBootstraps());
+		const cleanUser = user
+			.normalize('NFD')                    // décomposer les accents
+			.replace(/[\u0300-\u036f]/g, '')     // supprimer les accents
+			.replace(/[^\w-]/g, '_')             // remplacer chars spéciaux par _
+		const idCard = CryptoIdCard.generate(`${IDENTITY.FOLLOWER_PREFIX}${cleanUser}`);
+		const peer = NodeP2P.createNode(pickUpRandomBootstraps(), idCard, true);
 		this.userNodes[user] = peer;
 		peers.all[peer.id] = peer;
 		peers.standard.unshift(peer);

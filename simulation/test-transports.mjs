@@ -175,7 +175,7 @@ export class TestTransport { // SimplePeer like
 
 		ICE_CANDIDATE_EMITTER.digestSignal(remoteSDP, this.id);
 	}
-	/** @param {string | Uint8Array} message */
+	/** @param {string | Uint8Array | Object} message */
 	send(message) {
 		const { success, reason } = SANDBOX.sendData(this.id, this.remoteId, message);
 		if (!success) this.destroy(reason);

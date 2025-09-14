@@ -1,6 +1,5 @@
 import { NetworkRenderer } from './NetworkRenderer.mjs';
-import { IDENTIFIERS } from '../core/global_parameters.mjs';
-import { Serializer } from '../core/serializer.mjs';
+import { IDENTITY } from '../core/global_parameters.mjs';
 
 class SimulationInterface {
 	#connectingWs = false;
@@ -64,7 +63,6 @@ class SimulationInterface {
 }
 
 class NetworkVisualizer {
-	serializer = new Serializer();
 	autoSelectCurrentPeerCategory = ['standard', 'public']; // 'public' | 'standard' | false
 	currentPeerId;
 	lastPeerInfo;
@@ -92,13 +90,8 @@ class NetworkVisualizer {
 			);
 
 			this.simulationInterface.onPeerMessage = (remoteId, data) => {
-				//const array = data.data ? data.data : Object.values(data); // handle both { data: ... } and raw data
-				//if (!array?.length) return; // c'est une dinguerie !!
-				//const d = this.serializer.deserialize(array);
-				// Now I send it clear from server
-				const d = data;
-				if (d.route) this.networkRenderer.displayDirectMessageRoute(remoteId, d.route);
-				else if (d.topic) this.networkRenderer.displayGossipMessageRoute(remoteId, d.senderId, d.topic, d.data);
+				if (data.route) this.networkRenderer.displayDirectMessageRoute(remoteId, data.route);
+				else if (data.topic) this.networkRenderer.displayGossipMessageRoute(remoteId, data.senderId, data.topic, data.data);
 			};
 
 			this.networkRenderer.onNodeLeftClick = (nodeId) => this.simulationInterface.tryToConnectNode(this.currentPeerId,nodeId);
@@ -172,7 +165,7 @@ class NetworkVisualizer {
 
 		const newlyUpdated = {};
 		const digestPeerUpdate = (id = 'toto', status = 'unknown', neighbours = []) => {
-			const isPublic = id.startsWith(IDENTIFIERS.PUBLIC_NODE);
+			const isPublic = id.startsWith(IDENTITY.PUBLIC_PREFIX);
 			this.networkRenderer.addOrUpdateNode(id, status, isPublic, neighbours);
 			newlyUpdated[id] = true;
 		}
@@ -186,8 +179,8 @@ class NetworkVisualizer {
 		knownToIgnore[this.currentPeerId] = true;
 		for (const id of peerInfo.store.connecting) knownToIgnore[id] = true;
 		for (const id of peerInfo.store.connected) knownToIgnore[id] = true;
-		for (const peer of Object.values(peerInfo.store.known))
-			if (!knownToIgnore[peer.id]) digestPeerUpdate(peer.id, 'known', getNeighbours(peer.id));
+		for (const [ id, peer ] of Object.entries(peerInfo.store.known))
+			if (!knownToIgnore[id]) digestPeerUpdate(id, 'known', getNeighbours(id));
 		
 		for (const id of peerInfo.store.connecting) digestPeerUpdate(id, 'connecting', getNeighbours(id));
 		for (const id of peerInfo.store.connected) digestPeerUpdate(id, 'connected', getNeighbours(id));

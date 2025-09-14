@@ -1,13 +1,21 @@
 import { GOSSIP } from './global_parameters.mjs';
 import { xxHash32 } from '../utils/xxhash32.mjs';
-import { Serializer } from './serializer.mjs';
 
 export class GossipMessage {
-	/** @type {string} */ senderId;
-	/** @type {string} */ topic;
-	/** @type {string | Uint8Array} */ data;
-	/** @type {number} */ timestamp;
-	/** @type {number} */ TTL;
+	topic = 'gossip';
+	timestamp;
+	HOPS;
+	senderId;
+	pubkey;
+	data;
+	signature;
+
+	/** @param {string} topic @param {number} timestamp @param {number} HOPS @param {string} senderId @param {string} pubkey @param {string | Uint8Array | Object} data @param {string | undefined} signature */
+	constructor(topic, timestamp, HOPS, senderId, pubkey, data, signature) { // PROBABLY DEPRECATED
+		this.topic = topic; this.timestamp = timestamp; this.HOPS = HOPS;
+		this.senderId = senderId; this.pubkey = pubkey; this.data = data;
+		this.signature = signature;
+	}
 }
 
 /** - 'BloomFilterCacheEntry' Definition
@@ -15,7 +23,7 @@ export class GossipMessage {
  * @property {string} hash
  * @property {string} senderId
  * @property {string} topic
- * @property {string | Uint8Array} data
+ * @property {string | Uint8Array | Object} data
  * @property {number} expiration
  */
 
@@ -63,17 +71,18 @@ class DegenerateBloomFilter {
 }
 
 export class Gossip {
-	serializer = new Serializer();
-	id;
+	cryptoCodec;
 	verbose;
+	id;
 	peerStore;
 	bloomFilter = new DegenerateBloomFilter();
-	/** @type {Record<string, Function[]>} */ callbacks = {};
+	/** @type {Record<string, Function[]>} */ callbacks = { message_handle: [] };
 
-	/** @param {string} peerId @param {import('./peer-store.mjs').PeerStore} peerStore */
-	constructor(peerId, peerStore, verbose = 0) {
-		this.id = peerId;
+	/** @param {string} peerId @param {import('./crypto-codec.mjs').CryptoCodec} cryptoCodec @param {import('./peer-store.mjs').PeerStore} peerStore */
+	constructor(peerId, cryptoCodec, peerStore, verbose = 0) {
+		this.cryptoCodec = cryptoCodec;
 		this.verbose = verbose;
+		this.id = peerId;
 		this.peerStore = peerStore;
 	}
 
@@ -83,15 +92,16 @@ export class Gossip {
 		else this.callbacks[callbackType].push(callback);
 	}
 	/** Gossip a message to all connected peers > will be forwarded to all peers
-	 * @param {string} topic @param {string | Uint8Array} data @param {number} [timestamp]
-	 * @param {string} [targetId] @param {number} [ttl] */
-	broadcast(topic, data, targetId, timestamp = Date.now(), ttl) {
+	 * @param {string | Uint8Array | Object} data @param {string} topic @param {number} [HOPS] */
+	broadcastToAll(data, topic = 'gossip', HOPS) {
+		const timestamp = Date.now();
 		if (!this.bloomFilter.addMessage(this.id, topic, data, timestamp)) return; // avoid re-processing our own message
 		
-		const serializedData = this.serializer.serializeGossip(this.id, topic, data, timestamp, ttl || GOSSIP.TTL[topic] || GOSSIP.TTL.default);
-		const targetsId = targetId ? [targetId] : Object.keys(this.peerStore.connected);
-		if (this.verbose > 3) console.log(`(${this.id}) Gossip ${topic}, to ${JSON.stringify(targetsId)}: ${data}`);
-		for (const peerId of targetsId) this.#broadcastToPeer(peerId, serializedData);
+		const hops = HOPS || GOSSIP.HOPS[topic] || GOSSIP.HOPS.default;
+		const serializedData = this.cryptoCodec.createGossipMessage(topic, data, hops);
+		const targetIds = Object.keys(this.peerStore.connected);
+		if (this.verbose > 3) console.log(`(${this.id}) Gossip ${topic}, to ${JSON.stringify(targetIds)}: ${data}`);
+		for (const peerId of targetIds) this.#broadcastToPeer(peerId, serializedData);
 	}
 	/** @param {string} targetId @param {any} serializedData */
 	#broadcastToPeer(targetId, serializedData) {
@@ -101,15 +111,16 @@ export class Gossip {
 		try { transportInstance.send(serializedData); }
 		catch (error) { this.peerStore.connected[targetId]?.close(); }
 	}
-	/** @param {string} from @param {GossipMessage} message @param {string | Uint8Array} serializedMessage */
-	handleGossipMessage(from, message, serializedMessage) {
+	/** @param {string} from @param {string | Uint8Array | Object} serialized */
+	handleGossipMessage(from, serialized) {
 		if (this.peerStore.isBanned(from)) return; // ignore messages from banned peers
 
-		// FOR SECURITY WE CAN: ==> NOTE: WE SHOULD SIGN THE MESSAGE INSTEAD
-		// DECRYPT MESSAGE WITH (pubKey === 'from')
-		// DECRYPT DATA WITH (pubKey === 'senderId')
-		const { senderId, topic, data, timestamp, TTL } = message;
-		for (const cb of this.callbacks['message_handle'] || []) cb(senderId, data); // mainly used in debug
+		// ==> NOTE: WE SHOULD SIGN THE MESSAGE AND VERIFY THE SIGNATURE <==
+		const message = this.cryptoCodec.readGossipMessage(serialized);
+		if (!message) throw new Error(`Failed to deserialize gossip message from ${from}.`);
+		
+		const { topic, timestamp, HOPS, senderId, data } = message;
+		for (const cb of this.callbacks.message_handle || []) cb(senderId, data); // Simulator counter is placed here
 		if (!this.bloomFilter.addMessage(senderId, topic, data, timestamp)) return; // already processed this message
 		
 		if (this.verbose > 3)
@@ -118,7 +129,7 @@ export class Gossip {
 		if (senderId === this.id) throw new Error(`#${this.id}#${from}# Received our own message back from peer ${from}.`);
 
 		for (const cb of this.callbacks[topic] || []) cb(senderId, data); // specific topic callback
-		if (TTL < 1) return; // stop forwarding if TTL is 0
+		if (HOPS < 1) return; // stop forwarding if HOPS is 0
 
 		const neighbours = Object.entries(this.peerStore.connected);
 		const nCount = neighbours.length;
@@ -126,11 +137,12 @@ export class Gossip {
 		const tRateBase = GOSSIP.TRANSMISSION_RATE[topic] || GOSSIP.TRANSMISSION_RATE.default;
 		const transmissionRate = Math.pow(tRateBase, trm);
 		const avoidTransmissionRate = nCount < GOSSIP.TRANSMISSION_RATE.MIN_NEIGHBOURS_TO_APPLY_PONDERATION;
-		const messageWithDecrementedTTL = this.serializer.serializeGossip(senderId, topic, data, timestamp, TTL - 1);
+		//const messageWithDecrementedHOPS = new GossipMessage(topic, timestamp, HOPS - 1, senderId, message.pubkey, data);
+		const serializedToTransmit = this.cryptoCodec.decrementGossipHops(serialized);
 		for (const [peerId, conn] of neighbours) {
 			if (peerId === from) continue; // avoid sending back to sender
 			if (!avoidTransmissionRate && Math.random() > transmissionRate) continue; // apply gossip transmission rate
-			this.#broadcastToPeer(peerId, messageWithDecrementedTTL);
+			this.#broadcastToPeer(peerId, serializedToTransmit);
 		}
 
 		return { from, senderId };

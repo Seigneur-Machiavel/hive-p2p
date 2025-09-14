@@ -27,20 +27,18 @@ export class PeerConnection { // WebSocket or WebRTC connection wrapper
 	close() { this.isWebSocket ? this.transportInstance?.close() : this.transportInstance?.destroy(); }
 }
 export class KnownPeer { // known peer, not necessarily connected
-	id;
 	neighbours;
 	connectionsCount;
 
-	/** @param {string} id @param {Record<string, number>} neighbours key: peerId, value: timestamp */
-	constructor(id, neighbours = {}) {
-		this.id = id;
+	/** @param {Record<string, number>} neighbours key: peerId, value: timestamp */
+	constructor(neighbours = {}) {
 		this.neighbours = neighbours;
 		this.connectionsCount = Object.keys(neighbours).length;
 	}
 	
 	setNeighbour(peerId, timestamp = Date.now()) {
 		if (!this.neighbours[peerId]) this.connectionsCount++;
-		this.neighbours[peerId] = timestamp;
+		this.neighbours[peerId] = timestamp; // not used for now, we can set Object in value easily
 	}
 	unsetNeighbour(peerId) {
 		if (this.neighbours[peerId]) this.connectionsCount--;
@@ -77,7 +75,7 @@ export class SdpOfferManager { // Manages the creation of SDP offers and handlin
 	verbose = 0;
 	constructor(id = 'toto', verbose = 0) { this.id = id; this.verbose = verbose; }
 	
-	onSignal = null; // function(remoteId, signalData, offerHash)
+	onSignalAnswer = null; // function(remoteId, signalData, offerHash)
 	onConnect = null; // function(remoteId, transportInstance)
 	
 	creatingOffer = false; // flag
@@ -197,7 +195,7 @@ export class SdpOfferManager { // Manages the creation of SDP offers and handlin
 			// type === 'offer' => CREATE ANSWERER INSTANCE
 			const instance = new TRANSPORTS.PEER({ initiator: false, trickle: false, wrtc });
 			instance.on('error', (error) => this.#onError(error));
-			instance.on('signal', (data) => this.onSignal(remoteId, data, offerHash));
+			instance.on('signal', (data) => this.onSignalAnswer(remoteId, data, offerHash));
 			instance.on('connect', () => this.onConnect(remoteId, instance));
 			return new PeerConnection(remoteId, instance, 'in');
 		} catch (error) { if (this.verbose > 3) console.error(error.message); }

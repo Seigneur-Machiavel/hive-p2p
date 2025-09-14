@@ -107,7 +107,7 @@ knownPeers: {
 
 **Propagation:**
 - Based on six degrees of separation theory
-- Configurable TTL to limit map size
+- Configurable HOPS to limit map size
 - ~10 messages/second in steady state
 
 ### 3.3 Optimized Neighbor Selection
@@ -362,7 +362,7 @@ knownPeers: {
 
 **Propagation :**
 - Basée sur la théorie des 6 degrés de séparation
-- TTL configurable pour limiter la taille de la carte
+- HOPS configurable pour limiter la taille de la carte
 - ~10 messages/seconde en régime stable
 
 ### 3.3 Sélection de Voisins Optimisée
