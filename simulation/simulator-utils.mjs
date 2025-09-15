@@ -43,7 +43,6 @@ export class Statician { // DO NOT ADD VARIABLES, JUST COUNTERS !!
 		setInterval(() => {
 			const nextPeerToInit = sVARS.nextPeerToInit > 0 ? sVARS.nextPeerToInit - 1 : 0;
 			console.info(`%c${Math.floor((Date.now() - sVARS.startTime) / 1000)} sec elapsed | Active nodes: ${sVARS.publicInit + nextPeerToInit}/${Object.keys(peers.all).length} | STATS/sec: ${this.#getStatsPerSecond(delay)}`, 'color: yellow;');
-			//console.log(`%c~STATS/sec: ${this.#getStatsPerSecond(delay)}`, 'color: yellow;');
 			for (const key in this) this[key] = 0;
 		}, delay);
 	}

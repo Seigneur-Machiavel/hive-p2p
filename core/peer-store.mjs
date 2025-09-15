@@ -1,6 +1,5 @@
 import { SIMULATION, IDENTITY, DISCOVERY } from './global_parameters.mjs';
 import { PeerConnection, KnownPeer, SdpOfferManager, Punisher } from './peer-store-managers.mjs';
-import { UnicastMessager } from './unicast.mjs';
 const { SANDBOX, ICE_CANDIDATE_EMITTER, TEST_WS_EVENT_MANAGER } = SIMULATION.ENABLED ? await import('../simulation/test-transports.mjs') : {};
 
 export class PeerStore { // Manages all peers informations and connections (WebSocket and WebRTC)

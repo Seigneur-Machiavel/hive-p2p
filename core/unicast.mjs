@@ -19,12 +19,18 @@ export class DirectMessage {
 	getSenderId() { return this.route[0]; }
 	getTargetId() { return this.route[this.route.length - 1]; }
 	extractTraveledRoute(selfId = 'toto') {
+		const route = this.newRoute || this.route;
 		const traveledRoute = [];
-		for (let i = 0; i < this.route.length; i++) {
-			traveledRoute.push(this.route[i]);
-			if (this.route[i] === selfId) return { traveledRoute, selfPosition: i };
+		let selfPosition = -1;
+		for (let i = 0; i < route.length; i++) {
+			traveledRoute.push(route[i]);
+			if (route[i] === selfId) { selfPosition = i; break; }
 		}
-		return { traveledRoute, selfPosition: -1 };
+		const senderId = route[0];
+		const targetId = route[route.length - 1];
+		const prevId = selfPosition > 0 ? route[selfPosition - 1] : null;
+		const nextId = (selfPosition !== -1) ? route[selfPosition + 1] : null;
+		return { traveledRoute, selfPosition, senderId, targetId, prevId, nextId, routeLength: route.length };
 	}
 }
 export class ReroutedDirectMessage extends DirectMessage {
@@ -79,7 +85,7 @@ export class UnicastMessager {
 		for (let i = 0; i < Math.min(finalSpread, builtResult.routes.length); i++) {
 			const route = builtResult.routes[i].path;
 			if (route.length > UNICAST.MAX_HOPS) {
-				if (this.verbose > 0) console.warn(`Cannot send unicast message to ${remoteId} as route exceeds maxHops (${UNICAST.MAX_HOPS}).`);
+				if (this.verbose > 0) console.warn(`Cannot send unicast message to ${remoteId} as route exceeds maxHops (${UNICAST.MAX_HOPS}). BFS incurred.`);
 				continue; // too long route
 			}
 			const message = this.cryptoCodec.createUnicastMessage(type, data, route);
@@ -87,16 +93,16 @@ export class UnicastMessager {
 		}
 		return true;
 	}
-	/** @param {string} targetId @param {Uint8Array} serializedMessage */
-	#sendMessageToPeer(targetId, serializedMessage) {
+	/** @param {string} targetId @param {Uint8Array} serialized */
+	#sendMessageToPeer(targetId, serialized) {
 		if (this.id === targetId) return { success: false, reason: `Cannot send message to self.` };
 		const transportInstance = this.peerStore.connected[targetId]?.transportInstance;
 		if (!transportInstance) return { success: false, reason: `Transport instance is not available for peer ${targetId}.` };
-		try { transportInstance.send(serializedMessage); return { success: true }; }
+		try { transportInstance.send(serialized); return { success: true }; }
 		catch (error) { console.error(`Error sending message to ${targetId}:`, error.stack); }
 		return { success: false, reason: `Error sending message to ${targetId}.` };
 	}
-	/** @param {string} from @param {any} serialized */
+	/** @param {string} from @param {Uint8Array} serialized */
 	handleDirectMessage(from, serialized) {
 		if (this.peerStore.isBanned(from)) return;
 
@@ -104,14 +110,14 @@ export class UnicastMessager {
 		if (!message) return; // invalid message
 
 		const route = message.newRoute || message.route;
-		const { traveledRoute, selfPosition } = message.extractTraveledRoute(this.id);
+		const { traveledRoute, selfPosition, senderId, targetId, prevId, nextId } = message.extractTraveledRoute(this.id);
 		for (const cb of this.callbacks.message_handle || []) cb(from, message.data); // Simulator counter is placed here
 
 		// RACE CONDITION CAN OCCUR IN SIMULATION !!
 		// ref: simulation/race-condition-demonstration.js
 		if (selfPosition === -1) throw new Error(`DirectMessage selfPosition is -1 for peer ${from}.`); // race condition or not => ignore message
 		
-		const [senderId, prevId, nextId, targetId] = [route[0], route[selfPosition - 1], route[selfPosition + 1], route[route.length - 1]];
+		//const [senderId, prevId, nextId, targetId] = [route[0], route[selfPosition - 1], route[selfPosition + 1], route[route.length - 1]];
 		if (from === senderId && from === this.id) // FATAL ERROR
 			throw new Error('DirectMessage senderId and from are both self id !!');
 		if (senderId === this.id) // !!Attacker can modify the route to kick a peer a by building a loop
@@ -126,10 +132,7 @@ export class UnicastMessager {
 			else console.log(`(${this.id}) Direct ${message.type} from ${senderId} (lastRelay: ${from}): ${message.data}`);
 		
 		if (DISCOVERY.ON_UNICAST.DIGEST_TRAVELED_ROUTE) this.peerStore.digestValidRoute(traveledRoute);
-		if (this.id === targetId) { // selfIsDestination
-			for (const cb of this.callbacks[message.type] || []) cb(senderId, message.data);
-			return { from, senderId, targetId };
-		}
+		if (this.id === targetId) { for (const cb of this.callbacks[message.type] || []) cb(senderId, message.data); return; } // message for self
 
 		// re-send the message to the next peer in the route
 		const { success, reason } = this.#sendMessageToPeer(nextId, serialized);
@@ -139,7 +142,7 @@ export class UnicastMessager {
 
 			const newRoute = builtResult.routes[0].path;
 			if (newRoute.length > UNICAST.MAX_HOPS) {
-				if (this.verbose > 0) console.warn(`Cannot re-route unicast message to ${targetId} as new route exceeds maxHops (${UNICAST.MAX_HOPS}).`);
+				if (this.verbose > 1) console.warn(`Cannot re-route unicast message to ${targetId} as new route exceeds maxHops (${UNICAST.MAX_HOPS}).`);
 				return; // too long route
 			}
 				
@@ -147,7 +150,5 @@ export class UnicastMessager {
 			const nextPeerId = newRoute[selfPosition + 1];
 			this.#sendMessageToPeer(nextPeerId, patchedMessage);
 		}
-
-		return { from, senderId, targetId };
 	}
 }

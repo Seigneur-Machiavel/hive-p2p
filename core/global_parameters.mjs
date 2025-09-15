@@ -22,7 +22,7 @@ export const SIMULATION = {
 }
 
 export const NODE = {
-	DEFAULT_VERBOSE: 1, // 0: none, 1: errors, 2: +important info, 3: +debug, 4: +everything
+	DEFAULT_VERBOSE: 2, // 0: none, 1: errors, 2: +important info, 3: +debug, 4: +everything
 	IS_BROWSER: (typeof window !== 'undefined'),
 	CONNECTION_UPGRADE_TIMEOUT: 15_000, // time to close connection of connecting peer | default: 15_000 (15 seconds), to make signal throw: 4_000 (4 seconds)
 	SERVICE: {

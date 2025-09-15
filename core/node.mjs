@@ -24,8 +24,8 @@ export class NodeP2P {
 		this.cryptoCodec = new CryptoCodec(idCard);
 		this.id = idCard.id;
 		this.peerStore = new PeerStore(idCard.id, this.cryptoCodec, this.verbose);
-		this.messager = new UnicastMessager(idCard.id, this.cryptoCodec, this.peerStore);
-		this.gossip = new Gossip(idCard.id, this.cryptoCodec, this.peerStore);
+		this.messager = new UnicastMessager(idCard.id, this.cryptoCodec, this.peerStore, this.verbose);
+		this.gossip = new Gossip(idCard.id, this.cryptoCodec, this.peerStore, this.verbose);
 		this.networkEnhancer = new NetworkEnhancer(idCard.id, this.gossip, this.peerStore, bootstraps);
 
 		const { peerStore, networkEnhancer, messager, gossip } = this;

@@ -26,7 +26,6 @@ export class GossipMessage {
  * @property {string | Uint8Array | Object} data
  * @property {number} expiration
  */
-
 class DegenerateBloomFilter {
 	xxHash32UsageCount = 0;
 	/** @type {Record<string, number>} */
@@ -99,9 +98,8 @@ export class Gossip {
 		
 		const hops = HOPS || GOSSIP.HOPS[topic] || GOSSIP.HOPS.default;
 		const serializedData = this.cryptoCodec.createGossipMessage(topic, data, hops);
-		const targetIds = Object.keys(this.peerStore.connected);
-		if (this.verbose > 3) console.log(`(${this.id}) Gossip ${topic}, to ${JSON.stringify(targetIds)}: ${data}`);
-		for (const peerId of targetIds) this.#broadcastToPeer(peerId, serializedData);
+		if (this.verbose > 3) console.log(`(${this.id}) Gossip ${topic}, to ${JSON.stringify(Object.keys(this.peerStore.connected))}: ${data}`);
+		for (const peerId of Object.keys(this.peerStore.connected)) this.#broadcastToPeer(peerId, serializedData);
 	}
 	/** @param {string} targetId @param {any} serializedData */
 	#broadcastToPeer(targetId, serializedData) {
@@ -111,7 +109,7 @@ export class Gossip {
 		try { transportInstance.send(serializedData); }
 		catch (error) { this.peerStore.connected[targetId]?.close(); }
 	}
-	/** @param {string} from @param {string | Uint8Array | Object} serialized */
+	/** @param {string} from @param {Uint8Array} serialized */
 	handleGossipMessage(from, serialized) {
 		if (this.peerStore.isBanned(from)) return; // ignore messages from banned peers
 
