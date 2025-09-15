@@ -29,7 +29,7 @@ export class CryptoIdCard {
 
     sign(message) { return sign(message, this.privateKey); }
     //verifySignature(signature, message) { return verify(signature, message, this.publicKey); }
-
+	
 	/** @param {Uint8Array} publicKey */
     static idFromPublicKey(publicKey) { return Converter.bytesToString(publicKey.slice(0, IDENTITY.ID_LENGTH)); }
 	/** @param {Uint8Array} signature @param {Uint8Array} message @param {Uint8Array} publicKey */
@@ -68,6 +68,7 @@ export class CryptoCodec {
 	constructor(idCard) { this.idCard = idCard; }
 
 	signBufferViewAndAppendSignature(bufferView, privateKey, signaturePosition = bufferView.length - IDENTITY.SIGNATURE_LENGTH) {
+		if (SIMULATION.AVOID_CRYPTO) return; // do nothing
 		const dataToSign = bufferView.subarray(0, signaturePosition);
 		const signature = sign(dataToSign, privateKey);
 		bufferView.set(signature, signaturePosition);

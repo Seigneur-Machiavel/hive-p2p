@@ -85,7 +85,7 @@ export class UnicastMessager {
 		for (let i = 0; i < Math.min(finalSpread, builtResult.routes.length); i++) {
 			const route = builtResult.routes[i].path;
 			if (route.length > UNICAST.MAX_HOPS) {
-				if (this.verbose > 0) console.warn(`Cannot send unicast message to ${remoteId} as route exceeds maxHops (${UNICAST.MAX_HOPS}). BFS incurred.`);
+				if (this.verbose > 1) console.warn(`Cannot send unicast message to ${remoteId} as route exceeds maxHops (${UNICAST.MAX_HOPS}). BFS incurred.`);
 				continue; // too long route
 			}
 			const message = this.cryptoCodec.createUnicastMessage(type, data, route);
