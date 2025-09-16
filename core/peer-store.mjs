@@ -15,7 +15,10 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 
 	/** @type {Record<string, number>} key: peerId1:peerId2, value: expiration */
 	pendingLinks = {};
-	expirationManagementInterval = setInterval(() => this.#cleanupExpired(), 2000);
+	interval = setInterval(() => {
+		this.cleanupExpired();
+		this.sdpOfferManager.tick();
+	}, 802);
 
 	/** @type {Record<string, Function[]>} */ callbacks = {
 		'connect': [(peerId, direction) => this.#handleConnect(peerId, direction)],
@@ -40,7 +43,7 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 		this.sdpOfferManager.onConnect = (remoteId, instance) => {
 			if (this.isDestroy) return instance?.destroy();
 
-			// RACE CONDITION CAN OCCUR IN SIMULATION !! 
+			// RACE CONDITION CAN OCCUR IN SIMULATION !!
 			// ref: simulation/race-condition-demonstration.js
 			if (instance.isTestTransport && (!instance.remoteId && !instance.remoteWsId)) throw new Error(`Transport instance is corrupted for peer ${remoteId}.`);
 			if (remoteId === this.id) throw new Error(`Refusing to connect to self (${this.id}).`);
@@ -52,22 +55,16 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 				else { // First data should be handshake with id
 					// C'EST PAS TERRIBLE (non plus)
 					if (data[0] > 127) return; // not unicast, ignore
-					const message = cryptoCodec.readUnicastMessage(data);
-					const { route, type } = message || {};
+					const { route, type } = cryptoCodec.readUnicastMessage(data) || {};
 					if (type !== 'handshake' || route.length !== 2 || route[1] !== this.id) return;
-					const [senderId, targetId] = [route[0], route[1]];
-					if (!senderId || targetId !== this.id) return;
-					peerId = senderId;
 
-					if (!peerId) return; // handled another message or invalid handshake
-					for (const cb of this.callbacks.connect) cb(peerId, instance.initiator ? 'out' : 'in');
-					// already connecting the other way, but this one succeded first => close the other one
-					const oppositePendingInstance = this.connecting[peerId]?.[instance.initiator ? 'in' : 'out'];
-					if (oppositePendingInstance) return oppositePendingInstance.destroy();
+					peerId = route[0];
+					this.connecting[peerId]?.in?.close(); // close outgoing connection if any
+					for (const cb of this.callbacks.connect) cb(peerId, 'out');
 				}
 			});
 			// IF WE KNOW PEER ID, WE CAN LINK IT (SHOULD BE IN CONNECTING)
-			if (remoteId) for (const cb of this.callbacks.connect) cb(remoteId, instance.initiator ? 'out' : 'in');
+			if (remoteId) for (const cb of this.callbacks.connect) cb(remoteId, 'in');
 		};
 	}
 
@@ -132,7 +129,7 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 		this.known[peerId1].setNeighbour(peerId2);
 		this.known[peerId2].setNeighbour(peerId1);
 	}
-	#cleanupExpired(andUpdateKnownBasedOnNeighbours = true) { // Clean up expired pending connections and pending links
+	cleanupExpired(andUpdateKnownBasedOnNeighbours = true) { // Clean up expired pending connections and pending links
 		const now = Date.now();
 		for (const [peerId, peerConns] of Object.entries(this.connecting))
 			for (const dir of ['in', 'out']) {
@@ -214,21 +211,12 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 		if (this.known[peerId1]?.connectionsCount === 0) delete this.known[peerId1];
 		if (this.known[peerId2]?.connectionsCount === 0) delete this.known[peerId2];
 	}
-	/** @param {string} peerId1 @param {string} [peerId2] default: this.id */
-	getOverlap(peerId1, peerId2 = this.id, ignorePublic = true) {
-		const p1Neighbours = Object.keys(this.known[peerId1]?.neighbours || {});
-		const p2Neighbours = peerId2 === this.id ? this.neighbours : Object.keys(this.known[peerId2]?.neighbours || {});
-		const sharedNeighbours = ignorePublic
-		? p1Neighbours.filter(id => { if (p2Neighbours[id] && !id.startsWith(IDENTITY.PUBLIC_PREFIX)) return p2Neighbours[id]; })
-		: p1Neighbours.filter(id => p2Neighbours[id]);
-		return { sharedNeighbours, overlap: sharedNeighbours.length };
-	}
 	destroy() {
 		this.isDestroy = true;
 		for (const [peerId, conn] of Object.entries(this.connected)) { this.#removePeer(peerId); conn.close(); }
 		for (const [peerId, connObj] of Object.entries(this.connecting)) { this.#removePeer(peerId); connObj['in']?.close(); connObj['out']?.close(); }
 		this.sdpOfferManager.destroy();
-		clearInterval(this.expirationManagementInterval);
+		clearInterval(this.interval);
 	}
 
 	// PUNISHER API

@@ -1,5 +1,6 @@
 import { GOSSIP } from './global_parameters.mjs';
 import { xxHash32 } from '../utils/xxhash32.mjs';
+import { CryptoIdCard } from './crypto-codec.mjs';
 
 export class GossipMessage {
 	topic = 'gossip';
@@ -23,10 +24,11 @@ export class GossipMessage {
  * @property {string} hash
  * @property {string} senderId
  * @property {string} topic
- * @property {string | Uint8Array | Object} data
+ * @property {Uint8Array} serializedData
  * @property {number} expiration
  */
 class DegenerateBloomFilter {
+	cryptoCodec;
 	xxHash32UsageCount = 0;
 	/** @type {Record<string, number>} */
 	seenTimeouts = {}; // Map of message hashes to their expiration timestamps
@@ -36,22 +38,30 @@ class DegenerateBloomFilter {
 	cleanupIn = 100;
 	cleanupDurationWarning = 10;
 
+	/** @param {import('./crypto-codec.mjs').CryptoCodec} cryptoCodec */
+	constructor(cryptoCodec) { this.cryptoCodec = cryptoCodec; }
+
 	// PUBLIC API
 	/** @param {'asc' | 'desc'} order */
 	getGossipHistoryByTime(order = 'asc') {
 		const lightenHistory = this.cache.map(e => ({ senderId: e.senderId, topic: e.topic, data: e.data }));
 		return order === 'asc' ? lightenHistory : lightenHistory.reverse();
 	}
-	addMessage(senderId, topic, data, timestamp) {
+	/** @param {Uint8Array} serializedMessage */
+	addMessage(serializedMessage) {
     	const n = Date.now();
+		const { marker, timestamp, dataLength, pubkey, data } = this.cryptoCodec.readBufferHeader(serializedMessage);
 		if (n - timestamp > GOSSIP.EXPIRATION) return;
 
-		const h = xxHash32(`${senderId}${topic}${JSON.stringify(data)}`);
+		const hashableData = serializedMessage.subarray(0, 46 + dataLength);
+		const h = xxHash32(hashableData);
 		this.xxHash32UsageCount++;
 		if (this.seenTimeouts[h]) return;
 
+		const topic = GOSSIP.MARKERS_BYTES[marker];
+		const senderId = CryptoIdCard.idFromPublicKey(pubkey);
 		const expiration = n + GOSSIP.CACHE_DURATION;
-		this.cache.push({ hash: h, senderId, topic, data, timestamp, expiration });
+		this.cache.push({ hash: h, senderId, topic, serializedData: data, timestamp, expiration });
 		this.seenTimeouts[h] = expiration;
 
 		if (--this.cleanupIn <= 0) this.#cleanupOldestEntries(n);
@@ -74,15 +84,16 @@ export class Gossip {
 	verbose;
 	id;
 	peerStore;
-	bloomFilter = new DegenerateBloomFilter();
+	bloomFilter;
 	/** @type {Record<string, Function[]>} */ callbacks = { message_handle: [] };
-
+	
 	/** @param {string} peerId @param {import('./crypto-codec.mjs').CryptoCodec} cryptoCodec @param {import('./peer-store.mjs').PeerStore} peerStore */
 	constructor(peerId, cryptoCodec, peerStore, verbose = 0) {
 		this.cryptoCodec = cryptoCodec;
 		this.verbose = verbose;
 		this.id = peerId;
 		this.peerStore = peerStore;
+		this.bloomFilter = new DegenerateBloomFilter(cryptoCodec);
 	}
 
 	/** @param {string} callbackType @param {Function} callback */
@@ -93,11 +104,9 @@ export class Gossip {
 	/** Gossip a message to all connected peers > will be forwarded to all peers
 	 * @param {string | Uint8Array | Object} data @param {string} topic @param {number} [HOPS] */
 	broadcastToAll(data, topic = 'gossip', HOPS) {
-		const timestamp = Date.now();
-		if (!this.bloomFilter.addMessage(this.id, topic, data, timestamp)) return; // avoid re-processing our own message
-		
 		const hops = HOPS || GOSSIP.HOPS[topic] || GOSSIP.HOPS.default;
 		const serializedData = this.cryptoCodec.createGossipMessage(topic, data, hops);
+		if (!this.bloomFilter.addMessage(serializedData)) return; // avoid sending duplicate messages
 		if (this.verbose > 3) console.log(`(${this.id}) Gossip ${topic}, to ${JSON.stringify(Object.keys(this.peerStore.connected))}: ${data}`);
 		for (const peerId of Object.keys(this.peerStore.connected)) this.#broadcastToPeer(peerId, serializedData);
 	}
@@ -113,20 +122,21 @@ export class Gossip {
 	handleGossipMessage(from, serialized) {
 		if (this.peerStore.isBanned(from)) return; // ignore messages from banned peers
 
+		for (const cb of this.callbacks.message_handle || []) cb(); // Simulator counter before filtering
+		if (!this.bloomFilter.addMessage(serialized)) return; // already processed this message
+
 		// ==> NOTE: WE SHOULD SIGN THE MESSAGE AND VERIFY THE SIGNATURE <==
 		const message = this.cryptoCodec.readGossipMessage(serialized);
 		if (!message) throw new Error(`Failed to deserialize gossip message from ${from}.`);
 		
 		const { topic, timestamp, HOPS, senderId, data } = message;
-		for (const cb of this.callbacks.message_handle || []) cb(senderId, data); // Simulator counter is placed here
-		if (!this.bloomFilter.addMessage(senderId, topic, data, timestamp)) return; // already processed this message
 		
 		if (this.verbose > 3)
 			if (senderId === from) console.log(`(${this.id}) Gossip ${topic} from ${senderId}: ${data}`);
 			else console.log(`(${this.id}) Gossip ${topic} from ${senderId} (by: ${from}): ${data}`);
 		if (senderId === this.id) throw new Error(`#${this.id}#${from}# Received our own message back from peer ${from}.`);
 
-		for (const cb of this.callbacks[topic] || []) cb(senderId, data); // specific topic callback
+		for (const cb of this.callbacks[topic] || []) cb(senderId, data, HOPS, message); // specific topic callback
 		if (HOPS < 1) return; // stop forwarding if HOPS is 0
 
 		const neighbours = Object.entries(this.peerStore.connected);
@@ -137,12 +147,11 @@ export class Gossip {
 		const avoidTransmissionRate = nCount < GOSSIP.TRANSMISSION_RATE.MIN_NEIGHBOURS_TO_APPLY_PONDERATION;
 		//const messageWithDecrementedHOPS = new GossipMessage(topic, timestamp, HOPS - 1, senderId, message.pubkey, data);
 		const serializedToTransmit = this.cryptoCodec.decrementGossipHops(serialized);
+		//const serializedToTransmit = this.cryptoCodec.createGossipMessage(topic, data, Math.max(0, HOPS - 1));
 		for (const [peerId, conn] of neighbours) {
 			if (peerId === from) continue; // avoid sending back to sender
 			if (!avoidTransmissionRate && Math.random() > transmissionRate) continue; // apply gossip transmission rate
 			this.#broadcastToPeer(peerId, serializedToTransmit);
 		}
-
-		return { from, senderId };
 	}
 }

@@ -20,7 +20,7 @@ class SimulationInterface {
 		this.onPeerInfo = onPeerInfo;
 		this.#setupWs();
 		window.addEventListener('beforeunload', () => this.#ws ? this.#ws.close() : null);
-		setInterval(() => { if (this.currentPeerId) this.getPeerInfo(this.currentPeerId) }, 1000);
+		setInterval(() => { if (this.currentPeerId) this.getPeerInfo(this.currentPeerId) }, 300);
 		setInterval(() => { this.getPeerIds() }, 5000);
 	}
 
@@ -113,23 +113,30 @@ class NetworkVisualizer {
 
 	#setSelectedPeer(peerId) {
 		if (!peerId) return;
-		if (this.networkRenderer.currentPeerId !== peerId) this.networkRenderer.clearNetwork();
+		if (this.networkRenderer.currentPeerId !== peerId) {
+			console.log(`Selected peer changed, now => ${peerId}`);
+			this.networkRenderer.maxDistance = 0; // reset maxDistance to show all nodes
+			this.networkRenderer.lastAutoZoomMaxDistance = 0;
+			this.networkRenderer.clearNetwork(); // Clear network and scroll peerId into view
+
+			for (const peerItem of document.querySelectorAll(`#peersList div[data-peer-id]`))
+				if (peerItem.dataset.peerId === peerId) peerItem.classList.add('selected');
+				else peerItem.classList.remove('selected');
+				
+			const selectedItem = document.querySelector(`#peersList div[data-peer-id="${peerId}"]`);
+			if (selectedItem) {
+				const listRect = this.elements.peersList.getBoundingClientRect();
+				const itemRect = selectedItem.getBoundingClientRect();
+				if (itemRect.top < listRect.top || itemRect.bottom > listRect.bottom) {
+					this.elements.peersList.scrollTop = selectedItem.offsetTop - this.elements.peersList.offsetTop - this.elements.peersList.clientHeight / 2 + selectedItem.clientHeight / 2;
+				}
+			}
+		}
 		this.networkRenderer.currentPeerId = peerId;
-		for (const peerItem of document.querySelectorAll(`#peersList div[data-peer-id]`))
-			if (peerItem.dataset.peerId === peerId) peerItem.classList.add('selected');
-			else peerItem.classList.remove('selected');
 
 		this.#setCurrentPeer(peerId);
 		this.simulationInterface.getPeerInfo();
 
-		const selectedItem = document.querySelector(`#peersList div[data-peer-id="${peerId}"]`);
-		if (selectedItem) {
-			const listRect = this.elements.peersList.getBoundingClientRect();
-			const itemRect = selectedItem.getBoundingClientRect();
-			if (itemRect.top < listRect.top || itemRect.bottom > listRect.bottom) {
-				this.elements.peersList.scrollTop = selectedItem.offsetTop - this.elements.peersList.offsetTop - this.elements.peersList.clientHeight / 2 + selectedItem.clientHeight / 2;
-			}
-		}
 	}
 	#selectNextPeer() {
 		const peerIds = Object.keys(this.peersList);

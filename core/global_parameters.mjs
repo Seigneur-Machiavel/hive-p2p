@@ -4,21 +4,24 @@ const isNode = (typeof window === 'undefined');
 // SIMPLIFY: IMPORTS, SIMULATOR AND BROWSER SUPPORT
 
 export const SIMULATION = {
+	// FACILITIES TO SIMULATE NETWORK CONDITIONS AND SCENARIOS
 	AVOID_CRYPTO: false,		// avoid crypto operations for faster simulation | default: false
 	USE_TEST_TRANSPORTS: true, 	// enable simulation features
 	ICE_DELAY: { min: 250, max: 3000 }, // ICE candidates in ms | default: { min: 250, max: 3000 }
 	ICE_OFFER_FAILURE_RATE: .2, 	// default: .2, 20% offer failure
 	ICE_ANSWER_FAILURE_RATE: .15, 	// default: .15, 15% answer failure
-
+	// SIMULATOR OPTIONS
 	AVOID_FOLLOWERS_NODES: false, 	// avoid twitch nodes creation | default: true
 	AUTO_START: true,				// auto start the simulation, false to wait the frontend | default: true
-	PUBLIC_PEERS_COUNT: 100,		// stable: 3,  medium: 100, strong: 200 | default: 2
-	PEERS_COUNT: 800,				// stable: 25, medium: 800, strong: 1600 | default: 12
+	PUBLIC_PEERS_COUNT: 20,			// stable: 3,  medium: 100, strong: 200 | default: 2
+	PEERS_COUNT: 1000,				// stable: 25, medium: 800, strong: 1600 | default: 12
 	BOOTSTRAPS_PER_PEER: 10,		// will not be exact, more like a limit. null = all of them | default: 10
-	DELAY_BETWEEN_INIT: 10,			// 0 = faster for simulating big networks but > 0 = should be more realistic | default: 10
-	RANDOM_UNICAST_PER_SEC: .1,		// default: .1, capped at a total of 500msg/sec | default: 1
-	RANDOM_GOSSIP_PER_SEC: .1,		// default: 0, capped at a total of 200msg/sec | default: 1
+	DELAY_BETWEEN_INIT: 12,			// 0 = faster for simulating big networks but > 0 = should be more realistic | default: 12 (60sec to start 5000 peers)
+	RANDOM_UNICAST_PER_SEC: 0,		// default: .1, capped at a total of 500msg/sec | default: 1
+	RANDOM_GOSSIP_PER_SEC: 0,		// default: 0, capped at a total of 200msg/sec | default: 1
 	MAX_WS_IN_CONNS: 20, 			// Limit of WebSocketServer incoming connections | default: 20
+	DIFFUSION_TEST_DELAY: 10_000,	// frequency of diffusion test | default: 20_000 (20 seconds)
+	DIFFUSION_TEST_HOPS: 10,		// HOPS for diffusion test | default: 10
 }
 
 export const NODE = {
@@ -28,7 +31,7 @@ export const NODE = {
 	SERVICE: {
 		PORT: 8080,
 		AUTO_KICK_DELAY: { min: 20_000, max: 60_000 }, // default: { min: 20_000, max: 60_000 }
-		AUTO_KICK_DURATION: 120_000, // default: 60_000 (1 minute)
+		AUTO_KICK_DURATION: 60_000, // default: 60_000 (1 minute)
 		MAX_WS_OUT_CONNS: 2, 		// Max outgoing WebSocket connections to public nodes | default: 2
 	},
 }
@@ -52,18 +55,18 @@ export const TRANSPORTS = {
 
 export const DISCOVERY = {
 	PEER_LINK_DELAY: 10_000,
-	MAX_OVERLAP: 5, 			// Max of shared neighbours | default: 5, strict: 2
-	LOOP_DELAY: 2_500, 			// delay between connection attempts | default: 2_500 (2.5 seconds)
-	TARGET_NEIGHBORS_COUNT: 12, // default: 12
+	MAX_OVERLAP: 4, 				// Max of shared neighbours | soft: 5, default: 4, strict: 3
+	LOOP_DELAY: 2_500, 				// delay between connection attempts | default: 2_500 (2.5 seconds)
+	TARGET_NEIGHBORS_COUNT: 5, 		// default: 6, light: 5, super-light: 4
 	ON_CONNECT_DISPATCH: {		// => on Node.#onConnect()
-		DELAY: 100, 			// delay before dispatching events | default: 100 (.1 seconds)
-		SEND_EVENT: true,		// Boolean to indicate if we broadcast 'peer_connected'
-		SEND_NEIGHBORS: false,	// Boolean to indicate if we broadcast 'my_neighbours' // DISABLED FOR NOW
+		DELAY: 0, 					// delay before dispatching events | default: 100 (.1 seconds)
+		SEND_EVENT: true,			// Boolean to indicate if we broadcast 'peer_connected'
+		SEND_NEIGHBORS: false,		// Boolean to indicate if we broadcast 'my_neighbours' // DISABLED FOR NOW
 	},
 	ON_DISCONNECT_DISPATCH: {	// => on Node.#onDisconnect()
-		MIN_CONNECTION_TIME: 0, // minimum connection time to dispatch the 'disconnected' event | default: 2_500 (2.5 seconds)
-		DELAY: 1000, // delay before dispatching the 'disconnected' event | default: 500 (.5 seconds)
-		SEND_EVENT: true,		// Boolean to indicate if we broadcast 'peer_disconnected'
+		MIN_CONNECTION_TIME: 2_500, // minimum connection time to dispatch the 'disconnected' event | default: 2_500 (2.5 seconds)
+		DELAY: 0, 					// delay before dispatching the 'disconnected' event | default: 500 (.5 seconds)
+		SEND_EVENT: true,			// Boolean to indicate if we broadcast 'peer_disconnected'
 	},
 	ON_UNICAST: {				// => UnicastMessager.handleDirectMessage()
 		DIGEST_TRAVELED_ROUTE: true, // Boolean to indicate if we digest the traveled route for each unicast message | default: true
@@ -80,7 +83,10 @@ export const UNICAST = { // MARKERS RANGE: 0-127
 		handshake: 1,
 		'1': 'handshake',
 		signal_answer: 2,
-		'2': 'signal_answer'
+		'2': 'signal_answer',
+		signal_offer: 3,
+		'3': 'signal_offer',
+		
 	},
 }
 
@@ -89,7 +95,7 @@ export const GOSSIP = { // MARKERS RANGE: 128-255
 	CACHE_DURATION: 20_000, // Duration to keep messages in cache
 	HOPS: {
 		default: 10,
-		// signal: 5,
+		signal_offer: 3, // works with 3
 		// peer_connected: 3,
 		// peer_disconnected: 3,
 		// my_neighbours: 3
@@ -112,5 +118,7 @@ export const GOSSIP = { // MARKERS RANGE: 128-255
 		'131': 'peer_disconnected',
 		my_neighbours: 132,
 		'132': 'my_neighbours',
+		diffusion_test: 133,
+		'133': 'diffusion_test',
 	},
 }

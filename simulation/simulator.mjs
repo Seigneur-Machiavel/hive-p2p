@@ -4,7 +4,7 @@ import { io } from 'socket.io-client'; // used for twitch events only
 import { WebSocketServer } from 'ws';
 import { SIMULATION, NODE, TRANSPORTS, IDENTITY } from '../core/global_parameters.mjs';
 import { TestWsServer, TestWsConnection, TestTransport } from '../simulation/test-transports.mjs';
-import { MessageQueue, Statician, SubscriptionsManager } from './simulator-utils.mjs';
+import { MessageQueue, Statician, TransmissionAnalyzer, SubscriptionsManager } from './simulator-utils.mjs';
 
 // SETUP SIMULATION ENV -----------------------------------------------\
 SIMULATION.AVOID_CRYPTO = true; // to speed up simulation				|
@@ -63,6 +63,12 @@ function pickUpRandomBootstraps(count = SIMULATION.BOOTSTRAPS_PER_PEER) {
 	for (let i = 0; i < c; i++) selected.push(sVARS.publicPeersCards[shuffledIndexes[i]]);
 	return selected;
 }
+/** @param {import('../core/node.mjs').NodeP2P} peer */
+function patchPeerHandlers(peer) {
+	peer.gossip.on('message_handle', () => statician.gossip++);
+	peer.messager.on('message_handle', () => statician.unicast++);
+	peer.gossip.on('diffusion_test', (fromId, msg, HOPS, message) => transmissionAnalyzer.analyze(peer.id, msg, HOPS, message, fromId));
+}
 function addPeer(type, i = 0, bootstraps = [], init = false, setPublic = false) {
 	const selectedBootstraps = type === 'STANDARD_NODE' ? pickUpRandomBootstraps() : bootstraps;
 	const domain = setPublic ? 'localhost' : undefined;
@@ -72,8 +78,7 @@ function addPeer(type, i = 0, bootstraps = [], init = false, setPublic = false) 
 	peers.all[peer.id] = peer;
 	peers[type === 'STANDARD_NODE' ? 'standard' : 'public'].push(peer);
 	if (setPublic) sVARS.publicPeersCards.push({ id: peer.id, publicUrl: peer.publicUrl });
-	peer.gossip.on('message_handle', (msg, fromId) => statician.gossip++);
-	peer.messager.on('message_handle', (msg, fromId) => statician.unicast++);
+	patchPeerHandlers(peer);
 }
 async function initPeers() {
 	if (initInterval) clearInterval(initInterval);
@@ -134,6 +139,7 @@ async function randomMessagesLoop(type = 'U', mgPerPeerPerSecond = SIMULATION.RA
 
 // INIT SIMULATION
 const statician = new Statician(sVARS, peers);
+const transmissionAnalyzer = new TransmissionAnalyzer(peers, NODE.DEFAULT_VERBOSE);
 if (SIMULATION.AUTO_START) initPeers();
 if (SIMULATION.RANDOM_UNICAST_PER_SEC) randomMessagesLoop('U', SIMULATION.RANDOM_UNICAST_PER_SEC);
 if (SIMULATION.RANDOM_GOSSIP_PER_SEC) randomMessagesLoop('G', SIMULATION.RANDOM_GOSSIP_PER_SEC);
@@ -187,13 +193,13 @@ const onMessage = async (data) => {
 	}
 }
 const msgQueue = new MessageQueue(onMessage);
-const sManager = new SubscriptionsManager(send, peers, new CryptoCodec());
+const sManager = new SubscriptionsManager(send, peers, new CryptoCodec(), NODE.DEFAULT_VERBOSE);
 const wss = new WebSocketServer({ server });
 wss.on('connection', (ws) => {
 	if (clientWs) clientWs.close();
 	clientWs = ws;
 	ws.on('message', async (message) => msgQueue.push(JSON.parse(message)));
-	ws.on('close', () => msgQueue.reset());
+	ws.on('close', () => msgQueue.messageQueuesByTypes = {});
 	ws.send(JSON.stringify({ type: 'settings', data: { publicPeersCount: SIMULATION.PUBLIC_PEERS_COUNT, peersCount: SIMULATION.PEERS_COUNT } }));
 	const zeroPeers = peers.public.length + peers.standard.length === 0;
 	if (!zeroPeers) ws.send(JSON.stringify({ type: 'peersIds', data: peersIdsObj() }));
@@ -231,7 +237,7 @@ class TwitchChatCommandInterpreter {
 		this.userNodes[user] = peer;
 		peers.all[peer.id] = peer;
 		peers.standard.unshift(peer);
-		peer.gossip.on('message_handle', (msg, fromId) => statician.gossip++);
+		patchPeerHandlers(peer);
 	}
 	async restart() {
 		this.ioSocket?.close();

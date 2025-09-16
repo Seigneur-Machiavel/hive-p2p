@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HiveP2P Gossip Calculator</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f8f9fa;
+            min-height: 100vh;
+            padding: 16px;
+            color: #212529;
+        }
+        
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+            border: 1px solid #e9ecef;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #495057, #6c757d);
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 24px;
+            margin-bottom: 6px;
+            font-weight: 600;
+        }
+        
+        .header p {
+            opacity: 0.9;
+            font-size: 14px;
+        }
+        
+        .content {
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            gap: 0;
+        }
+        
+        .controls {
+            padding: 20px;
+            background: #f8f9fa;
+            border-right: 1px solid #e9ecef;
+        }
+        
+        .controls-top {
+            margin-bottom: 20px;
+        }
+        
+        .control-group {
+            margin-bottom: 20px;
+        }
+        
+        .control-group:last-child {
+            margin-bottom: 0;
+        }
+        
+        .extra-metrics {
+            padding-top: 20px;
+            border-top: 1px solid #e9ecef;
+        }
+        
+        .extra-metric {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+            font-size: 12px;
+        }
+        
+        .extra-metric:last-child {
+            margin-bottom: 0;
+        }
+        
+        .extra-metric-label {
+            color: #6c757d;
+            font-weight: 600;
+        }
+        
+        .extra-metric-value {
+            color: #495057;
+            font-weight: 700;
+        }
+        
+        .control-group label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 6px;
+            color: #495057;
+            font-size: 13px;
+        }
+        
+        .slider-container {
+            position: relative;
+        }
+        
+        input[type="range"] {
+            width: 100%;
+            height: 4px;
+            border-radius: 2px;
+            background: #dee2e6;
+            outline: none;
+            -webkit-appearance: none;
+        }
+        
+        input[type="range"]::-webkit-slider-thumb {
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #495057;
+            cursor: pointer;
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+        }
+        
+        input[type="range"]::-moz-range-thumb {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #495057;
+            cursor: pointer;
+            border: none;
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+        }
+        
+        .value-display {
+            text-align: center;
+            font-size: 16px;
+            font-weight: 700;
+            color: #495057;
+            margin-top: 6px;
+        }
+        
+        .results {
+            padding: 20px;
+        }
+        
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+        
+        .metric {
+            background: #f8f9fa;
+            padding: 12px;
+            border-radius: 6px;
+            border-left: 3px solid #6c757d;
+        }
+        
+        .metric-label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #6c757d;
+            margin-bottom: 3px;
+            font-weight: 600;
+        }
+        
+        .metric-value {
+            font-size: 16px;
+            font-weight: 700;
+            color: #212529;
+        }
+        
+        .chart-container {
+            background: #f8f9fa;
+            border-radius: 6px;
+            padding: 16px;
+        }
+        
+        .chart-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: #495057;
+            margin-bottom: 12px;
+            text-align: center;
+        }
+        
+        .chart {
+            height: 140px;
+            position: relative;
+            margin: 0 12px;
+            border-left: 1px solid #dee2e6;
+            border-bottom: 1px solid #dee2e6;
+        }
+        
+        .chart-bar {
+            position: absolute;
+            bottom: 0;
+            background: linear-gradient(to top, #6c757d, #495057);
+            border-radius: 2px 2px 0 0;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: flex-start;
+            justify-content: center;
+            color: white;
+            font-size: 9px;
+            font-weight: 600;
+            padding-top: 2px;
+        }
+        
+        .chart-labels {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 6px;
+            font-size: 9px;
+            color: #6c757d;
+            font-weight: 500;
+        }
+        
+        .explanation {
+            max-width: 1100px;
+            margin: 24px auto;
+            padding: 24px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+            border: 1px solid #e9ecef;
+        }
+        
+        .explanation h2 {
+            color: #495057;
+            margin-bottom: 16px;
+            font-size: 18px;
+        }
+        
+        .explanation p {
+            color: #6c757d;
+            line-height: 1.6;
+            margin-bottom: 12px;
+        }
+        
+        .explanation .key-insights {
+            background: #f8f9fa;
+            padding: 16px;
+            border-radius: 6px;
+            border-left: 3px solid #6c757d;
+            margin-top: 16px;
+        }
+        
+        .explanation .key-insights h3 {
+            color: #495057;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+        
+        .explanation .key-insights ul {
+            color: #6c757d;
+            padding-left: 16px;
+        }
+        
+        .explanation .key-insights li {
+            margin-bottom: 4px;
+            font-size: 13px;
+        }
+        
+        @media (max-width: 768px) {
+            .content {
+                grid-template-columns: 1fr;
+            }
+            
+            .controls {
+                border-right: none;
+                border-bottom: 1px solid #e9ecef;
+            }
+            
+            .metrics-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Gossip Propagation Calculator</h1>
+            <p>Optimize neighbor distribution for maximum entropy P2P networks</p>
+        </div>
+        
+        <div class="content">
+            <div class="controls">
+                <div class="controls-top">
+                    <div class="control-group">
+                        <label>Total Network Peers</label>
+                        <div class="slider-container">
+                            <input type="range" id="totalPeers" min="100" max="100000" value="10000" step="100">
+                            <div class="value-display" id="totalPeersValue">10000</div>
+                        </div>
+                    </div>
+                    
+                    <div class="control-group">
+                        <label>Average Neighbors per Peer</label>
+                        <div class="slider-container">
+                            <input type="range" id="neighbors" min="2" max="15" value="6" step="0.1">
+                            <div class="value-display" id="neighborsValue">6.0</div>
+                        </div>
+                    </div>
+                    
+                    <div class="control-group">
+                        <label>Average Ping (ms)</label>
+                        <div class="slider-container">
+                            <input type="range" id="avgPing" min="10" max="500" value="100" step="5">
+                            <div class="value-display" id="avgPingValue">100</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="extra-metrics">
+                    <div class="extra-metric">
+                        <span class="extra-metric-label">Max Latency</span>
+                        <span class="extra-metric-value" id="networkDiameter">-</span>
+                    </div>
+                    <div class="extra-metric">
+                        <span class="extra-metric-label">Message Redundancy</span>
+                        <span class="extra-metric-value" id="messageRedundancy">-</span>
+                    </div>
+                    <div class="extra-metric">
+                        <span class="extra-metric-label">Convergence Speed</span>
+                        <span class="extra-metric-value" id="convergenceSpeed">-</span>
+                    </div>
+                    <div class="extra-metric">
+                        <span class="extra-metric-label">Path Diversity</span>
+                        <span class="extra-metric-value" id="pathDiversity">-</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="results">
+                <div class="metrics-grid">
+                    <div class="metric">
+                        <div class="metric-label">Complete Coverage</div>
+                        <div class="metric-value" id="totalHops">-</div>
+                    </div>
+                    
+                    <div class="metric">
+                        <div class="metric-label">Average Hops</div>
+                        <div class="metric-value" id="averageHops">-</div>
+                    </div>
+                    
+                    <div class="metric">
+                        <div class="metric-label">Total Messages Received</div>
+                        <div class="metric-value" id="totalMessages">-</div>
+                    </div>
+                    
+                    <div class="metric">
+                        <div class="metric-label">Average Latency</div>
+                        <div class="metric-value" id="averageLatency">-</div>
+                    </div>
+                    
+                    <div class="metric">
+                        <div class="metric-label">Bloom Filter Efficiency</div>
+                        <div class="metric-value" id="bloomEfficiency">-</div>
+                    </div>
+                    
+                    <div class="metric">
+                        <div class="metric-label">Network Efficiency</div>
+                        <div class="metric-value" id="efficiency">-</div>
+                    </div>
+                </div>
+                
+                <div class="chart-container">
+                    <div class="chart-title">Propagation Wave: Peers Reached by Hop</div>
+                    <div class="chart" id="chart"></div>
+                    <div class="chart-labels" id="chartLabels"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="explanation">
+        <h2>Understanding Gossip Propagation in HiveP2P</h2>
+        <p>This calculator simulates message propagation in an ideal P2P network where peers maintain optimal neighbor distributions. Unlike traditional DHTs like Kademlia, HiveP2P uses global topology awareness to select neighbors that maximize network entropy and minimize correlation clustering.</p>
+        
+        <p>The simulation models a network where each peer has an average number of neighbors (supporting fractional values like 8.5, meaning some peers have 8 neighbors while others have 9). Messages propagate through gossip protocol with bloom filter deduplication applied after reception.</p>
+        
+        <div class="key-insights">
+            <h3>Key Metrics Explained</h3>
+            <ul>
+                <li><strong>Complete Coverage:</strong> Maximum hops needed to reach all peers in the network</li>
+                <li><strong>Average Hops:</strong> Mean number of hops for a message to reach any peer</li>
+                <li><strong>Total Messages:</strong> Total network load - one message per neighbor connection</li>
+                <li><strong>Message Efficiency:</strong> Peers reached per 1000 messages sent (higher is better)</li>
+                <li><strong>Bloom Filter Efficiency:</strong> Percentage of duplicate messages filtered out</li>
+                <li><strong>Network Efficiency:</strong> Legacy metric for comparison (peers per 1000 messages)</li>
+                <li><strong>Network Diameter:</strong> Longest path between any two peers</li>
+                <li><strong>Message Redundancy:</strong> Average messages needed to reach each peer</li>
+                <li><strong>Convergence Speed:</strong> Average peers reached per hop during propagation</li>
+                <li><strong>Path Diversity:</strong> Network connectivity density (higher = more alternative paths)</li>
+            </ul>
+        </div>
+        
+        <div class="key-insights">
+            <h3>Optimal Neighbor Count Analysis</h3>
+            <ul>
+                <li><strong>Minimal Viable (3-4):</strong> Risk of network fragmentation, slow propagation, poor fault tolerance</li>
+                <li><strong>Optimal Range (4-6):</strong> Fast propagation with minimal overhead, aligns with six degrees of separation</li>
+                <li><strong>Conservative Range (6-8):</strong> Extra resilience at cost of increased message load</li>
+                <li><strong>Excessive (10+):</strong> Diminishing returns, message explosion, bandwidth waste</li>
+                <li><strong>HiveP2P Target:</strong> Push as low as possible while maintaining network integrity and fast convergence</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        class GossipCalculator {
+            constructor() {
+                this.totalPeers = 10000;
+                this.avgNeighbors = 6.0;
+                this.avgPing = 100;
+                this.#initializeElements();
+                this.#attachEventListeners();
+                this.#calculate();
+            }
+            
+            #initializeElements() {
+                this.elements = {
+                    totalPeers: document.getElementById('totalPeers'),
+                    neighbors: document.getElementById('neighbors'),
+                    avgPing: document.getElementById('avgPing'),
+                    totalPeersValue: document.getElementById('totalPeersValue'),
+                    neighborsValue: document.getElementById('neighborsValue'),
+                    avgPingValue: document.getElementById('avgPingValue'),
+                    totalHops: document.getElementById('totalHops'),
+                    averageHops: document.getElementById('averageHops'),
+                    totalMessages: document.getElementById('totalMessages'),
+                    averageLatency: document.getElementById('averageLatency'),
+                    bloomEfficiency: document.getElementById('bloomEfficiency'),
+                    efficiency: document.getElementById('efficiency'),
+                    networkDiameter: document.getElementById('networkDiameter'),
+                    messageRedundancy: document.getElementById('messageRedundancy'),
+                    convergenceSpeed: document.getElementById('convergenceSpeed'),
+                    pathDiversity: document.getElementById('pathDiversity'),
+                    chart: document.getElementById('chart'),
+                    chartLabels: document.getElementById('chartLabels')
+                };
+            }
+            
+            #attachEventListeners() {
+                this.elements.totalPeers.addEventListener('input', (e) => {
+                    this.totalPeers = parseInt(e.target.value);
+                    this.elements.totalPeersValue.textContent = this.totalPeers.toLocaleString();
+                    this.#calculate();
+                });
+                
+                this.elements.neighbors.addEventListener('input', (e) => {
+                    this.avgNeighbors = parseFloat(e.target.value);
+                    this.elements.neighborsValue.textContent = this.avgNeighbors.toFixed(1);
+                    this.#calculate();
+                });
+                
+                this.elements.avgPing.addEventListener('input', (e) => {
+                    this.avgPing = parseInt(e.target.value);
+                    this.elements.avgPingValue.textContent = this.avgPing + ' ms';
+                    this.#calculate();
+                });
+            }
+            
+            #generateNeighborDistribution() {
+                const baseCount = Math.floor(this.avgNeighbors);
+                const fraction = this.avgNeighbors - baseCount;
+                
+                const distribution = [];
+                for (let i = 0; i < this.totalPeers; i++) {
+                    distribution.push(Math.random() < fraction ? baseCount + 1 : baseCount);
+                }
+                return distribution;
+            }
+            
+            #buildTopology() {
+                const neighborCounts = this.#generateNeighborDistribution();
+                const topology = {};
+                
+                // Initialize empty neighbor sets
+                for (let i = 0; i < this.totalPeers; i++) topology[i] = new Set();
+                
+                // Connect peers bidirectionally
+                for (let peerId = 0; peerId < this.totalPeers; peerId++) {
+                    const targetCount = neighborCounts[peerId];
+                    
+                    while (topology[peerId].size < targetCount) {
+                        const neighborId = Math.floor(Math.random() * this.totalPeers);
+                        if (neighborId === peerId || topology[peerId].has(neighborId)) continue;
+                        
+                        topology[peerId].add(neighborId);
+                        topology[neighborId].add(peerId);
+                    }
+                }
+                
+                return topology;
+            }
+            
+            #simulateGossip() {
+                const topology = this.#buildTopology();
+                const bloomFilters = Array.from({length: this.totalPeers}, () => new Set());
+                const reachTime = new Array(this.totalPeers).fill(-1);
+                
+                const hopData = [];
+                let totalMessages = 0; // Total network load (emitted = received in perfect network)
+                let totalProcessed = 0; // Messages that pass bloom filter
+                let hop = 0;
+                
+                let currentWave = new Set([0]);
+                const reached = new Set([0]);
+                reachTime[0] = 0;
+                
+                const messageId = 'gossip-msg';
+                bloomFilters[0].add(messageId);
+                
+                while (reached.size < this.totalPeers && hop < 20 && currentWave.size > 0) {
+                    const nextWave = new Set();
+                    
+                    for (const emitterId of currentWave) {
+                        const neighbors = topology[emitterId];
+                        
+                        for (const neighborId of neighbors) {
+                            totalMessages++; // One message per neighbor connection
+                            
+                            if (bloomFilters[neighborId].has(messageId)) continue; // Filtered by bloom
+                            
+                            bloomFilters[neighborId].add(messageId);
+                            totalProcessed++;
+                            
+                            if (reached.has(neighborId)) continue; // Already reached
+                            
+                            reached.add(neighborId);
+                            nextWave.add(neighborId);
+                            reachTime[neighborId] = hop + 1;
+                        }
+                    }
+                    
+                    hopData.push(nextWave.size);
+                    currentWave = nextWave;
+                    hop++;
+                }
+                
+                // Calculate metrics
+                const validTimes = reachTime.filter(t => t >= 0);
+                const avgHops = validTimes.reduce((sum, t) => sum + t, 0) / validTimes.length;
+                const totalConnections = Object.values(topology).reduce((sum, neighbors) => sum + neighbors.size, 0);
+                
+                return {
+                    hopData,
+                    totalHops: hop,
+                    averageHops: avgHops,
+                    totalMessages,
+                    totalProcessed,
+                    coverage: reached.size,
+                    networkDiameter: Math.max(...validTimes),
+                    messageEfficiency: (reached.size / Math.max(totalMessages, 1)) * 1000, // peers reached per 1k messages
+                    convergenceSpeed: reached.size / Math.max(hop, 1),
+                    pathDiversity: totalConnections / (2 * this.totalPeers)
+                };
+            }
+            
+            #calculate() {
+                const result = this.#simulateGossip();
+                
+                // Bloom filter efficiency: percentage of received messages that were filtered as duplicates
+                const bloomEfficiency = result.totalMessages > 0 ? 
+                    ((result.totalMessages - result.totalProcessed) / result.totalMessages * 100) : 0;
+                
+                // Legacy network efficiency metric (kept for comparison)
+                const efficiency = result.totalMessages > 0 ? 
+                    ((result.coverage / result.totalMessages) * 1000) : 0;
+                
+                // Calculate latencies
+                const averageLatency = result.averageHops * this.avgPing;
+                const maxLatency = result.networkDiameter * this.avgPing;
+                
+                // Update main metrics
+                this.elements.totalHops.textContent = `${result.totalHops} hops`;
+                this.elements.averageHops.textContent = `${result.averageHops.toFixed(1)} hops`;
+                this.elements.totalMessages.textContent = result.totalMessages.toLocaleString();
+                this.elements.averageLatency.textContent = `${averageLatency.toFixed(0)} ms`;
+                this.elements.bloomEfficiency.textContent = `${bloomEfficiency.toFixed(1)}%`;
+                this.elements.efficiency.textContent = `${efficiency.toFixed(1)} p/k`;
+                
+                // Update extra metrics - put max latency in network diameter for more context
+                this.elements.networkDiameter.textContent = `${maxLatency.toFixed(0)} ms`;
+                this.elements.messageRedundancy.textContent = `${(result.totalMessages / result.coverage).toFixed(2)}x`;
+                this.elements.convergenceSpeed.textContent = `${Math.round(result.convergenceSpeed)} p/hop`;
+                this.elements.pathDiversity.textContent = `${result.pathDiversity.toFixed(2)}`;
+                
+                this.#renderChart(result.hopData);
+            }
+            
+            #renderChart(hopData) {
+                const maxValue = Math.max(...hopData);
+                if (maxValue === 0) return;
+                
+                const maxBars = 16; // Limit visible bars
+                const displayData = hopData.slice(0, maxBars);
+                
+                const chartHTML = displayData.map((value, index) => {
+                    const height = (value / maxValue) * 120;
+                    const width = Math.max(90 / displayData.length - 1, 15);
+                    const left = (index * 90 / displayData.length) + 5 + '%';
+                    
+                    const displayValue = value > 1000 ? `${(value/1000).toFixed(1)}k` : 
+                                       value > 0 ? value.toString() : '';
+                    
+                    return `<div class="chart-bar" style="height: ${height}px; width: ${width}%; left: ${left};">
+                        ${height > 20 ? displayValue : ''}
+                    </div>`;
+                }).join('');
+                
+                const labelsHTML = displayData.map((_, index) => 
+                    `<span>H${index + 1}</span>`
+                ).join('');
+                
+                this.elements.chart.innerHTML = chartHTML;
+                this.elements.chartLabels.innerHTML = labelsHTML;
+            }
+        }
+        
+        document.addEventListener('DOMContentLoaded', () => {
+            new GossipCalculator();
+        });
+    </script>
+</body>
+</html>

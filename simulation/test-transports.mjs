@@ -5,7 +5,12 @@ class TestWsEventManager { // manage init() and close() to avoid timeout usage
 	/** @type {Array<{ connId: string, clientWsId: string, time: number }> } */ toInit = [];
 	/** @type {Array<{ remoteWsId: string, time: number }> } */ toClose = [];
 
-	initInterval = setInterval(() => {
+	interval = setInterval(() => {
+		this.#initTick();
+		this.#closeTick();
+	}, 480);
+
+	#initTick() {
 		if (this.toInit.length <= 0) return;
 		const n = Date.now();
 		const toInit = this.toInit;
@@ -13,17 +18,16 @@ class TestWsEventManager { // manage init() and close() to avoid timeout usage
 		for (const { connId, time } of toInit)
 			if (time > n) this.toInit.push({ connId, time }); // not yet
 			else this.#connectToWebSocketServer(connId);
-	}, 500);
-	closeInterval = setInterval(() => {
+	}
+	#closeTick() {
 		if (this.toClose.length <= 0) return;
 		const n = Date.now();
 		const toClose = this.toClose;
 		this.toClose = [];
-		for (const { wsId, remoteWsId, time } of toClose) {
+		for (const { wsId, remoteWsId, time } of toClose)
 			if (time > n) this.toClose.push({ wsId, remoteWsId, time }); // not yet
 			else this.#disconnectWsInstances(wsId, remoteWsId);
-		}
-	}, 500);
+	}
 
 	#connectToWebSocketServer(connId) {
 		const conn = SANDBOX.wsConnections[connId];
@@ -66,6 +70,7 @@ export class TestWsConnection { // WebSocket like
 	init(remoteWsId) {
 		if (!this.readyState === 3 || this.remoteWsId) {
 			this.close(); // => ensure closure
+			console.error(`WebSocket instance already closed or connected: ${this.id}`);
 			setTimeout(() => this.#dispatchError(`Failed to connect to WebSocket server at ${this.url}`), 1_000);
 			return;
 		}
@@ -110,7 +115,7 @@ export class TestWsServer { // WebSocket like
 	cleanerInterval = setInterval(() => {
 		for (const client of this.clients)
 			if (client.readyState === 3) this.clients.delete(client);
-	}, 2_000);
+	}, 1_970);
 
 	constructor(opts = { port, host: domain }) {
 		this.url = `ws://${opts.host}:${opts.port}`;
@@ -166,7 +171,7 @@ export class TestTransport { // SimplePeer like
 	}
 	signal(remoteSDP) {
 		if (this.destroying) return;
-		if (this.destroyed) 
+		if (this.destroyed)
 			throw new Error(`Transport instance already destroyed: ${this.id}`);
 		if (this.remoteId) return this.dispatchError(`Transport instance already connected to a remote ID: ${this.remoteId}`);
 		if (!remoteSDP.sdp || !remoteSDP.sdp.id) return this.dispatchError('Invalid remote SDP:', remoteSDP);

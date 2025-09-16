@@ -36,10 +36,10 @@ export class NodeP2P {
 		peerStore.on('data', (peerId, data) => this.#onData(peerId, data));
 		
 		// UNICAST LISTENERS
-		messager.on('signal_answer', (senderId, data) => networkEnhancer.handleIncomingSignal(senderId, data));
+		messager.on('signal_answer', (senderId, data) => networkEnhancer.pushSignalToQueue(senderId, data));
 
 		// GOSSIP LISTENERS
-		gossip.on('signal_offer', (senderId, data) => networkEnhancer.handleIncomingSignal(senderId, data));
+		gossip.on('signal_offer', (senderId, data, HOPS) => networkEnhancer.pushSignalToQueue(senderId, data, HOPS));
 		gossip.on('peer_connected', (senderId, data) => peerStore.handlePeerConnectedGossipEvent(senderId, data));
 		gossip.on('peer_disconnected', (senderId, data) => peerStore.unlinkPeers(data, senderId));
 		gossip.on('my_neighbours', (senderId, data) => peerStore.digestPeerNeighbours(senderId, data));
@@ -124,16 +124,11 @@ export class NodeP2P {
 				else { // First message should be handshake with id
 					// C'EST PAS TERRIBLE !
 					if (data[0] > 127) return; // not unicast, ignore
-					const message = this.cryptoCodec.readUnicastMessage(data);
-					const { route, type } = message || {};
-					
+					const { route, type } = this.cryptoCodec.readUnicastMessage(data) || {};
 					if (type !== 'handshake' || route.length !== 2 || route[1] !== this.id) return;
-					const [senderId, targetId] = [route[0], route[1]];
-					if (!senderId || targetId !== this.id) return;
-					
-					remoteId = senderId;
-					if (!remoteId || this.peerStore.connecting[remoteId]) return ws.close(); // already connecting, abort operation
-	
+
+					remoteId = route[0];
+					this.peerStore.connecting[remoteId]?.out?.close(); // close outgoing connection if any
 					this.peerStore.connecting[remoteId] = { in: new PeerConnection(remoteId, ws, 'in', true) };
 					for (const cb of this.peerStore.callbacks.connect) cb(remoteId, 'in');
 				}

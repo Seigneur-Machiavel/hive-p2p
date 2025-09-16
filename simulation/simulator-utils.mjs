@@ -1,33 +1,20 @@
-import { UNICAST, GOSSIP } from '../core/global_parameters.mjs';
+import { SIMULATION, NODE, UNICAST, GOSSIP, IDENTITY } from '../core/global_parameters.mjs';
 
 export class MessageQueue {
-	typesInTheQueue = [];
-	queue = [];
+	/** @type {Record<string, any>} */
+	messageQueuesByTypes = {};
 	onMessage;
 
 	/** @param {Function} onMessage */
 	constructor(onMessage) { this.onMessage = onMessage; this.#start(); }
 
-	push(message, avoidMultipleMessageWithSameType = true) {
-		const typeAlreadyInQueue = this.typesInTheQueue.includes(message.type);
-		if (avoidMultipleMessageWithSameType && typeAlreadyInQueue) return;
-		if (!typeAlreadyInQueue) this.typesInTheQueue.push(message.type);
-		this.queue.push(message);
-	}
-	#getNextMessage() {
-		const msg = this.queue.pop();
-		this.typesInTheQueue = this.typesInTheQueue.filter(type => type !== msg.type);
-		return msg;
-	}
+	// replace any existing message of the same type
+	push(message) { this.messageQueuesByTypes[message.type] = message; }
 	async #start() { // Message processing loop
 		while (true) {
-			await this.onMessage(this.#getNextMessage());
-			await new Promise(resolve => setTimeout(resolve, 10)); // prevent blocking the event loop
+			for (const message of Object.values(this.messageQueuesByTypes)) await this.onMessage(message);
+			await new Promise(resolve => setTimeout(resolve, 250)); // prevent blocking the event loop
 		}
-	}
-	reset() {
-		this.typesInTheQueue = [];
-		this.queue = [];
 	}
 }
 
@@ -38,11 +25,19 @@ function statsFormating(stats) {
 export class Statician { // DO NOT ADD VARIABLES, JUST COUNTERS !!
 	gossip = 0;
 	unicast = 0;
-
+	/** @param {Object} sVARS @param {Record<string, Record<string, import('../core/node.mjs').NodeP2P>>} peers @param {number} verbose @param {number} [delay] default: 10 seconds */
 	constructor(sVARS, peers, delay = 10_000) {
+		const verbose = NODE.DEFAULT_VERBOSE;
 		setInterval(() => {
 			const nextPeerToInit = sVARS.nextPeerToInit > 0 ? sVARS.nextPeerToInit - 1 : 0;
-			console.info(`%c${Math.floor((Date.now() - sVARS.startTime) / 1000)} sec elapsed | Active nodes: ${sVARS.publicInit + nextPeerToInit}/${Object.keys(peers.all).length} | STATS/sec: ${this.#getSimulationStatsPerSecond(delay)}`, 'color: yellow;');
+			const nonPublicNodes = Object.values(peers.all).filter(p => !p.publicUrl);
+			let peersWithNoWrtcConnCount = nonPublicNodes.length;
+			for (const p of nonPublicNodes)
+				for (const id of Object.keys(p.peerStore.connected))
+					if (id.startsWith(IDENTITY.PUBLIC_PREFIX)) continue;
+					else { peersWithNoWrtcConnCount--; break; }
+
+			if (verbose) console.info(`%c${Math.floor((Date.now() - sVARS.startTime) / 1000)} sec elapsed | Active nodes: ${sVARS.publicInit + nextPeerToInit}/${Object.keys(peers.all).length} (${peersWithNoWrtcConnCount} without WebRTC) | STATS/sec: ${this.#getSimulationStatsPerSecond(delay)}`, 'color: yellow;');
 			for (const key in this) this[key] = 0;
 		}, delay);
 	}
@@ -50,11 +45,64 @@ export class Statician { // DO NOT ADD VARIABLES, JUST COUNTERS !!
 		const divider = delay / 1000;
 		const stats = {}
 		for (const key in this) stats[key] = Math.round(this[key] / divider);
-		return !formating ? stats : statsFormating(stats);
+		return formating ? statsFormating(stats) : stats;
+	}
+}
+export class TransmissionAnalyzer {
+	verbose;
+	peers;
+	gossip = {
+		/** @type {Record<string, number>} key: peerId, value: timestamp */
+		receivedBy: {},
+		nonce: 'ffffff',
+		sendAt: 0,
+		
+	}
+
+	/** @param {Record<string, Record<string, import('../core/node.mjs').NodeP2P>>} peers @param {number} verbose @param {number} [delay] default: 10 seconds */
+	constructor(peers, verbose, delay = SIMULATION.DIFFUSION_TEST_DELAY) {
+		this.peers = peers;
+		this.verbose = verbose;
+		setInterval(() => {
+			const stats = this.#getTransmissionStats();
+			if (stats && this.verbose) console.info(`%cDiffusion Test | Stats: ${JSON.stringify(stats).replaceAll('"','').replaceAll(':',': ').replaceAll('{', '{ ').replaceAll('}', ' }').replaceAll(',', ', ')}`, 'color: fuchsia;');
+			// SEND A GOSSIP MESSAGE FROM A RANDOM PEER -> ALL PEERS SHOULD RECEIVE IT
+			this.gossip.nonce = 'ffffff';
+			this.gossip.receivedBy = {};
+			this.#sendDiffusionTestMessage();
+		}, delay);
+	}
+	#getTransmissionStats(formating = true) {
+		if (!this.gossip.sendAt) return null;
+		const timestamps = Object.values(this.gossip.receivedBy);
+		const latencies = timestamps.map(t => t - this.gossip.sendAt);
+		const stats = {
+			received: `${Object.keys(this.gossip.receivedBy).length}/${Object.keys(this.peers.all).length - 1}`,
+			averageLatency: latencies.length === 0 ? 0 : Math.round(latencies.reduce((a, b) => a + b, 0) / latencies.length)
+		};
+		if (formating) return statsFormating(stats);
+		return stats;
+	}
+	#sendDiffusionTestMessage() {
+		const peersIds = Object.keys(this.peers.all);
+		if (peersIds.length === 0) return;
+		const randomPeerId = peersIds[Math.floor(Math.random() * peersIds.length)];
+		this.gossip.nonce = Math.floor(Math.random() * 1000000).toString(16).padStart(6, '0');
+		const peer = this.peers.all[randomPeerId];
+		this.gossip.sendAt = Date.now();
+		peer.gossip.broadcastToAll(this.gossip.nonce, 'diffusion_test', SIMULATION.DIFFUSION_TEST_HOPS);
+	}
+	/** @param {string} receiverId @param {Uint8Array} serialized @param {number} HOPS @param {import('../core/gossip.mjs').GossipMessage} message @param {string} fromId */
+	analyze(receiverId, serialized, HOPS, message, fromId) {
+		if (this.gossip.sendAt === 0) return; // we have not sent yet
+		if (message.data !== this.gossip.nonce) return; // not our test message
+		if (!this.gossip.sendAt) return; // we are not the sender
+		if (!this.gossip.receivedBy[receiverId]) this.gossip.receivedBy[receiverId] = Date.now();
 	}
 }
 
 export class SubscriptionsManager {
+	verbose;
 	cryptoCodec;
 	/** @type {Function} */ sendFnc;
 	/** @type {Record<string, Record<string, import('../core/node.mjs').NodeP2P>} */ peers;
@@ -75,12 +123,13 @@ export class SubscriptionsManager {
 	onPeerMessage = null; // currently subscribed peer
 	interval;
 
-	/** @param {Function} sendFnc @param {Record<string, Record<string, import('../core/node.mjs').NodeP2P}>} peers @param {import('../core/crypto-codec.mjs').CryptoCodec} cryptoCodec @param {number} [delay] default: 10 seconds */
-	constructor(sendFnc, peers, cryptoCodec, delay = 10_000) {
+	/** @param {Function} sendFnc @param {Record<string, import('../core/node.mjs').NodeP2P>} peers @param {import('../core/crypto-codec.mjs').CryptoCodec} cryptoCodec @param {number} verbose @param {number} [delay] default: 10 seconds */
+	constructor(sendFnc, peers, cryptoCodec, verbose, delay = 10_000) {
 		console.info('SubscriptionsManager initialized');
 		this.sendFnc = sendFnc;
 		this.peers = peers;
 		this.cryptoCodec = cryptoCodec;
+		this.verbose = verbose;
 		const divider = delay / 1000;
 		this.interval = setInterval(() => {
 			const sessionGossipSec = Math.round(this.gossipCount.session / divider);
@@ -92,10 +141,10 @@ export class SubscriptionsManager {
 			//if (gossipLog) console.log(`%c~GOSSIP/sec (total: ${sessionGossipSec} [${sessionGossipBandwidthSec} bytes]): ${gossipLog} [bytes: ${gossipBandwidthLog}]`, 'color: fuchsia;');
 			//if (unicastLog) console.log(`%c~UNICAST/sec (total: ${sessionUnicastSec} [${sessionUnicastBandwidthSec} bytes]): ${unicastLog} [bytes: ${unicastBandwidthLog}]`, 'color: cyan;');
 
-			if (gossipLog) console.log(`%c~GOSSIP/sec (total: ${sessionGossipSec}): ${gossipLog}`, 'color: fuchsia;');
-			if (gossipBandwidthLog) console.log(`%c~GOSSIP BANDWIDTH/sec (total: ${sessionGossipBandwidthSec} bytes): ${gossipBandwidthLog}`, 'color: fuchsia;');
-			if (unicastLog) console.log(`%c~UNICAST/sec (total: ${sessionUnicastSec}): ${unicastLog}`, 'color: cyan;');
-			if (unicastBandwidthLog) console.log(`%c~UNICAST BANDWIDTH/sec (total: ${sessionUnicastBandwidthSec} bytes): ${unicastBandwidthLog}`, 'color: cyan;');
+			if (gossipLog && this.verbose) console.log(`%c~GOSSIP/sec (total: ${sessionGossipSec}): ${gossipLog}`, 'color: fuchsia;');
+			if (gossipBandwidthLog && this.verbose) console.log(`%c~BANDWIDTH/sec (total: ${sessionGossipBandwidthSec} bytes): ${gossipBandwidthLog}`, 'color: fuchsia;');
+			if (unicastLog && this.verbose) console.log(`%c~UNICAST/sec (total: ${sessionUnicastSec}): ${unicastLog}`, 'color: cyan;');
+			if (unicastBandwidthLog && this.verbose) console.log(`%c~BANDWIDTH/sec (total: ${sessionUnicastBandwidthSec} bytes): ${unicastBandwidthLog}`, 'color: cyan;');
 
 			// RESET SESSION COUNTERS
 			this.gossipCount.session = 0;

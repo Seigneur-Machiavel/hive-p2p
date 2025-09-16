@@ -60,7 +60,7 @@ export class ICECandidateEmitter { // --- ICE SIMULATION ---
 			const { success, reason } = this.#digestSignal(signalData, receiverId);
 			if (!success) receiverInstance.dispatchError(reason || `Failed to digest signal for peer: ${this.id}`);
 		}
-	}, 500);
+	}, 490);
 
 	#cleanupExpiredSignals(n = Date.now()) { // AVOIDS MEMORY LEAK
 		for (const [transportId, offers] of Object.entries(this.PENDING_OFFERS))
@@ -238,15 +238,16 @@ export class Sandbox {
 	// --- MESSAGE QUEUE TO SIMULATE ASYNC BEHAVIOR ---
 	messageQueue = [];
 	queueIndex = 0;
-    queueInterval = 5; // 5ms = 200Hz
-    batchSize = 400; // total: 400 x 200 = 80_000msg/sec
+	queueInterval = 100; // 10Hz ~average ping
+	batchSize = 5_000; // total: 5_000 x 10 = 50_000msg/sec (max: 100_000msg/sec)
 	queueProcessor = setInterval(() => this.#processMessageQueue(), this.queueInterval);
 
 	#processMessageQueue() {
 		const queueLength = this.messageQueue.length;
         if (queueLength === 0) return;
-        
-        const endIndex = Math.min(this.queueIndex + this.batchSize, queueLength);
+
+		const effectiveBatchSize = Math.round(queueLength > this.batchSize * 3 ? this.batchSize * 1.5 : this.batchSize);
+        const endIndex = Math.min(this.queueIndex + effectiveBatchSize, queueLength);
         for (let index = this.queueIndex; index < endIndex; index++) {
 			const [type, id, remoteId, data] = this.messageQueue[index];
 			if (type === 'transport_data') this.#processInstanceMessage(id, remoteId, data);
@@ -255,7 +256,11 @@ export class Sandbox {
         this.queueIndex = endIndex;
         
         if (this.queueIndex < 5000) return; // Periodic cleanup, avoid memory leaks
-        this.messageQueue = this.messageQueue.slice(this.queueIndex);
+		const overFilled = this.messageQueue.length > 25000;
+		if (overFilled) console.warn(`[SANDBOX] Message queue is very long: ${this.messageQueue.length} messages pending.`);
+        
+		if (overFilled) this.queueIndex += this.batchSize; // skip some messages
+		this.messageQueue = this.messageQueue.slice(this.queueIndex);
         this.queueIndex = 0;
     }
 

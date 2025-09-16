@@ -43,10 +43,12 @@ export class NodesStore {
 			connected: 0,
 			connecting: 0,
 			known: 0,
-			unknown: 0
+			unknown: 0,
+			maxDistance: 0, // max node distance from center x or y, used for auto zoom
 		};
 		for (const node of Object.values(this.store)) {
 			result.total++;
+			result.maxDistance = Math.max(result.maxDistance, Math.abs(node.position.x), Math.abs(node.position.y));
 			if (node.isPublic) result.totalPublic++;
 			if (node.status === 'connected' && node.isPublic) result.connectedPublic++;
 			if (node.status === 'connected') result.connected++;

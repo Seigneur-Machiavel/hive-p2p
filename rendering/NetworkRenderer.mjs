@@ -3,6 +3,8 @@ import { NetworkRendererElements, NetworkRendererOptions } from './renderer-opti
 import { Node, NodesStore, ConnectionsStore } from './renderer-stores.mjs';
 
 export class NetworkRenderer {
+	initCameraZ = 1400;
+	lastAutoZoomMaxDistance = 0;
 	fpsStabilizer = new FpsStabilizer(document.getElementById('fpsCount'));
 	maxVisibleConnections = 500; // to avoid performance issues
 	autoRotateEnabled = true;
@@ -83,7 +85,7 @@ export class NetworkRenderer {
 
         // Camera
         this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 10000);
-        this.camera.position.set(0, 0, 1200);
+        this.camera.position.set(0, 0, this.initCameraZ);
 
         // Renderer
 		const { antialias, precision } = this.options;
@@ -298,12 +300,14 @@ export class NetworkRenderer {
     }
 	updateStats() {
 		const info = this.nodesStore.getInfo();
+		this.maxDistance = info.maxDistance;
 		this.elements.nodeCountElement.textContent = info.total;
 		const { connsCount, linesCount } = this.connectionsStore.getConnectionsCount();
 		this.elements.connectionsCountElement.textContent = connsCount;
 		this.elements.linesCountElement.textContent = linesCount;
 		this.elements.connectingCountElement.textContent = info.connecting;
-		this.elements.neighborCountElement.textContent = info.connected;
+		const nonPublicNeighbors = info.connected - info.connectedPublic;
+		this.elements.neighborCountElement.textContent = `${nonPublicNeighbors} ( +${info.connectedPublic} Public )`;
 		this.elements.publicNeighborCountElement.textContent = info.connectedPublic;
     }
 	switchMode() {
@@ -334,6 +338,10 @@ export class NetworkRenderer {
 			border.material.dispose();
 		}
 		this.nodeBorders = {};
+
+		// reset camera
+		this.camera.position.set(0, 0, this.initCameraZ);
+		this.camera.lookAt(0, 0, 0);
 	}
 	destroy() {
         this.isAnimating = false;
@@ -348,6 +356,27 @@ export class NetworkRenderer {
 		if (!this.autoRotateEnabled || !this.isAnimating) return;
 		try { if (!restrictToMode || this.options.mode === restrictToMode) this.scene.rotation[axis] -= this.autoRotateSpeed;
 		} catch (error) { console.error('Error during auto-rotation:', error); }
+	}
+	#autoZoom(margin = 1.2) {
+		if (!this.isAnimating || this.options.mode !== '3d' || this.isPhysicPaused) return;
+
+		const maxDist = this.maxDistance * margin;
+		if (maxDist - this.lastAutoZoomMaxDistance < 20) return;
+
+		const fov = this.camera.fov * (Math.PI / 180);
+		const height = 2 * maxDist;
+		const distance = height / (2 * Math.tan(fov / 2));
+		const targetDistance = distance * 1.2;
+		const currentDistance = this.camera.position.length();
+		const zoomSpeed = 0.1;
+		const newDistance = currentDistance + (targetDistance - currentDistance) * zoomSpeed;
+		const finalDistance = Math.max(newDistance, this.initCameraZ);
+
+		this.camera.position.normalize().multiplyScalar(finalDistance);
+		this.camera.lookAt(0, 0, 0);
+
+		if (Math.abs(currentDistance - targetDistance) < 10) 
+			this.lastAutoZoomMaxDistance = maxDist;
 	}
     #setupControls() {
 		let setupAutoRotateTimeout;
@@ -447,7 +476,7 @@ export class NetworkRenderer {
 
         domElement.addEventListener('wheel', (e) => {
             e.preventDefault();
-            const zoomSpeed = 0.1;
+            const zoomSpeed = .4;
             const forward = new THREE.Vector3();
             this.camera.getWorldDirection(forward);
             this.camera.position.add(forward.multiplyScalar(e.deltaY * -zoomSpeed));
@@ -659,6 +688,7 @@ export class NetworkRenderer {
 		}
 		
 		this.#autoRotate();
+		this.#autoZoom();
 		this.instancedMesh.instanceMatrix.needsUpdate = true;
 		this.instancedMesh.instanceColor.needsUpdate = true;
 		

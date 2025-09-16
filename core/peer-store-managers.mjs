@@ -83,9 +83,18 @@ export class SdpOfferManager { // Manages the creation of SDP offers and handlin
 	/** @type {Record<string, OfferObj>} key: offerHash **/ offers = {};
 
 	offerCreationTimeout = null;
-	interval = setInterval(() => {
-		// CLEAR USED AND EXPIRED OFFERS
+	offerInstanceByExpiration = {};
+	tick() { // called in peerStore to avoid multiple intervals
 		const now = Date.now();
+		// CLEAR EXPIRED CREATOR OFFER INSTANCES
+		for (const [expiration, instance] of Object.entries(this.offerInstanceByExpiration))
+			if (now > expiration) {
+				instance?.destroy();
+				delete this.offerInstanceByExpiration[expiration];
+				this.creatingOffer = false; // release flag
+			}
+
+		// CLEAR USED AND EXPIRED OFFERS
 		for (const [hash, offer] of Object.entries(this.offers)) {
 			if (offer.offererInstance.destroyed) { delete this.offers[hash]; continue; } // offerer destroyed
 			if (offer.isUsed) { delete this.offers[hash]; continue; } // used offer => remove it (handled by peerStore)
@@ -109,14 +118,11 @@ export class SdpOfferManager { // Manages the creation of SDP offers and handlin
 		
 		// CREATE NEW OFFER
 		this.creatingOffer = true;
-		const instance = this.#createOffererInstance();
-		this.offerCreationTimeout = setTimeout(() => { // => on failure or cleaned up on signal
-			this.offerCreationTimeout = null;
-			instance?.destroy();
-			this.creatingOffer = false; // release flag
-		}, TRANSPORTS.SIGNAL_CREATION_TIMEOUT || 8000); // should be above SimplePeer internal timeout of 5 seconds
-	}, 500);
-	#createOffererInstance() {
+		const expiration = Date.now() + (TRANSPORTS.SIGNAL_CREATION_TIMEOUT || 8_000);
+		const instance = this.#createOffererInstance(expiration);
+		this.offerInstanceByExpiration[expiration] = instance;
+	};
+	#createOffererInstance(expiration) {
 		const instance = new TRANSPORTS.PEER({ initiator: true, trickle: false, wrtc });
 		instance.on('error', error => this.#onError(error));
 		instance.on('signal', data => { // trickle: false => only one signal event with the full offer
@@ -125,9 +131,7 @@ export class SdpOfferManager { // Manages the creation of SDP offers and handlin
 			if (type !== 'offer') throw new Error('Unexpected signal type from offerer instance: ' + type);
 			
 			// OFFER READY
-			if (this.offerCreationTimeout) clearTimeout(this.offerCreationTimeout);
-			this.offerCreationTimeout = null;
-
+			delete this.offerInstanceByExpiration[expiration];
 			const offerHash = xxHash32(JSON.stringify(data)); // UN PEU BLOQUE ICI (connect on voudrait identifer le peer)
 			instance.on('connect', () => { // cb > peerStore > Node > Node.#onConnect()
 				if (this.offers[offerHash]) this.offers[offerHash].isUsed = true;

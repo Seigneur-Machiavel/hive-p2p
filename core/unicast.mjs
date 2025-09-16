@@ -111,7 +111,7 @@ export class UnicastMessager {
 
 		const route = message.newRoute || message.route;
 		const { traveledRoute, selfPosition, senderId, targetId, prevId, nextId } = message.extractTraveledRoute(this.id);
-		for (const cb of this.callbacks.message_handle || []) cb(from, message.data); // Simulator counter is placed here
+		for (const cb of this.callbacks.message_handle || []) cb(); // Simulator counter
 
 		// RACE CONDITION CAN OCCUR IN SIMULATION !!
 		// ref: simulation/race-condition-demonstration.js
