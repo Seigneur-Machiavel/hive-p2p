@@ -17,8 +17,8 @@ export const SIMULATION = {
 	// SIMULATOR OPTIONS
 	AVOID_FOLLOWERS_NODES: false, 	// avoid twitch nodes creation | default: true
 	AUTO_START: true,				// auto start the simulation, false to wait the frontend | default: true
-	PUBLIC_PEERS_COUNT: 100,		// stable: 3,  medium: 100, strong: 200 | default: 2
-	PEERS_COUNT: 5000,				// stable: 25, medium: 800, strong: 1600 | default: 12
+	PUBLIC_PEERS_COUNT: 20,			// stable: 3,  medium: 100, strong: 200 | default: 2
+	PEERS_COUNT: 1800,				// stable: 25, medium: 800, strong: 1600 | default: 12
 	BOOTSTRAPS_PER_PEER: 10,		// will not be exact, more like a limit. null = all of them | default: 10
 	DELAY_BETWEEN_INIT: 60,			// 0 = faster for simulating big networks but > 0 = should be more realistic | default: 60 (60sec to start 1000 peers)
 	RANDOM_UNICAST_PER_SEC: .1,		// default: .1, capped at a total of 500msg/sec | default: 1
@@ -101,19 +101,19 @@ export const GOSSIP = { // MARKERS RANGE: 128-255
 	CACHE_DURATION: 20_000, // Duration to keep messages in cache
 	HOPS: {
 		default: 10,
-		signal_offer: 6, // works with 3
+		//signal_offer: 6, // works with 3
 		// peer_connected: 3,
 		// peer_disconnected: 3,
 		// my_neighbours: 3
 	},
 	TRANSMISSION_RATE: {
 		MIN_NEIGHBOURS_TO_APPLY_PONDERATION: 2, // DECREASE TO APPLY PONDERATION SOONER, default: 4
-		NEIGHBOURS_PONDERATION: 3, 	// DECREASE TO LOWER TRANSMISSION RATE BASED ON NEIGHBOURS COUNT, default: 2
+		NEIGHBOURS_PONDERATION: 4, 	// DECREASE TO LOWER TRANSMISSION RATE BASED ON NEIGHBOURS COUNT, default: 2
 		default: 1, 				// .51 === 50%
-		signal_offer: .618, 		// 1 === 100%
-		peer_connected: .618, 		// we can reduce this, but lowering the map quality
+		signal_offer: .618, 			// 1 === 100%
+		peer_connected: .5, 		// we can reduce this, but lowering the map quality
 		//peer_disconnected: .618
-		my_neighbours: .5, 			// we can reduce this a lot, but lowering the map quality
+		my_neighbours: .5, 		// we can reduce this a lot, but lowering the map quality
 	},
 	MARKERS_BYTES: { // MARKERS RANGE: 128-255
 		gossip: 128,

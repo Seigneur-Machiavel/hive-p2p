@@ -109,6 +109,7 @@ export class TestWsConnection { // WebSocket like
 			return;
 		}
 		SANDBOX.enqueueWsMessage(this.id, this.remoteWsId, message);
+		//SANDBOX.enqueueWsMessageSync(this.id, this.remoteWsId, message);
 	}
 	dispatchError(error) {
 		this.callbacks.error.forEach(cb => cb(error));

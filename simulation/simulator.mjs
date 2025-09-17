@@ -87,6 +87,7 @@ async function intervalsLoop(loopDelay = 8) { // OPTIMIZATION, SORRY FOR COMPLEX
 		}
 		
 		await SANDBOX.processMessageQueue(); // MESSAGE QUEUE PROCESS TICK
+		//SANDBOX.processMessageQueueSync(); // MESSAGE QUEUE PROCESS TICK
 		const elapsed = CLOCK.time - n;
 		await new Promise(resolve => setTimeout(resolve, Math.max(loopDelay - elapsed, 0)));
 	}

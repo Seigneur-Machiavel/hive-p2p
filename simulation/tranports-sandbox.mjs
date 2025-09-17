@@ -214,6 +214,7 @@ export class Sandbox {
 		if (remoteInstance.remoteId !== fromId) return { success: false, reason: `Transport instance ${fromId} is not linked to remoteId: ${toId}` };
 
 		this.enqueueTransportData(fromId, toId, data);
+		//this.enqueueTransportDataSync(fromId, toId, data);
 		return { success: true, reason: 'na' };
 	}
 	destroyTransportAndAssociatedTransport(id) { // SimplePeer instances only
@@ -235,17 +236,18 @@ export class Sandbox {
 	}
 
 	// --- MESSAGE QUEUE TO SIMULATE ASYNC BEHAVIOR ---
-	//messageQueue = [];
-	//queueIndex = 0;
+	batchSize = 2_500; // total: 2_500 x 125 = 312_500msg/sec (max: 1_562_500msg/sec)
+	// SYNC PARAMS
+	messageQueueSync = [];
+	queueIndex = 0;
 	//queueInterval = 8; // 125Hz ~average ping
- 	batchSize = 2_500; // total: 2_500 x 125 = 312_500msg/sec (max: 1_562_500msg/sec)
-
+	// ASYNC PARAMS
 	messageQueue = new Array(100_000); // buffer fixe
 	queueStart = 0;
 	queueEnd = 0;
 	queueCount = 0;
 	processMessageQueueSync() {
-		const queueLength = this.messageQueue.length;
+		const queueLength = this.messageQueueSync.length;
         if (queueLength === 0) return;
 
 		let effectiveBatchSize = this.batchSize;
@@ -257,22 +259,18 @@ export class Sandbox {
 		
 		const endIndex = Math.min(this.queueIndex + effectiveBatchSize, queueLength);
         for (let index = this.queueIndex; index < endIndex; index++) {
-			const [type, id, remoteId, data] = this.messageQueue[index];
+			const [type, id, remoteId, data] = this.messageQueueSync[index];
 			if (type === 'transport_data') this.#processInstanceMessage(id, remoteId, data);
             else if (type === 'ws_message') this.#processWsMessage(id, remoteId, data);
         }
         this.queueIndex = endIndex;
         
         if (this.queueIndex < 5000) return; // Periodic cleanup, avoid memory leaks
-		const overFilled = this.messageQueue.length > 50_000;
-		if (overFilled) console.warn(`[SANDBOX] Message queue is very long: ${this.messageQueue.length} messages pending.`);
+		const overFilled = this.messageQueueSync.length > 50_000;
+		if (overFilled) console.warn(`[SANDBOX] Message queue is very long: ${this.messageQueueSync.length} messages pending.`);
 		if (overFilled) this.queueIndex += this.batchSize; // skip some messages
-		//this.messageQueue = this.messageQueue.slice(this.queueIndex);
-        //this.queueIndex = 0;
-		if (this.queueIndex > 5_000) {
-			this.messageQueue.splice(0, this.queueIndex);
-			this.queueIndex = 0;
-		}
+		this.messageQueueSync = this.messageQueueSync.slice(this.queueIndex);
+        this.queueIndex = 0;
     }
 	async processMessageQueue() {
 		if (this.queueCount === 0) return;
@@ -318,8 +316,9 @@ export class Sandbox {
 	}
 
 	// MESSAGE QUEUE API
-	//enqueueTransportData(id, remoteId, data) { this.messageQueue.push(['transport_data', id, remoteId, data]); }
-	//enqueueWsMessage(id, remoteWsId, message) { this.messageQueue.push(['ws_message', id, remoteWsId, message]); }
+	enqueueTransportDataSync(id, remoteId, data) { this.messageQueueSync.push(['transport_data', id, remoteId, data]); }
+	enqueueWsMessageSync(id, remoteWsId, message) { this.messageQueueSync.push(['ws_message', id, remoteWsId, message]); }
+
 	enqueueTransportData(id, remoteId, data) {
 		this.messageQueue[this.queueEnd] = ['transport_data', id, remoteId, data];
 		this.queueEnd = (this.queueEnd + 1) % this.messageQueue.length;
