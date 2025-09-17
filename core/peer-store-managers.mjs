@@ -1,5 +1,5 @@
 import wrtc from 'wrtc';
-import { SIMULATION, NODE, TRANSPORTS } from './global_parameters.mjs';
+import { CLOCK, SIMULATION, NODE, TRANSPORTS } from './global_parameters.mjs';
 import { xxHash32 } from '../utils/xxhash32.mjs';
 const { SANDBOX, ICE_CANDIDATE_EMITTER, TEST_WS_EVENT_MANAGER } = SIMULATION.ENABLED ? await import('../simulation/test-transports.mjs') : {};
 
@@ -20,10 +20,10 @@ export class PeerConnection { // WebSocket or WebRTC connection wrapper
 		this.isWebSocket = isWebSocket;
 		this.direction = direction;
 		this.peerId = peerId;
-		this.pendingUntil = Date.now() + NODE.CONNECTION_UPGRADE_TIMEOUT;
+		this.pendingUntil = CLOCK.time + NODE.CONNECTION_UPGRADE_TIMEOUT;
 	}
-	setConnected() { this.connStartTime = Date.now(); }
-	getConnectionDuration() { return this.connStartTime ? Date.now() - this.connStartTime : 0; }
+	setConnected() { this.connStartTime = CLOCK.time; }
+	getConnectionDuration() { return this.connStartTime ? CLOCK.time - this.connStartTime : 0; }
 	close() { this.isWebSocket ? this.transportInstance?.close() : this.transportInstance?.destroy(); }
 }
 export class KnownPeer { // known peer, not necessarily connected
@@ -36,7 +36,7 @@ export class KnownPeer { // known peer, not necessarily connected
 		this.connectionsCount = Object.keys(neighbours).length;
 	}
 	
-	setNeighbour(peerId, timestamp = Date.now()) {
+	setNeighbour(peerId, timestamp = CLOCK.time) {
 		if (!this.neighbours[peerId]) this.connectionsCount++;
 		this.neighbours[peerId] = timestamp; // not used for now, we can set Object in value easily
 	}
@@ -51,11 +51,11 @@ export class Punisher { // manage kick and ban of peers
 
 	/** @param {string} peerId */
 	sanctionPeer(peerId, type = 'kick', duration = 60_000) {
-		this[type][peerId] = Date.now() + duration;
+		this[type][peerId] = CLOCK.time + duration;
 	}
 	isSanctioned(peerId, type = 'kick') {
 		if (!this[type][peerId]) return false;
-		if (this[type][peerId] < Date.now()) delete this[type][peerId];
+		if (this[type][peerId] < CLOCK.time) delete this[type][peerId];
 		else return true;
 	}
 }
@@ -67,7 +67,7 @@ export class Punisher { // manage kick and ban of peers
  * @property {number} sentCounter
  * @property {Object} signal
  * @property {import('simple-peer').Instance} offererInstance
- * @property {Array<{peerId: string, signal: any, score: number}>} answers
+ * @property {Array<{peerId: string, signal: any, timestamp: number, used: boolean}>} answers
  * @property {Record<string, boolean>} answerers key: peerId, value: true */
 
 export class SdpOfferManager { // Manages the creation of SDP offers and handling of answers
@@ -79,21 +79,22 @@ export class SdpOfferManager { // Manages the creation of SDP offers and handlin
 	onConnect = null; // function(remoteId, transportInstance)
 	
 	creatingOffer = false; // flag
+	isConnectedToAtLeastOnePeer = true; // flag updated by peerStore
 	offersToCreate = TRANSPORTS.MAX_SDP_OFFERS;
 	/** @type {Record<string, OfferObj>} key: offerHash **/ offers = {};
 
 	offerCreationTimeout = null;
 	offerInstanceByExpiration = {};
 	tick() { // called in peerStore to avoid multiple intervals
-		const now = Date.now();
+		const now = CLOCK.time;
 		// CLEAR EXPIRED CREATOR OFFER INSTANCES
-		for (const [expiration, instance] of Object.entries(this.offerInstanceByExpiration))
-			if (now > expiration) {
-				instance?.destroy();
-				delete this.offerInstanceByExpiration[expiration];
-				this.creatingOffer = false; // release flag
-			}
-
+		for (const [expiration, instance] of Object.entries(this.offerInstanceByExpiration)) {
+			if (now < expiration) continue; // not expired yet
+			instance?.destroy();
+			delete this.offerInstanceByExpiration[expiration];
+			this.creatingOffer = false; // release flag
+		}
+			
 		// CLEAR USED AND EXPIRED OFFERS
 		for (const [hash, offer] of Object.entries(this.offers)) {
 			if (offer.offererInstance.destroyed) { delete this.offers[hash]; continue; } // offerer destroyed
@@ -105,20 +106,25 @@ export class SdpOfferManager { // Manages the creation of SDP offers and handlin
 
 		// TRY TO USE AVAILABLE ANSWERS
 		for (const [hash, offer] of Object.entries(this.offers)) {
-			if (!offer.answers.length) continue; // no answers available
 			if (offer.offererInstance.destroyed) continue; // offerer destroyed
-			const randomIndex = Math.random() * offer.answers.length | 0;
-			const answer = offer.answers[randomIndex];
-			offer.offererInstance.signal(answer.signal);
-			if (this.verbose > 2) console.log(`(SdpOfferManager) Using answer from ${answer.peerId} for offer ${hash}`);
+			const unusedAnswers = offer.answers.filter(a => !a.used);
+			if (!unusedAnswers.length) continue; // no answers available
+			const newestAnswer = unusedAnswers.reduce((a, b) => a.timestamp > b.timestamp ? a : b);
+			if (!newestAnswer) continue; // all answers are used
+			newestAnswer.used = true;
+			const receivedSince = now - newestAnswer.timestamp;
+			if (receivedSince > NODE.CONNECTION_UPGRADE_TIMEOUT / 2) continue; // remote peer will break the connection soon, don't use this answer
+			offer.offererInstance.signal(newestAnswer.signal);
+			//console.log(`(${this.id}) Using answer from ${newestAnswer.peerId} for offer ${hash} (received since ${receivedSince} ms)`);
+			if (this.verbose > 2) console.log(`(SdpOfferManager) Using answer from ${newestAnswer.peerId} for offer ${hash} (received since ${receivedSince} ms)`);
 		}
 
-		if (this.creatingOffer) return; // already creating one
+		if (this.creatingOffer || !this.isConnectedToAtLeastOnePeer) return; // already creating one or unable to send
 		if (Object.keys(this.offers).length >= this.offersToCreate) return; // already have enough offers
 		
 		// CREATE NEW OFFER
 		this.creatingOffer = true;
-		const expiration = Date.now() + (TRANSPORTS.SIGNAL_CREATION_TIMEOUT || 8_000);
+		const expiration = now + (TRANSPORTS.SIGNAL_CREATION_TIMEOUT || 8_000);
 		const instance = this.#createOffererInstance(expiration);
 		this.offerInstanceByExpiration[expiration] = instance;
 	};
@@ -137,7 +143,7 @@ export class SdpOfferManager { // Manages the creation of SDP offers and handlin
 				if (this.offers[offerHash]) this.offers[offerHash].isUsed = true;
 				this.onConnect(undefined, instance);
 			});
-			this.offers[offerHash] = { timestamp: Date.now(), sentCounter: 0, signal: data, offererInstance: instance, answers: [], answerers: {}, isUsed: false };
+			this.offers[offerHash] = { timestamp: CLOCK.time, sentCounter: 0, signal: data, offererInstance: instance, answers: [], answerers: {}, isUsed: false };
 			this.creatingOffer = false; // release flag
 		});
 
@@ -173,11 +179,12 @@ export class SdpOfferManager { // Manages the creation of SDP offers and handlin
 		
 		if (this.verbose > 0) console.error(`transportInstance ERROR => `, error.stack);
 	};
-	addSignalAnswer(remoteId, signal, offerHash) {
+	/** @param {string} remoteId @param {{type: 'answer', sdp: Record<string, string>}} signal @param {string} offerHash @param {number} timestamp receptionTimestamp */
+	addSignalAnswer(remoteId, signal, offerHash, timestamp) {
 		if (!signal || signal.type !== 'answer' || !offerHash) return; // ignore non-answers or missing offerHash
 		if (!this.offers[offerHash] || this.offers[offerHash].answerers[remoteId]) return; // already have an answer from this peerId
 		this.offers[offerHash].answerers[remoteId] = true; // mark as having answered - one answer per peerId
-		this.offers[offerHash].answers.push({ peerId: remoteId, signal, score: 0 });
+		this.offers[offerHash].answers.push({ peerId: remoteId, signal, timestamp });
 		if (this.verbose > 3) console.log(`(SdpOfferManager) Added answer from ${remoteId} for offer ${offerHash}`);
 	}
 	/** @param {string} remoteId @param {{type: 'offer' | 'answer', sdp: Record<string, string>}} signal @param {string} [offerHash] offer only */
@@ -205,7 +212,6 @@ export class SdpOfferManager { // Manages the creation of SDP offers and handlin
 		} catch (error) { if (this.verbose > 3) console.error(error.message); }
 	}
 	destroy() {
-		clearInterval(this.interval);
 		for (const [offerHash, offerObj] of Object.entries(this.offers)) offerObj.offererInstance?.destroy();
 	}
 }

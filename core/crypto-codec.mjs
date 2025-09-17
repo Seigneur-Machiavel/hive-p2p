@@ -1,4 +1,4 @@
-import { SIMULATION, NODE, IDENTITY, GOSSIP, UNICAST } from './global_parameters.mjs';
+import { CLOCK, SIMULATION, NODE, IDENTITY, GOSSIP, UNICAST } from './global_parameters.mjs';
 import { GossipMessage } from './gossip.mjs';
 import { DirectMessage, ReroutedDirectMessage } from './unicast.mjs';
 const [ed, {sha512}] = await Promise.all([
@@ -60,7 +60,42 @@ class Converter {
 	/** @param {Uint8Array} uint8Array - Uint8Array to convert to string */
 	static bytesToString(uint8Array) { return new TextDecoder().decode(uint8Array); }
 }
+class ConverterFast {
+	buffer4 = new ArrayBuffer(4);
+	view4 = new DataView(this.buffer4);
+	buffer8 = new ArrayBuffer(8);
+	view8 = new DataView(this.buffer8);
+
+	/** Number should be between 0 and 4294967295 @param {number} num - Integer to convert to 4 bytes Uint8Array */
+    numberTo4Bytes(num) {
+        this.view4.setUint32(0, num, true); // true for little-endian
+        return new Uint8Array(this.buffer4);
+    }
+	/** Number should be between 0 and 18446744073709551615 @param {number} num - Integer to convert to 8 bytes Uint8Array */
+    numberTo8Bytes(num) {
+        const bigInt = BigInt(num);
+        this.view8.setBigUint64(0, bigInt, true);
+        return new Uint8Array(this.buffer8);
+    }
+	stringToBytes(str = 'toto') { return new TextEncoder().encode(str); }
+	/** @param {Uint8Array} uint8Array - Uint8Array to convert to number */
+    bytes4ToNumber(uint8Array) {
+        this.view4.setUint8(0, uint8Array[0]);
+        this.view4.setUint8(1, uint8Array[1]);
+        this.view4.setUint8(2, uint8Array[2]);
+        this.view4.setUint8(3, uint8Array[3]);
+        return this.view4.getUint32(0, true);
+    }
+    /** @param {Uint8Array} uint8Array - Uint8Array to convert to number */
+    bytes8ToNumber(uint8Array) {
+        for (let i = 0; i < 8; i++) { this.view8.setUint8(i, uint8Array[i]); }
+        return Number(this.view8.getBigUint64(0, true));
+    }
+	/** @param {Uint8Array} uint8Array - Uint8Array to convert to string */
+	bytesToString(uint8Array) { return new TextDecoder().decode(uint8Array); }
+}
 export class CryptoCodec {
+	converter = new ConverterFast(); // or slower: Converter;
 	verbose = NODE.DEFAULT_VERBOSE;
 	idCard;
 
@@ -75,14 +110,14 @@ export class CryptoCodec {
 	}
 	/** @param {string | Uint8Array | Object} data */
 	#dataToBytes(data) { // typeCodes: 1=string, 2=Uint8Array, 3=JSON
-		if (typeof data === 'string') return { dataCode: 1, dataBytes: Converter.stringToBytes(data) };
+		if (typeof data === 'string') return { dataCode: 1, dataBytes: this.converter.stringToBytes(data) };
 		if (data instanceof Uint8Array) return { dataCode: 2, dataBytes: data };
-		return { dataCode: 3, dataBytes: Converter.stringToBytes(JSON.stringify(data)) };
+		return { dataCode: 3, dataBytes: this.converter.stringToBytes(JSON.stringify(data)) };
 	}
 	/** @param {Uint8Array} bufferView @param {number} marker @param {number} dataCode @param {number} timestamp @param {Uint8Array} dataBytes @param {Uint8Array} publicKey */
 	#setBufferHeader(bufferView, marker, dataCode, timestamp, dataBytes, publicKey) {
-		const timestampBytes = Converter.numberTo8Bytes(timestamp);
-		const dataLengthBytes = Converter.numberTo4Bytes(dataBytes.length);
+		const timestampBytes = this.converter.numberTo8Bytes(timestamp);
+		const dataLengthBytes = this.converter.numberTo4Bytes(dataBytes.length);
 		// 1, 1, 8, 4, 32
 		bufferView.set([marker], 0);			// 1 byte for marker
 		bufferView.set([dataCode], 1);			// 1 byte for data type code
@@ -91,7 +126,7 @@ export class CryptoCodec {
 		bufferView.set(publicKey, 14);			// 32 bytes for pubkey
 	}
 	/** @param {string} topic @param {string | Uint8Array | Object} data @param {number} [HOPS] @return {Uint8Array} */
-	createGossipMessage(topic, data, HOPS = 3, timestamp = Date.now()) {
+	createGossipMessage(topic, data, HOPS = 3, timestamp = CLOCK.time) {
 		const MARKER = GOSSIP.MARKERS_BYTES[topic];
 		if (MARKER === undefined) throw new Error(`Failed to create gossip message: unknown topic '${topic}'.`);
 		
@@ -118,14 +153,14 @@ export class CryptoCodec {
 		return clone;
 	}
 	/** @param {string} type @param {string | Uint8Array | Object} data @param {string[]} route */
-	createUnicastMessage(type, data, route, timestamp = Date.now()) {
+	createUnicastMessage(type, data, route, timestamp = CLOCK.time) {
 		const MARKER = UNICAST.MARKERS_BYTES[type];
 		if (MARKER === undefined) throw new Error(`Failed to create unicast message: unknown type '${type}'.`);
 		if (route.length < 2) throw new Error('Failed to create unicast message: route must have at least 2 nodes (next hop and target).');
 		if (route.length > UNICAST.MAX_HOPS) throw new Error(`Failed to create unicast message: route exceeds max hops (${UNICAST.MAX_HOPS}).`);
 		
 		// 1, 1, 8, 4, 32, X, 1, X, 64
-		const routeBytes = Converter.stringToBytes(route.join(''));
+		const routeBytes = this.converter.stringToBytes(route.join(''));
 		const { dataCode, dataBytes } = this.#dataToBytes(data);
 		const { publicKey, privateKey } = this.idCard;
 		const totalBytes = 1 + 1 + 8 + 4 + 32 + 1 + routeBytes.length + dataBytes.length + IDENTITY.SIGNATURE_LENGTH;
@@ -146,7 +181,7 @@ export class CryptoCodec {
 		if (newRoute.length > UNICAST.MAX_HOPS) throw new Error(`Failed to create rerouted unicast message: route exceeds max hops (${UNICAST.MAX_HOPS}).`);
 	
 		const { publicKey, privateKey } = this.idCard;
-		const routeBytesArray = newRoute.map(id => Converter.stringToBytes(id));
+		const routeBytesArray = newRoute.map(id => this.converter.stringToBytes(id));
 		const totalBytes = serialized.length + 32 + (IDENTITY.ID_LENGTH * routeBytesArray.length) + IDENTITY.SIGNATURE_LENGTH;
 		const buffer = new ArrayBuffer(totalBytes);
 		const bufferView = new Uint8Array(buffer);
@@ -158,9 +193,9 @@ export class CryptoCodec {
 	}
 	/** @param {1 | 2 | 3} dataCode @param {Uint8Array} dataBytes @return {string | Uint8Array | Object} */
 	#bytesToData(dataCode, dataBytes) {
-		if (dataCode === 1) return Converter.bytesToString(dataBytes);
+		if (dataCode === 1) return this.converter.bytesToString(dataBytes);
 		if (dataCode === 2) return dataBytes;
-		if (dataCode === 3) return JSON.parse(Converter.bytesToString(dataBytes));
+		if (dataCode === 3) return JSON.parse(this.converter.bytesToString(dataBytes));
 		throw new Error(`Failed to parse data: unknown data code '${dataCode}'.`);
 	}
 	/** @param {Uint8Array} bufferView */
@@ -170,8 +205,8 @@ export class CryptoCodec {
 		const tBytes = bufferView.slice(2, 10);		// 8 bytes for timestamp
 		const lBytes = bufferView.slice(10, 14);	// 4 bytes for data length
 		const pubkey = bufferView.slice(14, 46);	// 32 bytes for pubkey
-		const timestamp = Converter.bytes8ToNumber(tBytes); 
-		const dataLength = Converter.bytes4ToNumber(lBytes);
+		const timestamp = this.converter.bytes8ToNumber(tBytes); 
+		const dataLength = this.converter.bytes4ToNumber(lBytes);
 		const data = bufferView.slice(46, 46 + dataLength); // read X bytes of data
 		return { marker, dataCode, timestamp, dataLength, pubkey, data };
 	}
@@ -220,7 +255,7 @@ export class CryptoCodec {
 		const route = [];
 		for (let i = 0; i < serialized.length / IDENTITY.ID_LENGTH; i++) {
 			const idBytes = serialized.slice(i * IDENTITY.ID_LENGTH, (i + 1) * IDENTITY.ID_LENGTH);
-			route.push(Converter.bytesToString(idBytes));
+			route.push(this.converter.bytesToString(idBytes));
 		}
 		return route;
 	}

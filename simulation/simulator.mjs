@@ -2,15 +2,17 @@ import path from 'path';
 import express from 'express';
 import { io } from 'socket.io-client'; // used for twitch events only
 import { WebSocketServer } from 'ws';
-import { SIMULATION, NODE, TRANSPORTS, IDENTITY } from '../core/global_parameters.mjs';
-import { TestWsServer, TestWsConnection, TestTransport } from '../simulation/test-transports.mjs';
-import { MessageQueue, Statician, TransmissionAnalyzer, SubscriptionsManager } from './simulator-utils.mjs';
+import { CLOCK, SIMULATION, NODE, TRANSPORTS, IDENTITY, DISCOVERY } from '../core/global_parameters.mjs';
+import { TestWsServer, TestWsConnection, TestTransport,
+	ICE_CANDIDATE_EMITTER, TEST_WS_EVENT_MANAGER, SANDBOX } from '../simulation/test-transports.mjs';
+//import { MessageQueue, Statician, TransmissionAnalyzer, SubscriptionsManager } from './simulator-utils.mjs';
 
 // SETUP SIMULATION ENV -----------------------------------------------\
+CLOCK.mockMode = SIMULATION.USE_TEST_TRANSPORTS; // to speed up simulation						|
 SIMULATION.AVOID_CRYPTO = true; // to speed up simulation				|
-IDENTITY.PUBLIC_PREFIX = 'P_'; //										|
-IDENTITY.STANDARD_PREFIX = 'N_'; //										|
-IDENTITY.FOLLOWER_PREFIX = 'F_'; //										|
+IDENTITY.PUBLIC_PREFIX = 'P_'; //	better readability					|
+IDENTITY.STANDARD_PREFIX = 'N_'; //	better readability					|
+IDENTITY.FOLLOWER_PREFIX = 'F_'; //	better readability					|
 if (SIMULATION.USE_TEST_TRANSPORTS) {//									|
 	TRANSPORTS.WS_SERVER = TestWsServer; // default: WebSocketServer	|
 	TRANSPORTS.WS_CLIENT = TestWsConnection; // default: WebSocket		|
@@ -19,6 +21,7 @@ if (SIMULATION.USE_TEST_TRANSPORTS) {//									|
 //---------------------------------------------------------------------/
 
 // IMPORT NODE AFTER SIMULATION ENV SETUP
+const { MessageQueue, Statician, TransmissionAnalyzer, SubscriptionsManager } = await import('./simulator-utils.mjs');
 const { CryptoIdCard, CryptoCodec } = await import('../core/crypto-codec.mjs');
 const { NodeP2P } = await import('../core/node.mjs'); // dynamic import to allow simulation overrides
 // TO ACCESS THE VISUALIZER GO TO: http://localhost:3000 ------\
@@ -29,15 +32,15 @@ const { NodeP2P } = await import('../core/node.mjs'); // dynamic import to allow
 // CYAN: 	  CURRENT PEER UNICAST STATS					   |
 //-------------------------------------------------------------/
 
-/** @type {TwitchChatCommandInterpreter} */ let commandInterpreter = null; // initialized at the end of the file.
+/** @type {TwitchChatCommandInterpreter} */
+let commandInterpreter = null; // initialized at the end of the file.
 let initInterval = null;
 const sVARS = { // SIMULATION VARIABLES
 	publicInit: 0,
 	nextPeerToInit: 0,
 	publicPeersCards: [],
-	startTime: Date.now(),
+	startTime: CLOCK.time,
 };
-
 const peers = {
 	/** @type {Record<string, import('../core/node.mjs').NodeP2P>} */
 	all: {},
@@ -45,6 +48,48 @@ const peers = {
 	public: [],
 	/** @type {Array<import('../core/node.mjs').NodeP2P>} */
 	standard: [],
+}
+async function intervalsLoop(loopDelay = 8) { // OPTIMIZATION, SORRY FOR COMPLEXITY
+	let wsEventManager = 0; 		// SANDBOX / TRANSPORTS
+	let iceCandidateEmitter = 0; 	// SANDBOX / TRANSPORTS
+	const beforeWsEventManagerTick = Math.round(480 / loopDelay); // 480 ms / 8ms = 60
+	const beforeIceCandidateEmitterTick = Math.round(520 / loopDelay); // 520 ms / 8ms = 65
+	const networkEnhancerTickLastTime = {}; // key: peerId, value: lastTime
+	const peerStoreTickLastTime = {}; // key: peerId, value: lastTime
+
+	while(true) {
+		if (!SIMULATION.AVOID_INTERVALS) return; // not enabled
+		const n = CLOCK.time;
+		for (const peer of Object.values(peers.all)) {
+			if (!peer.started) continue; // not started yet
+			if ((networkEnhancerTickLastTime[peer.id] || 0) + DISCOVERY.LOOP_DELAY < n) {
+				peer.networkEnhancer.autoEnhancementTick();
+				networkEnhancerTickLastTime[peer.id] = n;
+			}
+
+			if ((peerStoreTickLastTime[peer.id] || 0) + 802 < n) {
+				peer.peerStore.cleanupExpired();
+				peer.peerStore.sdpOfferManager.tick();
+				peerStoreTickLastTime[peer.id] = n;
+			}
+		}
+
+		if (wsEventManager-- <= 0) { // TEST WS EVENT MANAGER TICK
+			wsEventManager = beforeWsEventManagerTick;
+			TEST_WS_EVENT_MANAGER.initTick();
+			TEST_WS_EVENT_MANAGER.closeTick();
+			TEST_WS_EVENT_MANAGER.cleanerTick();
+			TEST_WS_EVENT_MANAGER.errorTick();
+		}
+		if (iceCandidateEmitter-- <= 0) { // ICE CANDIDATE EMITTER TICK
+			iceCandidateEmitter = beforeIceCandidateEmitterTick;
+			ICE_CANDIDATE_EMITTER.tick();
+		}
+		
+		await SANDBOX.processMessageQueue(); // MESSAGE QUEUE PROCESS TICK
+		const elapsed = CLOCK.time - n;
+		await new Promise(resolve => setTimeout(resolve, Math.max(loopDelay - elapsed, 0)));
+	}
 }
 async function destroyAllExistingPeers(pauseDuration = 2000) {
 	let totalDestroyed = 0;
@@ -138,8 +183,9 @@ async function randomMessagesLoop(type = 'U', mgPerPeerPerSecond = SIMULATION.RA
 };
 
 // INIT SIMULATION
+intervalsLoop(); // start intervals loop
 const statician = new Statician(sVARS, peers);
-const transmissionAnalyzer = new TransmissionAnalyzer(peers, NODE.DEFAULT_VERBOSE);
+const transmissionAnalyzer = new TransmissionAnalyzer(sVARS, peers, NODE.DEFAULT_VERBOSE);
 if (SIMULATION.AUTO_START) initPeers();
 if (SIMULATION.RANDOM_UNICAST_PER_SEC) randomMessagesLoop('U', SIMULATION.RANDOM_UNICAST_PER_SEC);
 if (SIMULATION.RANDOM_GOSSIP_PER_SEC) randomMessagesLoop('G', SIMULATION.RANDOM_GOSSIP_PER_SEC);
@@ -159,7 +205,7 @@ let clientWs;
 const send = (msgObj, startTime) => { // Send message to visualizer (front)
 	if (!startTime) clientWs.send(JSON.stringify(msgObj));
 	else clientWs.send(JSON.stringify(msgObj), () => {
-		const tt = Date.now() - startTime;
+		const tt = CLOCK.time - startTime;
 		if (tt > minLogTime) console.log(`Message ${msgObj.type} sent (${tt}ms)`);
 	});
 }
@@ -167,7 +213,7 @@ const onMessage = async (data) => {
 	if (!data) return;
 	switch (data.type) {
 		case 'start':
-			sVARS.startTime = Date.now();
+			sVARS.startTime = CLOCK.time;
 			SIMULATION.PUBLIC_PEERS_COUNT = data.settings.publicPeersCount || SIMULATION.PUBLIC_PEERS_COUNT;
 			SIMULATION.PEERS_COUNT = data.settings.peersCount || SIMULATION.PEERS_COUNT;
 			await initPeers();

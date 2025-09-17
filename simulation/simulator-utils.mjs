@@ -1,4 +1,4 @@
-import { SIMULATION, NODE, UNICAST, GOSSIP, IDENTITY } from '../core/global_parameters.mjs';
+import { CLOCK, SIMULATION, NODE, UNICAST, GOSSIP, IDENTITY } from '../core/global_parameters.mjs';
 
 export class MessageQueue {
 	/** @type {Record<string, any>} */
@@ -30,14 +30,17 @@ export class Statician { // DO NOT ADD VARIABLES, JUST COUNTERS !!
 		const verbose = NODE.DEFAULT_VERBOSE;
 		setInterval(() => {
 			const nextPeerToInit = sVARS.nextPeerToInit > 0 ? sVARS.nextPeerToInit - 1 : 0;
-			const nonPublicNodes = Object.values(peers.all).filter(p => !p.publicUrl);
-			let peersWithNoWrtcConnCount = nonPublicNodes.length;
-			for (const p of nonPublicNodes)
+			let establishedWrtcConnCount = 0;
+			let wrtcToEstablishCount = 0;
+			for (const [peerId, p] of Object.entries(peers.all)) {
+				if (peerId.startsWith(IDENTITY.PUBLIC_PREFIX)) continue;
+				if (p.started) wrtcToEstablishCount++;
 				for (const id of Object.keys(p.peerStore.connected))
 					if (id.startsWith(IDENTITY.PUBLIC_PREFIX)) continue;
-					else { peersWithNoWrtcConnCount--; break; }
+					else { establishedWrtcConnCount++; break; }
+			}
 
-			if (verbose) console.info(`%c${Math.floor((Date.now() - sVARS.startTime) / 1000)} sec elapsed | Active nodes: ${sVARS.publicInit + nextPeerToInit}/${Object.keys(peers.all).length} (${peersWithNoWrtcConnCount} without WebRTC) | STATS/sec: ${this.#getSimulationStatsPerSecond(delay)}`, 'color: yellow;');
+			if (verbose) console.info(`%c${Math.floor((CLOCK.time - sVARS.startTime) / 1000)} sec elapsed | Active nodes: ${sVARS.publicInit + nextPeerToInit}/${Object.keys(peers.all).length} (${establishedWrtcConnCount}/${wrtcToEstablishCount} established WebRTC) | STATS/sec: ${this.#getSimulationStatsPerSecond(delay)}`, 'color: yellow;');
 			for (const key in this) this[key] = 0;
 		}, delay);
 	}
@@ -50,6 +53,7 @@ export class Statician { // DO NOT ADD VARIABLES, JUST COUNTERS !!
 }
 export class TransmissionAnalyzer {
 	verbose;
+	sVARS;
 	peers;
 	gossip = {
 		/** @type {Record<string, number>} key: peerId, value: timestamp */
@@ -60,7 +64,8 @@ export class TransmissionAnalyzer {
 	}
 
 	/** @param {Record<string, Record<string, import('../core/node.mjs').NodeP2P>>} peers @param {number} verbose @param {number} [delay] default: 10 seconds */
-	constructor(peers, verbose, delay = SIMULATION.DIFFUSION_TEST_DELAY) {
+	constructor(sVARS, peers, verbose, delay = SIMULATION.DIFFUSION_TEST_DELAY) {
+		this.sVARS = sVARS;
 		this.peers = peers;
 		this.verbose = verbose;
 		setInterval(() => {
@@ -76,28 +81,32 @@ export class TransmissionAnalyzer {
 		if (!this.gossip.sendAt) return null;
 		const timestamps = Object.values(this.gossip.receivedBy);
 		const latencies = timestamps.map(t => t - this.gossip.sendAt);
+		const initializedPeersCount = this.sVARS.publicInit + this.sVARS.nextPeerToInit;
 		const stats = {
-			received: `${Object.keys(this.gossip.receivedBy).length}/${Object.keys(this.peers.all).length - 1}`,
+			received: `${Object.keys(this.gossip.receivedBy).length}/${initializedPeersCount - 1}`,
 			averageLatency: latencies.length === 0 ? 0 : Math.round(latencies.reduce((a, b) => a + b, 0) / latencies.length)
 		};
 		if (formating) return statsFormating(stats);
 		return stats;
 	}
-	#sendDiffusionTestMessage() {
+	#sendDiffusionTestMessage() { // Better to chose a connected peer ;)
 		const peersIds = Object.keys(this.peers.all);
 		if (peersIds.length === 0) return;
-		const randomPeerId = peersIds[Math.floor(Math.random() * peersIds.length)];
-		this.gossip.nonce = Math.floor(Math.random() * 1000000).toString(16).padStart(6, '0');
-		const peer = this.peers.all[randomPeerId];
-		this.gossip.sendAt = Date.now();
-		peer.gossip.broadcastToAll(this.gossip.nonce, 'diffusion_test', SIMULATION.DIFFUSION_TEST_HOPS);
+		for (let i = 0; i < 50; i++) { // try to find a connected peer
+			const randomPeerId = peersIds[Math.floor(Math.random() * peersIds.length)];
+			const peer = this.peers.all[randomPeerId];
+			if (!peer.started || peer.peerStore.neighbours.length === 0) continue;
+			this.gossip.nonce = Math.floor(Math.random() * 1000000).toString(16).padStart(6, '0');
+			this.gossip.sendAt = CLOCK.time;
+			peer.gossip.broadcastToAll(this.gossip.nonce, 'diffusion_test', SIMULATION.DIFFUSION_TEST_HOPS);
+		}
 	}
 	/** @param {string} receiverId @param {Uint8Array} serialized @param {number} HOPS @param {import('../core/gossip.mjs').GossipMessage} message @param {string} fromId */
 	analyze(receiverId, serialized, HOPS, message, fromId) {
 		if (this.gossip.sendAt === 0) return; // we have not sent yet
 		if (message.data !== this.gossip.nonce) return; // not our test message
 		if (!this.gossip.sendAt) return; // we are not the sender
-		if (!this.gossip.receivedBy[receiverId]) this.gossip.receivedBy[receiverId] = Date.now();
+		if (!this.gossip.receivedBy[receiverId]) this.gossip.receivedBy[receiverId] = CLOCK.time;
 	}
 }
 

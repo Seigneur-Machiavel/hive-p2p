@@ -1,16 +1,12 @@
-import { SIMULATION } from '../core/global_parameters.mjs';
+import { SIMULATION, NODE } from '../core/global_parameters.mjs';
 import { Sandbox, ICECandidateEmitter } from './tranports-sandbox.mjs';
 
 class TestWsEventManager { // manage init() and close() to avoid timeout usage
 	/** @type {Array<{ connId: string, clientWsId: string, time: number }> } */ toInit = [];
 	/** @type {Array<{ remoteWsId: string, time: number }> } */ toClose = [];
+	/** @type {Array<{ wsId: string, error: Error, time: number }> } */ toError = [];
 
-	interval = setInterval(() => {
-		this.#initTick();
-		this.#closeTick();
-	}, 480);
-
-	#initTick() {
+	initTick() {
 		if (this.toInit.length <= 0) return;
 		const n = Date.now();
 		const toInit = this.toInit;
@@ -19,7 +15,7 @@ class TestWsEventManager { // manage init() and close() to avoid timeout usage
 			if (time > n) this.toInit.push({ connId, time }); // not yet
 			else this.#connectToWebSocketServer(connId);
 	}
-	#closeTick() {
+	closeTick() {
 		if (this.toClose.length <= 0) return;
 		const n = Date.now();
 		const toClose = this.toClose;
@@ -27,6 +23,20 @@ class TestWsEventManager { // manage init() and close() to avoid timeout usage
 		for (const { wsId, remoteWsId, time } of toClose)
 			if (time > n) this.toClose.push({ wsId, remoteWsId, time }); // not yet
 			else this.#disconnectWsInstances(wsId, remoteWsId);
+	}
+	cleanerTick() {
+		const n = Date.now();
+		for (const wsServer of Object.values(SANDBOX.publicWsServers))
+			for (const client of wsServer.clients) if (client.readyState === 3) wsServer.clients.delete(client);
+	}
+	errorTick() {
+		if (this.toError.length <= 0) return;
+		const n = Date.now();
+		const toError = this.toError;
+		this.toError = [];
+		for (const { wsId, error, time } of toError)
+			if (time > n) this.toError.push({ wsId, error, time }); // not yet
+			else SANDBOX.wsConnections[wsId]?.dispatchError(error);
 	}
 
 	#connectToWebSocketServer(connId) {
@@ -45,6 +55,7 @@ class TestWsEventManager { // manage init() and close() to avoid timeout usage
 	// API
 	scheduleInit(connId, delay = 500) { this.toInit.push({ connId, time: Date.now() + delay }); }
 	scheduleClose(wsId, remoteWsId, delay = 100) { this.toClose.push({ wsId, remoteWsId, time: Date.now() + delay }); }
+	scheduleError(wsId, error, delay = 100) { this.toError.push({ wsId, error, time: Date.now() + delay }); }
 }
 
 // // HERE WE ARE BASICALLY COPYING THE PRINCIPLE OF "WebSocket"
@@ -71,7 +82,8 @@ export class TestWsConnection { // WebSocket like
 		if (!this.readyState === 3 || this.remoteWsId) {
 			this.close(); // => ensure closure
 			console.error(`WebSocket instance already closed or connected: ${this.id}`);
-			setTimeout(() => this.#dispatchError(`Failed to connect to WebSocket server at ${this.url}`), 1_000);
+			//setTimeout(() => this.dispatchError(`Failed to connect to WebSocket server at ${this.url}`), 1_000);
+			TEST_WS_EVENT_MANAGER.scheduleError(this.id, `Failed to connect to WebSocket server at ${this.url}`, 1_000);
 			return;
 		}
 
@@ -98,7 +110,7 @@ export class TestWsConnection { // WebSocket like
 		}
 		SANDBOX.enqueueWsMessage(this.id, this.remoteWsId, message);
 	}
-	#dispatchError(error) {
+	dispatchError(error) {
 		this.callbacks.error.forEach(cb => cb(error));
 		if (this.onerror) this.onerror(error);
 	}
@@ -106,16 +118,12 @@ export class TestWsConnection { // WebSocket like
 export class TestWsServer { // WebSocket like
 	url;
 	clients = new Set();
-	maxClients = SIMULATION.MAX_WS_IN_CONNS || 20;
+	maxClients = NODE.SERVICE.MAX_WS_IN_CONNS || 20;
 	callbacks = {
 		connection: [],
 		close: [],
 		error: []
 	};
-	cleanerInterval = setInterval(() => {
-		for (const client of this.clients)
-			if (client.readyState === 3) this.clients.delete(client);
-	}, 1_970);
 
 	constructor(opts = { port, host: domain }) {
 		this.url = `ws://${opts.host}:${opts.port}`;

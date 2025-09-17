@@ -18,7 +18,7 @@ export class DirectMessage {
 	}
 	getSenderId() { return this.route[0]; }
 	getTargetId() { return this.route[this.route.length - 1]; }
-	extractTraveledRoute(selfId = 'toto') {
+	extractRouteInfo(selfId = 'toto') {
 		const route = this.newRoute || this.route;
 		const traveledRoute = [];
 		let selfPosition = -1;
@@ -109,8 +109,7 @@ export class UnicastMessager {
 		const message = this.cryptoCodec.readUnicastMessage(serialized);
 		if (!message) return; // invalid message
 
-		const route = message.newRoute || message.route;
-		const { traveledRoute, selfPosition, senderId, targetId, prevId, nextId } = message.extractTraveledRoute(this.id);
+		const { traveledRoute, selfPosition, senderId, targetId, prevId, nextId } = message.extractRouteInfo(this.id);
 		for (const cb of this.callbacks.message_handle || []) cb(); // Simulator counter
 
 		// RACE CONDITION CAN OCCUR IN SIMULATION !!

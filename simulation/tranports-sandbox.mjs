@@ -29,7 +29,7 @@ export class ICECandidateEmitter { // --- ICE SIMULATION ---
 	/** @param {Sandbox} sandbox */
 	constructor(sandbox) { this.sandbox = sandbox; }
 	
-	ICE_Interval = setInterval(() => {
+	tick() {
 		const n = Date.now();
 		this.#cleanupExpiredSignals(n); // CLEANUP FIRST
 
@@ -60,8 +60,7 @@ export class ICECandidateEmitter { // --- ICE SIMULATION ---
 			const { success, reason } = this.#digestSignal(signalData, receiverId);
 			if (!success) receiverInstance.dispatchError(reason || `Failed to digest signal for peer: ${this.id}`);
 		}
-	}, 490);
-
+	}
 	#cleanupExpiredSignals(n = Date.now()) { // AVOIDS MEMORY LEAK
 		for (const [transportId, offers] of Object.entries(this.PENDING_OFFERS))
 			for (const [signalId, signalData] of Object.entries(offers))
@@ -87,7 +86,7 @@ export class ICECandidateEmitter { // --- ICE SIMULATION ---
 				o: `- ${Math.random().toString(36).substring(2)} ${Math.floor(Math.random() * 1000000)} 2 IN IP4 127.0.0.1\r\n`,
 				s: '-',
 				t: '0 0',
-				a: ['group:BUNDLE 0','msid-semantic: WMS','ice-ufrag:Cvvt','ice-pwd:6jB1TY+roP0E44NQEavy9shl','ice-options:trickle','fingerprint:sha-256 FF:16:35:3A:3D:C2:5C:CD:A5:5D:21:B3:4E:31:3F:0B:5B:0B:3C:15:5B:59:A8:2C:A0:34:4E:8C:81:48:75:7D','setup:actpass','mid:0','sctp-port:5000','max-message-size:262144']
+				a: ['group:BUNDLE...']
 			}
 		}
 
@@ -236,18 +235,27 @@ export class Sandbox {
 	}
 
 	// --- MESSAGE QUEUE TO SIMULATE ASYNC BEHAVIOR ---
-	messageQueue = [];
-	queueIndex = 0;
-	queueInterval = 100; // 10Hz ~average ping
-	batchSize = 5_000; // total: 5_000 x 10 = 50_000msg/sec (max: 100_000msg/sec)
-	queueProcessor = setInterval(() => this.#processMessageQueue(), this.queueInterval);
+	//messageQueue = [];
+	//queueIndex = 0;
+	//queueInterval = 8; // 125Hz ~average ping
+ 	batchSize = 2_500; // total: 2_500 x 125 = 312_500msg/sec (max: 1_562_500msg/sec)
 
-	#processMessageQueue() {
+	messageQueue = new Array(100_000); // buffer fixe
+	queueStart = 0;
+	queueEnd = 0;
+	queueCount = 0;
+	processMessageQueueSync() {
 		const queueLength = this.messageQueue.length;
         if (queueLength === 0) return;
 
-		const effectiveBatchSize = Math.round(queueLength > this.batchSize * 3 ? this.batchSize * 1.5 : this.batchSize);
-        const endIndex = Math.min(this.queueIndex + effectiveBatchSize, queueLength);
+		let effectiveBatchSize = this.batchSize;
+		if (queueLength > this.batchSize * 3) effectiveBatchSize = this.batchSize * 1.5;
+		if (queueLength > this.batchSize * 5) effectiveBatchSize = this.batchSize * 2;
+		if (queueLength > this.batchSize * 10) effectiveBatchSize = this.batchSize * 3;
+		if (queueLength > this.batchSize * 20) effectiveBatchSize = this.batchSize * 5;
+        effectiveBatchSize = Math.round(effectiveBatchSize);
+		
+		const endIndex = Math.min(this.queueIndex + effectiveBatchSize, queueLength);
         for (let index = this.queueIndex; index < endIndex; index++) {
 			const [type, id, remoteId, data] = this.messageQueue[index];
 			if (type === 'transport_data') this.#processInstanceMessage(id, remoteId, data);
@@ -256,14 +264,35 @@ export class Sandbox {
         this.queueIndex = endIndex;
         
         if (this.queueIndex < 5000) return; // Periodic cleanup, avoid memory leaks
-		const overFilled = this.messageQueue.length > 25000;
+		const overFilled = this.messageQueue.length > 50_000;
 		if (overFilled) console.warn(`[SANDBOX] Message queue is very long: ${this.messageQueue.length} messages pending.`);
-        
 		if (overFilled) this.queueIndex += this.batchSize; // skip some messages
-		this.messageQueue = this.messageQueue.slice(this.queueIndex);
-        this.queueIndex = 0;
+		//this.messageQueue = this.messageQueue.slice(this.queueIndex);
+        //this.queueIndex = 0;
+		if (this.queueIndex > 5_000) {
+			this.messageQueue.splice(0, this.queueIndex);
+			this.queueIndex = 0;
+		}
     }
-
+	async processMessageQueue() {
+		if (this.queueCount === 0) return;
+		
+		let effectiveBatchSize = this.batchSize;
+		if (this.queueCount > this.batchSize * 3) effectiveBatchSize = this.batchSize * 1.5;
+		if (this.queueCount > this.batchSize * 5) effectiveBatchSize = this.batchSize * 2;
+		if (this.queueCount > this.batchSize * 10) effectiveBatchSize = this.batchSize * 3;
+		if (this.queueCount > this.batchSize * 20) effectiveBatchSize = this.batchSize * 5;
+		const toProcess = Math.min(effectiveBatchSize, this.queueCount);
+		for (let i = 0; i < toProcess; i++) {
+			const message = this.messageQueue[this.queueStart];
+			this.queueStart = (this.queueStart + 1) % this.messageQueue.length;
+			const [type, id, remoteId, data] = message;
+			if (type === 'transport_data') this.#processInstanceMessage(id, remoteId, data);
+            else if (type === 'ws_message') this.#processWsMessage(id, remoteId, data);
+		}
+		await new Promise(resolve => setTimeout(resolve, 0));
+		this.queueCount -= toProcess;
+	}
 	#processInstanceMessage(id, remoteId, data) {
 		const [senderInstance, remoteInstance] = [this.transportInstances[id], this.transportInstances[remoteId]];
 		if (!senderInstance || !remoteInstance || senderInstance.destroying || remoteInstance.destroying) {
@@ -289,6 +318,26 @@ export class Sandbox {
 	}
 
 	// MESSAGE QUEUE API
-	enqueueTransportData(id, remoteId, data) { this.messageQueue.push(['transport_data', id, remoteId, data]); }
-	enqueueWsMessage(id, remoteWsId, message) { this.messageQueue.push(['ws_message', id, remoteWsId, message]); }
+	//enqueueTransportData(id, remoteId, data) { this.messageQueue.push(['transport_data', id, remoteId, data]); }
+	//enqueueWsMessage(id, remoteWsId, message) { this.messageQueue.push(['ws_message', id, remoteWsId, message]); }
+	enqueueTransportData(id, remoteId, data) {
+		this.messageQueue[this.queueEnd] = ['transport_data', id, remoteId, data];
+		this.queueEnd = (this.queueEnd + 1) % this.messageQueue.length;
+		this.queueCount++;
+		if (this.queueCount === this.messageQueue.length) {
+			console.error(`[SANDBOX] Message queue overflow, dropping oldest messages.`);
+			this.queueStart = (this.queueStart + this.batchSize) % this.messageQueue.length;
+			this.queueCount -= this.batchSize;
+		}
+	}
+	enqueueWsMessage(id, remoteWsId, message) {
+		this.messageQueue[this.queueEnd] = ['ws_message', id, remoteWsId, message];
+		this.queueEnd = (this.queueEnd + 1) % this.messageQueue.length;
+		this.queueCount++;
+		if (this.queueCount === this.messageQueue.length) {
+			console.error(`[SANDBOX] Message queue overflow, dropping oldest messages.`);
+			this.queueStart = (this.queueStart + this.batchSize) % this.messageQueue.length;
+			this.queueCount -= this.batchSize;
+		}
+	}
 }

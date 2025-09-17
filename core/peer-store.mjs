@@ -1,4 +1,4 @@
-import { SIMULATION, IDENTITY, DISCOVERY } from './global_parameters.mjs';
+import { CLOCK, SIMULATION, IDENTITY, DISCOVERY } from './global_parameters.mjs';
 import { PeerConnection, KnownPeer, SdpOfferManager, Punisher } from './peer-store-managers.mjs';
 const { SANDBOX, ICE_CANDIDATE_EMITTER, TEST_WS_EVENT_MANAGER } = SIMULATION.ENABLED ? await import('../simulation/test-transports.mjs') : {};
 
@@ -15,10 +15,6 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 
 	/** @type {Record<string, number>} key: peerId1:peerId2, value: expiration */
 	pendingLinks = {};
-	interval = setInterval(() => {
-		this.cleanupExpired();
-		this.sdpOfferManager.tick();
-	}, 802);
 
 	/** @type {Record<string, Function[]>} */ callbacks = {
 		'connect': [(peerId, direction) => this.#handleConnect(peerId, direction)],
@@ -68,7 +64,7 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 		};
 	}
 
-		// PRIVATE METHODS
+	// PRIVATE METHODS
 	/** @param {string} peerId @param {'in' | 'out'} direction */
 	#handleConnect(peerId, direction) { // First callback assigned in constructor
 		if (!this.connecting[peerId]?.[direction]) return this.verbose > 3 ? console.info(`%cPeer with ID ${peerId} is not connecting.`, 'color: orange;') : null;
@@ -95,11 +91,13 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 		this.connected[peerId] = peerConn;
 		this.neighbours.push(peerId);
 		this.#linkPeers(this.id, peerId); // Add link in self store
+		//this.sdpOfferManager.isConnectedToAtLeastOnePeer = true; // flag for offer creation
 		if (this.verbose > (peerId.startsWith(IDENTITY.PUBLIC_PREFIX) ? 3 : 2)) console.log(`(${this.id}) ${direction === 'in' ? 'Incoming' : 'Outgoing'} ${peerConn.isWebSocket ? 'WebSocket' : 'WRTC'} connection established with peer ${peerId}`);
 	}
 	#handleDisconnect(peerId, direction) { // First callback assigned in constructor
 		this.#removePeer(peerId, 'connected', direction);
 		this.unlinkPeers(this.id, peerId); // Remove link in self known store
+		//if (!this.neighbours.length) this.sdpOfferManager.isConnectedToAtLeastOnePeer = false; // flag for offer creation
 	}
 	/** @param {string} remoteId @param {'connected' | 'connecting' | 'both'} [status] default: both @param {'in' | 'out' | 'both'} [direction] default: both */
 	#removePeer(remoteId, status = 'both', direction = 'both') {
@@ -130,7 +128,7 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 		this.known[peerId2].setNeighbour(peerId1);
 	}
 	cleanupExpired(andUpdateKnownBasedOnNeighbours = true) { // Clean up expired pending connections and pending links
-		const now = Date.now();
+		const now = CLOCK.time;
 		for (const [peerId, peerConns] of Object.entries(this.connecting))
 			for (const dir of ['in', 'out']) {
 				if (peerConns[dir]?.pendingUntil > now) continue;
@@ -172,12 +170,12 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 		else this.connecting[remoteId] = { [direction]: peerConnection };
 		return true;
 	}
-	/** @param {string} remoteId @param {{type: 'offer' | 'answer', sdp: Record<string, string>}} signal @param {string} [offerHash] answer only */
-	assignSignal(remoteId, signal, offerHash) {
+	/** @param {string} remoteId @param {{type: 'offer' | 'answer', sdp: Record<string, string>}} signal @param {string} [offerHash] answer only @param {number} timestamp Answer reception timestamp */
+	assignSignal(remoteId, signal, offerHash, timestamp) {
 		const peerConn = this.connecting[remoteId]?.[signal.type === 'offer' ? 'in' : 'out'];
 		try {
 			if (peerConn?.isWebSocket) throw new Error(`Cannot assign signal for ID ${remoteId}. (WebSocket)`);
-			if (signal.type === 'answer') this.sdpOfferManager.addSignalAnswer(remoteId, signal, offerHash);
+			if (signal.type === 'answer') this.sdpOfferManager.addSignalAnswer(remoteId, signal, offerHash, timestamp);
 			else peerConn.transportInstance.signal(signal);
 		} catch (error) { console.error(`Error signaling ${signal?.type} for ${remoteId}:`, error.stack); }
 	}
@@ -188,7 +186,7 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 		const key1 = `${peerId1}:${peerId2}`;
 		const key2 = `${peerId2}:${peerId1}`;
 		const pendingLinkExpiration = this.pendingLinks[key1] || this.pendingLinks[key2];
-		if (!pendingLinkExpiration) this.pendingLinks[key1] = Date.now() + timeout;
+		if (!pendingLinkExpiration) this.pendingLinks[key1] = CLOCK.time + timeout;
 		else { // only one pendingLinks exist, by deleting both we ensure deletion
 			delete this.pendingLinks[key1];
 			delete this.pendingLinks[key2];
@@ -216,7 +214,6 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 		for (const [peerId, conn] of Object.entries(this.connected)) { this.#removePeer(peerId); conn.close(); }
 		for (const [peerId, connObj] of Object.entries(this.connecting)) { this.#removePeer(peerId); connObj['in']?.close(); connObj['out']?.close(); }
 		this.sdpOfferManager.destroy();
-		clearInterval(this.interval);
 	}
 
 	// PUNISHER API
