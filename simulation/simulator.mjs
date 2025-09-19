@@ -35,6 +35,7 @@ const { NodeP2P } = await import('../core/node.mjs'); // dynamic import to allow
 /** @type {TwitchChatCommandInterpreter} */
 let commandInterpreter = null; // initialized at the end of the file.
 let initInterval = null;
+let isRestarting = false;
 const sVARS = { // SIMULATION VARIABLES
 	publicInit: 0,
 	nextPeerToInit: 0,
@@ -57,9 +58,10 @@ async function intervalsLoop(loopDelay = 8) { // OPTIMIZATION, SORRY FOR COMPLEX
 	const networkEnhancerTickLastTime = {}; // key: peerId, value: lastTime
 	const peerStoreTickLastTime = {}; // key: peerId, value: lastTime
 
-	while(true) {
+	const tick = async (n) => {
+		if (isRestarting) return;
 		if (!SIMULATION.AVOID_INTERVALS) return; // not enabled
-		const n = CLOCK.time;
+		
 		for (const peer of Object.values(peers.all)) {
 			if (!peer.started) continue; // not started yet
 			if ((networkEnhancerTickLastTime[peer.id] || 0) + DISCOVERY.LOOP_DELAY < n) {
@@ -88,16 +90,22 @@ async function intervalsLoop(loopDelay = 8) { // OPTIMIZATION, SORRY FOR COMPLEX
 		
 		await SANDBOX.processMessageQueue(); // MESSAGE QUEUE PROCESS TICK
 		//SANDBOX.processMessageQueueSync(); // MESSAGE QUEUE PROCESS TICK
+	}
+	while(true) { // isRestarting
+		const n = CLOCK.time;
+		await tick(n);
 		const elapsed = CLOCK.time - n;
 		await new Promise(resolve => setTimeout(resolve, Math.max(loopDelay - elapsed, 0)));
 	}
 }
 async function destroyAllExistingPeers(pauseDuration = 2000) {
+	isRestarting = true;
 	let totalDestroyed = 0;
 	for (const peer of peers.public) { peer.destroy(); totalDestroyed ++; }
 	for (const peer of peers.standard) { peer.destroy(); totalDestroyed ++; }
 	if (totalDestroyed !== 0) await new Promise(resolve => setTimeout(resolve, pauseDuration)); // wait for destruction to complete
 	console.log(`%c| ° ${totalDestroyed} EXISTING PEERS DESTROYED ° |`, 'color: yellow; font-weight: bold;');
+	isRestarting = false;
 }
 function pickUpRandomBootstraps(count = SIMULATION.BOOTSTRAPS_PER_PEER) {
 	if (count === null) return sVARS.publicPeersCards; // all of them
