@@ -12,7 +12,9 @@ export class MessageQueue {
 	push(message) { this.messageQueuesByTypes[message.type] = message; }
 	async #start() { // Message processing loop
 		while (true) {
-			for (const message of Object.values(this.messageQueuesByTypes)) await this.onMessage(message);
+			const messagesList = Object.values(this.messageQueuesByTypes);
+			for (const message of messagesList) await this.onMessage(message);
+			this.messageQueuesByTypes = {};
 			await new Promise(resolve => setTimeout(resolve, 250)); // prevent blocking the event loop
 		}
 	}

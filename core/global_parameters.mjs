@@ -81,7 +81,7 @@ export const DISCOVERY = {
 
 export const UNICAST = { // MARKERS RANGE: 0-127
 	MAX_HOPS: 6,	// default: 6, light: 4, super-light: 2
-	MAX_NODES: 512, // default: 1728 (12³), light: 512 (8³), super-light: 144 (8²)
+	MAX_NODES: 144, // default: 1728 (12³), light: 512 (8³), super-light: 144 (8²)
 	MAX_ROUTES: 5, 	// default: 5, light: 3, super-light: 1
 	MARKERS_BYTES: { // MARKERS RANGE: 0-127
 		message: 0,
