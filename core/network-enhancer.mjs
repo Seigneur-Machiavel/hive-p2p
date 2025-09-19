@@ -164,7 +164,7 @@ export class NetworkEnhancer {
 		// ALREADY CONNECTED, SEND USING UNICAST TO THE BEST 10 CANDIDATES
 		let sentToCount = 0;
 		const sentTo = {};
-		const knowPeerIds = Object.keys(this.peerStore.known);
+		const knowPeerIds = Object.keys(this.peerStore.known).filter(id => id !== this.id && !this.peerStore.connected[id] && !this.peerStore.isKicked(id) && !id.startsWith(IDENTITY.PUBLIC_PREFIX));
 		for (let i = 0; i < Math.min(knowPeerIds.length, 50); i++) {
 			const randomIndex = Math.random() * knowPeerIds.length | 0;
 			const peerId = knowPeerIds[randomIndex];
@@ -174,7 +174,7 @@ export class NetworkEnhancer {
 			sentTo[peerId] = true;
 			if (sentToCount++ === 0) readyOffer.sentCounter++; // avoid sending it again
 			this.messager.sendUnicast(peerId, { signal: readyOffer.signal, neighbours: this.peerStore.neighbours, offerHash }, 'signal_offer', 1);
-			if (sentToCount >= 20) break; // limit to 40 unicast
+			if (sentToCount >= 10) break; // limit to 10 unicast
 		}
 	}
 	/** @param {string} senderId @param {SignalData} data */
@@ -212,7 +212,7 @@ export class NetworkEnhancer {
 		return Object.keys(sharedNeighbours).length;
 	}
 	#improveTopologyByKickingPeers() { // KICK THE PEER WITH THE BIGGEST OVERLAP
-		const connectedPeers = Object.entries(this.peerStore.connected);
+		const connectedPeers = Object.entries(this.peerStore.connected).filter(([id]) => !id.startsWith(IDENTITY.PUBLIC_PREFIX));
 		const peersWithOverlap = connectedPeers.map(([id, conn]) => [id, this.#getOverlap(id, this.id, true, 1)]);
 		const sortedPeers = peersWithOverlap.sort((a, b) => b[1] - a[1]);
 		this.peerStore.kickPeer(sortedPeers[0][0], 60_000);

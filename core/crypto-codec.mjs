@@ -11,7 +11,7 @@ function fakeKeygen(nodeId = 'toto') { // Fake keygen for simulation only, requi
 	const fakePrivateKey = new Uint8Array(32).fill(0);
 	const fakePublicKey = new Uint8Array(32).fill(0);
 	const id = nodeId.padEnd(IDENTITY.ID_LENGTH, ' ').slice(0, IDENTITY.ID_LENGTH);
-	const idBytes = Converter.stringToBytes(id); // use nodeId to create a fake public key
+	const idBytes = new TextEncoder().encode(id); // use nodeId to create a fake public key
 	for (let i = 0; i < IDENTITY.ID_LENGTH; i++) fakePublicKey[i] = idBytes[i];
 	return { secretKey: fakePrivateKey, publicKey: fakePublicKey };
 }
@@ -30,8 +30,6 @@ export class CryptoIdCard {
     sign(message) { return sign(message, this.privateKey); }
     //verifySignature(signature, message) { return verify(signature, message, this.publicKey); }
 	
-	/** @param {Uint8Array} publicKey */
-    static idFromPublicKey(publicKey) { return Converter.bytesToString(publicKey.slice(0, IDENTITY.ID_LENGTH)); }
 	/** @param {Uint8Array} signature @param {Uint8Array} message @param {Uint8Array} publicKey */
 	static verifySignature(signature, message, publicKey) { return verify(signature, message, publicKey); }
     static generate(nodeId = 'toto') { // Generate Ed25519 keypair cross-platform | set id only for simulator
@@ -42,71 +40,45 @@ export class CryptoIdCard {
 		}
 
 		const { secretKey, publicKey } = keygen();
-		const id = CryptoIdCard.idFromPublicKey(publicKey);
+		const id = new CryptoCodec().idFromPublicKey(publicKey);
         return new CryptoIdCard(id, publicKey, secretKey);
     }
 }
 
 class Converter {
-	/** Number should be between 0 and 4294967295 @param {number} num - Integer to convert to 4 bytes Uint8Array */
-    static numberTo4Bytes(num) { const buffer = new ArrayBuffer(4); new DataView(buffer).setUint32(0, num, true); return new Uint8Array(buffer); }
-	/** Number should be between 0 and 18446744073709551615 @param {number} num - Integer to convert to 8 bytes Uint8Array */
-	static numberTo8Bytes(num) { const buffer = new ArrayBuffer(8); new DataView(buffer).setBigUint64(0, BigInt(num), true); return new Uint8Array(buffer); }
-	static stringToBytes(str = 'toto') { return new TextEncoder().encode(str); }
-	/** @param {Uint8Array} uint8Array - Uint8Array to convert to number */
-    static bytes4ToNumber(uint8Array) { return new DataView(uint8Array.buffer, uint8Array.byteOffset, 4).getUint32(0, true); }
-    /** @param {Uint8Array} uint8Array - Uint8Array to convert to number */
-    static bytes8ToNumber(uint8Array) { return Number(new DataView(uint8Array.buffer, uint8Array.byteOffset, 8).getBigUint64(0, true)); }
-	/** @param {Uint8Array} uint8Array - Uint8Array to convert to string */
-	static bytesToString(uint8Array) { return new TextDecoder().decode(uint8Array); }
-}
-class ConverterFast {
-	buffer4 = new ArrayBuffer(4);
-	view4 = new DataView(this.buffer4);
-	buffer8 = new ArrayBuffer(8);
-	view8 = new DataView(this.buffer8);
+	textEncoder = new TextEncoder();
+	textDecoder = new TextDecoder();
+	buffer2 = new ArrayBuffer(2); view2 = new DataView(this.buffer2);
+	buffer4 = new ArrayBuffer(4); view4 = new DataView(this.buffer4);
+	buffer8 = new ArrayBuffer(8); view8 = new DataView(this.buffer8);
 
+	/** Number should be between 0 and 65535 @param {number} num - Integer to convert to 2 bytes Uint8Array */
+    numberTo2BytesUint8Array(num) { this.view2.setUint16(0, num, true); return new Uint8Array(this.buffer2); }
 	/** Number should be between 0 and 4294967295 @param {number} num - Integer to convert to 4 bytes Uint8Array */
-    numberTo4Bytes(num) {
-        this.view4.setUint32(0, num, true); // true for little-endian
-        return new Uint8Array(this.buffer4);
-    }
+    numberTo4Bytes(num) { this.view4.setUint32(0, num, true); return new Uint8Array(this.buffer4); }
 	/** Number should be between 0 and 18446744073709551615 @param {number} num - Integer to convert to 8 bytes Uint8Array */
-    numberTo8Bytes(num) {
-        const bigInt = BigInt(num);
-        this.view8.setBigUint64(0, bigInt, true);
-        return new Uint8Array(this.buffer8);
-    }
-	stringToBytes(str = 'toto') { return new TextEncoder().encode(str); }
+    numberTo8Bytes(num) { this.view8.setBigUint64(0, BigInt(num), true); return new Uint8Array(this.buffer8); }
+	stringToBytes(str = 'toto') { return this.textEncoder.encode(str); }
 	/** @param {Uint8Array} uint8Array - Uint8Array to convert to number */
-    bytes4ToNumber(uint8Array) {
-        this.view4.setUint8(0, uint8Array[0]);
-        this.view4.setUint8(1, uint8Array[1]);
-        this.view4.setUint8(2, uint8Array[2]);
-        this.view4.setUint8(3, uint8Array[3]);
-        return this.view4.getUint32(0, true);
-    }
+    bytes4ToNumber(uint8Array) { for (let i = 0; i < 4; i++) this.view4.setUint8(i, uint8Array[i]); return this.view4.getUint32(0, true); }
     /** @param {Uint8Array} uint8Array - Uint8Array to convert to number */
-    bytes8ToNumber(uint8Array) {
-        for (let i = 0; i < 8; i++) { this.view8.setUint8(i, uint8Array[i]); }
-        return Number(this.view8.getBigUint64(0, true));
-    }
+    bytes8ToNumber(uint8Array) { for (let i = 0; i < 8; i++) this.view8.setUint8(i, uint8Array[i]); return Number(this.view8.getBigUint64(0, true)); }
 	/** @param {Uint8Array} uint8Array - Uint8Array to convert to string */
-	bytesToString(uint8Array) { return new TextDecoder().decode(uint8Array); }
+	bytesToString(uint8Array) { return this.textDecoder.decode(uint8Array); }
 }
 export class CryptoCodec {
-	converter = new ConverterFast(); // or slower: Converter;
+	converter = new Converter();
 	verbose = NODE.DEFAULT_VERBOSE;
 	idCard;
 
 	/** @param {CryptoIdCard} [idCard] */
 	constructor(idCard) { this.idCard = idCard; }
 
+	/** @param {Uint8Array} publicKey */
+    idFromPublicKey(publicKey) { return this.converter.bytesToString(publicKey.slice(0, IDENTITY.ID_LENGTH)); }
 	signBufferViewAndAppendSignature(bufferView, privateKey, signaturePosition = bufferView.length - IDENTITY.SIGNATURE_LENGTH) {
-		if (SIMULATION.AVOID_CRYPTO) return; // do nothing
 		const dataToSign = bufferView.subarray(0, signaturePosition);
-		const signature = sign(dataToSign, privateKey);
-		bufferView.set(signature, signaturePosition);
+		bufferView.set(sign(dataToSign, privateKey), signaturePosition);
 	}
 	/** @param {string | Uint8Array | Object} data */
 	#dataToBytes(data) { // typeCodes: 1=string, 2=Uint8Array, 3=JSON
@@ -138,11 +110,10 @@ export class CryptoCodec {
 		const bufferView = new Uint8Array(buffer);
 		this.#setBufferHeader(bufferView, MARKER, dataCode, timestamp, dataBytes, publicKey);
 		bufferView.set(dataBytes, 46); 			// X bytes for data
-		// DONT SET HOPS BEFORE SIGNATURE 		=> will be changed on any relaying operation
-
-		this.signBufferViewAndAppendSignature(bufferView, privateKey, totalBytes - IDENTITY.SIGNATURE_LENGTH - 1);
 		bufferView.set([Math.min(255, HOPS)], totalBytes - 1); // 1 byte for HOPS (Unsigned)
-		if (this.verbose > 3) console.log('creaGossipMessage', bufferView);
+
+		if (SIMULATION.AVOID_CRYPTO) return bufferView;
+		this.signBufferViewAndAppendSignature(bufferView, privateKey, totalBytes - IDENTITY.SIGNATURE_LENGTH - 1);
 		return bufferView;
 	}
 	/** Decrement the HOPS value in a serialized gossip message @param {Uint8Array} serializedMessage */
@@ -171,8 +142,8 @@ export class CryptoCodec {
 		bufferView.set([route.length], 46 + dataBytes.length); // 1 byte for route length
 		bufferView.set(routeBytes, 46 + 1 + dataBytes.length); // X bytes for route
 
+		if (SIMULATION.AVOID_CRYPTO) return bufferView;
 		this.signBufferViewAndAppendSignature(bufferView, privateKey, totalBytes - IDENTITY.SIGNATURE_LENGTH);
-		if (this.verbose > 3) console.log('creaUnicastMessage', bufferView);
 		return bufferView;
 	}
 	/** @param {Uint8Array} serialized @param {string[]} newRoute */
@@ -188,6 +159,8 @@ export class CryptoCodec {
 		bufferView.set(serialized, 0); // original serialized message
 		bufferView.set(publicKey, serialized.length); // 32 bytes for new public key
 		for (let i = 0; i < routeBytesArray.length; i++) bufferView.set(routeBytesArray[i], serialized.length + 32 + (i * IDENTITY.ID_LENGTH)); // new route
+		
+		if (SIMULATION.AVOID_CRYPTO) return bufferView;
 		this.signBufferViewAndAppendSignature(bufferView, privateKey, totalBytes - IDENTITY.SIGNATURE_LENGTH);
 		return bufferView;
 	}
@@ -205,7 +178,7 @@ export class CryptoCodec {
 		const tBytes = bufferView.slice(2, 10);		// 8 bytes for timestamp
 		const lBytes = bufferView.slice(10, 14);	// 4 bytes for data length
 		const pubkey = bufferView.slice(14, 46);	// 32 bytes for pubkey
-		const timestamp = this.converter.bytes8ToNumber(tBytes); 
+		const timestamp = this.converter.bytes8ToNumber(tBytes);
 		const dataLength = this.converter.bytes4ToNumber(lBytes);
 		const data = bufferView.slice(46, 46 + dataLength); // read X bytes of data
 		return { marker, dataCode, timestamp, dataLength, pubkey, data };
@@ -214,13 +187,13 @@ export class CryptoCodec {
 	readGossipMessage(serialized) {
 		if (this.verbose > 3) console.log('readGossipMessage', serialized);
 		try { // 1, 1, 8, 4, 32, X, 64, 1
-			const { marker, dataCode, timestamp, dataLength, pubkey, data } = this.readBufferHeader(new Uint8Array(serialized));
+			const { marker, dataCode, timestamp, dataLength, pubkey, data } = this.readBufferHeader(serialized);
 			const topic = GOSSIP.MARKERS_BYTES[marker];
 			if (topic === undefined) throw new Error(`Failed to deserialize gossip message: unknown marker byte ${d[0]}.`);
 			const deserializedData = this.#bytesToData(dataCode, data);
 			const signature = serialized.slice(46 + dataLength, 46 + dataLength + IDENTITY.SIGNATURE_LENGTH);
 			const HOPS = serialized[serialized.length - 1];
-			const senderId = CryptoIdCard.idFromPublicKey(pubkey);
+			const senderId = this.idFromPublicKey(pubkey);
 			return new GossipMessage(topic, timestamp, HOPS, senderId, pubkey, deserializedData, signature);
 		} catch (error) { if (this.verbose > 1) console.warn(`Error deserializing ${topic || 'unknown'} gossip message:`, error.message); }
 		return null;
@@ -229,7 +202,7 @@ export class CryptoCodec {
 	readUnicastMessage(serialized) {
 		if (this.verbose > 3) console.log('readUnicastMessage', serialized);
 		try { // 1, 1, 8, 4, 32, X, 1, X, 64
-			const { marker, dataCode, timestamp, dataLength, pubkey, data } = this.readBufferHeader(new Uint8Array(serialized));
+			const { marker, dataCode, timestamp, dataLength, pubkey, data } = this.readBufferHeader(serialized);
 			const type = UNICAST.MARKERS_BYTES[marker];
 			if (type === undefined) throw new Error(`Failed to deserialize unicast message: unknown marker byte ${d[0]}.`);
 			const deserializedData = this.#bytesToData(dataCode, data);

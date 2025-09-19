@@ -23,12 +23,12 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 		'data': []
 	};
 
-	/** @param {string} selfId @param {import('./crypto-codec.mjs').CryptoCodec} cryptoCodec @param {number} [verbose] default: 0 */
-	constructor(selfId, cryptoCodec, verbose = 0) { // SETUP SDP_OFFER_MANAGER CALLBACKS
+	/** @param {string} selfId @param {import('./crypto-codec.mjs').CryptoCodec} cryptoCodec @param {Array<bootstrapInfo>} bootstraps @param {number} [verbose] default: 0 */
+	constructor(selfId, cryptoCodec, bootstraps, verbose = 0) { // SETUP SDP_OFFER_MANAGER CALLBACKS
 		this.cryptoCodec = cryptoCodec;
 		this.verbose = verbose;
 		this.id = selfId;
-		this.sdpOfferManager = new SdpOfferManager(selfId, verbose);
+		this.sdpOfferManager = new SdpOfferManager(selfId, bootstraps, verbose);
 
 		/** @param {string} remoteId @param {any} signalData @param {string} [offerHash] answer only */
 		this.sdpOfferManager.onSignalAnswer = (remoteId, signalData, offerHash) => { // answer only

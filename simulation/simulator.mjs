@@ -40,7 +40,7 @@ const sVARS = { // SIMULATION VARIABLES
 	publicInit: 0,
 	nextPeerToInit: 0,
 	publicPeersCards: [],
-	startTime: CLOCK.time,
+	startTime: Date.now()
 };
 const peers = {
 	/** @type {Record<string, import('../core/node.mjs').NodeP2P>} */
@@ -51,12 +51,13 @@ const peers = {
 	standard: [],
 }
 async function intervalsLoop(loopDelay = 8) { // OPTIMIZATION, SORRY FOR COMPLEXITY
-	let wsEventManager = 0; 		// SANDBOX / TRANSPORTS
-	let iceCandidateEmitter = 0; 	// SANDBOX / TRANSPORTS
+	let msgQueueCounter = 0; 		// SANDBOX / TRANSPORTS
+	let wsEventManagerCounter = 0; 		// SANDBOX / TRANSPORTS
+	let iceCandidateEmitterCounter = 0; 	// SANDBOX / TRANSPORTS
+	const beforeMsgQueueTick = Math.round(200 / loopDelay); // 200 ms / 8ms = 25
 	const beforeWsEventManagerTick = Math.round(480 / loopDelay); // 480 ms / 8ms = 60
 	const beforeIceCandidateEmitterTick = Math.round(520 / loopDelay); // 520 ms / 8ms = 65
-	const networkEnhancerTickLastTime = {}; // key: peerId, value: lastTime
-	const peerStoreTickLastTime = {}; // key: peerId, value: lastTime
+	const discoveryTickLastTime = {}; // key: peerId, value: lastTime
 
 	const tick = async (n) => {
 		if (isRestarting) return;
@@ -64,37 +65,37 @@ async function intervalsLoop(loopDelay = 8) { // OPTIMIZATION, SORRY FOR COMPLEX
 		
 		for (const peer of Object.values(peers.all)) {
 			if (!peer.started) continue; // not started yet
-			if ((networkEnhancerTickLastTime[peer.id] || 0) + DISCOVERY.LOOP_DELAY < n) {
+			if ((discoveryTickLastTime[peer.id] || 0) + DISCOVERY.LOOP_DELAY < n) {
 				peer.networkEnhancer.autoEnhancementTick();
-				networkEnhancerTickLastTime[peer.id] = n;
-			}
-
-			if ((peerStoreTickLastTime[peer.id] || 0) + 802 < n) {
+				discoveryTickLastTime[peer.id] = n;
 				peer.peerStore.cleanupExpired();
 				peer.peerStore.sdpOfferManager.tick();
-				peerStoreTickLastTime[peer.id] = n;
 			}
-		}
+		} if (isRestarting) return;
 
-		if (wsEventManager-- <= 0) { // TEST WS EVENT MANAGER TICK
-			wsEventManager = beforeWsEventManagerTick;
+		if (msgQueueCounter-- <= 0) {
+			msgQueueCounter = beforeMsgQueueTick;
+			await msgQueue.tick(); 			 	 // VISUALIZER MESSAGE QUEUE PROCESS TICK
+		} if (isRestarting) return;
+		if (wsEventManagerCounter-- <= 0) { // TEST WS EVENT MANAGER TICK
+			wsEventManagerCounter = beforeWsEventManagerTick;
 			TEST_WS_EVENT_MANAGER.initTick();
 			TEST_WS_EVENT_MANAGER.closeTick();
 			TEST_WS_EVENT_MANAGER.cleanerTick();
 			TEST_WS_EVENT_MANAGER.errorTick();
-		}
-		if (iceCandidateEmitter-- <= 0) { // ICE CANDIDATE EMITTER TICK
-			iceCandidateEmitter = beforeIceCandidateEmitterTick;
+		} if (isRestarting) return;
+		if (iceCandidateEmitterCounter-- <= 0) { // ICE CANDIDATE EMITTER TICK
+			iceCandidateEmitterCounter = beforeIceCandidateEmitterTick;
 			ICE_CANDIDATE_EMITTER.tick();
-		}
-		
+		} if (isRestarting) return;
+
 		await SANDBOX.processMessageQueue(); // MESSAGE QUEUE PROCESS TICK
 		//SANDBOX.processMessageQueueSync(); // MESSAGE QUEUE PROCESS TICK
 	}
 	while(true) { // isRestarting
-		const n = CLOCK.time;
+		const n = Date.now();
 		await tick(n);
-		const elapsed = CLOCK.time - n;
+		const elapsed = Date.now() - n;
 		await new Promise(resolve => setTimeout(resolve, Math.max(loopDelay - elapsed, 0)));
 	}
 }
@@ -126,7 +127,7 @@ function patchPeerHandlers(peer) {
 function addPeer(type, i = 0, bootstraps = [], init = false, setPublic = false) {
 	const selectedBootstraps = type === 'STANDARD_NODE' ? pickUpRandomBootstraps() : bootstraps;
 	const domain = setPublic ? 'localhost' : undefined;
-	const port = setPublic ? 8080 + i : undefined;
+	const port = setPublic ? 8080 + (i * 2) : undefined;
 	const idCard = CryptoIdCard.generate(`${type === 'STANDARD_NODE' ? IDENTITY.STANDARD_PREFIX : IDENTITY.PUBLIC_PREFIX}${i}`);
 	const peer = NodeP2P.createNode(selectedBootstraps, idCard, init, domain, port);
 	peers.all[peer.id] = peer;
@@ -144,7 +145,7 @@ async function initPeers() {
 	for (let i = 0; i < SIMULATION.PEERS_COUNT; i++) addPeer('STANDARD_NODE', i, sVARS.publicPeersCards, d === 0);
 
 	console.log(`%c| PEERS CREATED: { Public: ${peers.public.length}, Standard: ${peers.standard.length} } |`, 'color: yellow; font-weight: bold;');
-	if (d === 0) return; // already initialized
+	if (d === 0) return sVARS.nextPeerToInit = SIMULATION.PEERS_COUNT; // already initialized
 
 	sVARS.nextPeerToInit = 0;
 	initInterval = setInterval(() => { // ... Or successively
@@ -192,7 +193,6 @@ async function randomMessagesLoop(type = 'U', mgPerPeerPerSecond = SIMULATION.RA
 };
 
 // INIT SIMULATION
-intervalsLoop(); // start intervals loop
 const statician = new Statician(sVARS, peers);
 const transmissionAnalyzer = new TransmissionAnalyzer(sVARS, peers, NODE.DEFAULT_VERBOSE);
 if (SIMULATION.AUTO_START) initPeers();
@@ -214,7 +214,7 @@ let clientWs;
 const send = (msgObj, startTime) => { // Send message to visualizer (front)
 	if (!startTime) clientWs.send(JSON.stringify(msgObj));
 	else clientWs.send(JSON.stringify(msgObj), () => {
-		const tt = CLOCK.time - startTime;
+		const tt = Date.now() - startTime;
 		if (tt > minLogTime) console.log(`Message ${msgObj.type} sent (${tt}ms)`);
 	});
 }
@@ -222,7 +222,7 @@ const onMessage = async (data) => {
 	if (!data) return;
 	switch (data.type) {
 		case 'start':
-			sVARS.startTime = CLOCK.time;
+			sVARS.startTime = Date.now();
 			SIMULATION.PUBLIC_PEERS_COUNT = data.settings.publicPeersCount || SIMULATION.PUBLIC_PEERS_COUNT;
 			SIMULATION.PEERS_COUNT = data.settings.peersCount || SIMULATION.PEERS_COUNT;
 			await initPeers();
@@ -249,6 +249,7 @@ const onMessage = async (data) => {
 }
 const msgQueue = new MessageQueue(onMessage);
 const sManager = new SubscriptionsManager(send, peers, new CryptoCodec(), NODE.DEFAULT_VERBOSE);
+intervalsLoop(); // start intervals loop
 const wss = new WebSocketServer({ server });
 wss.on('connection', (ws) => {
 	if (clientWs) clientWs.close();

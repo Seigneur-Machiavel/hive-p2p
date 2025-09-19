@@ -26,7 +26,7 @@ export class Clock {
 	get time() { 
 		if (this.mockMode) return Date.now();
 		if (this.#offset === null) return null; 
-		return Date.now() + this.#offset; 
+		return Date.now() + Math.round(this.#offset); 
 	}
 	async sync(verbose) { // Force synchronization - returns promise with synchronized time
 		if (verbose !== undefined) this.verbose = verbose;

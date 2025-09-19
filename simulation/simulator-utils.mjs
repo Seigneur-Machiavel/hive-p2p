@@ -1,4 +1,4 @@
-import { CLOCK, SIMULATION, NODE, UNICAST, GOSSIP, IDENTITY } from '../core/global_parameters.mjs';
+import { SIMULATION, NODE, UNICAST, GOSSIP, IDENTITY } from '../core/global_parameters.mjs';
 
 export class MessageQueue {
 	/** @type {Record<string, any>} */
@@ -6,17 +6,14 @@ export class MessageQueue {
 	onMessage;
 
 	/** @param {Function} onMessage */
-	constructor(onMessage) { this.onMessage = onMessage; this.#start(); }
+	constructor(onMessage) { this.onMessage = onMessage; }
 
 	// replace any existing message of the same type
 	push(message) { this.messageQueuesByTypes[message.type] = message; }
-	async #start() { // Message processing loop
-		while (true) {
-			const messagesList = Object.values(this.messageQueuesByTypes);
-			for (const message of messagesList) await this.onMessage(message);
-			this.messageQueuesByTypes = {};
-			await new Promise(resolve => setTimeout(resolve, 250)); // prevent blocking the event loop
-		}
+	async tick() { // Message processing loop
+		const messagesList = Object.values(this.messageQueuesByTypes);
+		this.messageQueuesByTypes = {};
+		for (const message of messagesList) await this.onMessage(message);
 	}
 }
 
@@ -31,7 +28,7 @@ export class Statician { // DO NOT ADD VARIABLES, JUST COUNTERS !!
 	constructor(sVARS, peers, delay = 10_000) {
 		const verbose = NODE.DEFAULT_VERBOSE;
 		setInterval(() => {
-			const nextPeerToInit = sVARS.nextPeerToInit > 0 ? sVARS.nextPeerToInit - 1 : 0;
+			const nextPeerToInit = sVARS.nextPeerToInit > 0 ? sVARS.nextPeerToInit : 0;
 			let establishedWrtcConnCount = 0;
 			let wrtcToEstablishCount = 0;
 			for (const [peerId, p] of Object.entries(peers.all)) {
@@ -42,7 +39,7 @@ export class Statician { // DO NOT ADD VARIABLES, JUST COUNTERS !!
 					else { establishedWrtcConnCount++; break; }
 			}
 
-			if (verbose) console.info(`%c${Math.floor((CLOCK.time - sVARS.startTime) / 1000)} sec elapsed | Active nodes: ${sVARS.publicInit + nextPeerToInit}/${Object.keys(peers.all).length} (${establishedWrtcConnCount}/${wrtcToEstablishCount} established WebRTC) | STATS/sec: ${this.#getSimulationStatsPerSecond(delay)}`, 'color: yellow;');
+			if (verbose) console.info(`%c${Math.floor((Date.now() - sVARS.startTime) / 1000)}sec elapsed | Active: ${nextPeerToInit}/${Object.keys(peers.all).length} (${establishedWrtcConnCount}/${wrtcToEstablishCount} established WebRTC) | STATS/sec: ${this.#getSimulationStatsPerSecond(delay)}`, 'color: yellow;');
 			for (const key in this) this[key] = 0;
 		}, delay);
 	}
@@ -72,7 +69,7 @@ export class TransmissionAnalyzer {
 		this.verbose = verbose;
 		setInterval(() => {
 			const stats = this.#getTransmissionStats();
-			if (stats && this.verbose) console.info(`%cDiffusion Test | Stats: ${JSON.stringify(stats).replaceAll('"','').replaceAll(':',': ').replaceAll('{', '{ ').replaceAll('}', ' }').replaceAll(',', ', ')}`, 'color: fuchsia;');
+			if (stats && this.verbose) console.info(`%c[ Diffusion Test ]>> Stats: ${JSON.stringify(stats).replaceAll('"','').replaceAll(':',': ').replaceAll('{', '{ ').replaceAll('}', ' }').replaceAll(',', ', ')}`, 'color: purple;');
 			// SEND A GOSSIP MESSAGE FROM A RANDOM PEER -> ALL PEERS SHOULD RECEIVE IT
 			this.gossip.nonce = 'ffffff';
 			this.gossip.receivedBy = {};
@@ -99,8 +96,9 @@ export class TransmissionAnalyzer {
 			const peer = this.peers.all[randomPeerId];
 			if (!peer.started || peer.peerStore.neighbours.length === 0) continue;
 			this.gossip.nonce = Math.floor(Math.random() * 1000000).toString(16).padStart(6, '0');
-			this.gossip.sendAt = CLOCK.time;
+			this.gossip.sendAt = Date.now();
 			peer.gossip.broadcastToAll(this.gossip.nonce, 'diffusion_test', SIMULATION.DIFFUSION_TEST_HOPS);
+			break;
 		}
 	}
 	/** @param {string} receiverId @param {Uint8Array} serialized @param {number} HOPS @param {import('../core/gossip.mjs').GossipMessage} message @param {string} fromId */
@@ -108,7 +106,7 @@ export class TransmissionAnalyzer {
 		if (this.gossip.sendAt === 0) return; // we have not sent yet
 		if (message.data !== this.gossip.nonce) return; // not our test message
 		if (!this.gossip.sendAt) return; // we are not the sender
-		if (!this.gossip.receivedBy[receiverId]) this.gossip.receivedBy[receiverId] = CLOCK.time;
+		if (!this.gossip.receivedBy[receiverId]) this.gossip.receivedBy[receiverId] = Date.now();
 	}
 }
 
@@ -162,10 +160,10 @@ export class SubscriptionsManager {
 			this.unicastCount.session = 0;
 			this.gossipBandwidth.session = 0;
 			this.unicastBandwidth.session = 0;
-			for (const key in this.mpTopic) this.mpTopic[key] = 0;
-			for (const key in this.mpType) this.mpType[key] = 0;
-			for (const key in this.bTopic) this.bTopic[key] = 0;
-			for (const key in this.bType) this.bType[key] = 0;
+			this.mpTopic = {};
+			this.mpType = {};
+			this.bTopic = {};
+			this.bType = {};
 		}, delay);
 	}
 	/** @param {'gossip' | 'unicast'} type @param {'count' | 'bandwidth'} mode @param {number} divider @param {boolean} [formating] default: true */
@@ -175,7 +173,8 @@ export class SubscriptionsManager {
 		? type === 'gossip' ? this.mpTopic : this.mpType
 		: type === 'gossip' ? this.bTopic : this.bType;
 
-		for (const [key, value] of Object.entries(targets)) stats[key] = Math.round(value / divider);
+		const suffix = mode === 'count' ? '' : ' bytes';
+		for (const [key, value] of Object.entries(targets)) stats[key] = `${mode === 'count' ? (value / divider).toFixed(1) : Math.round(value)}${suffix}`;
 		if (Object.keys(stats).length === 0) return null;
 		if (Object.values(stats).every(v => v === 0)) return null;
 		return !formating ? stats : statsFormating(stats);

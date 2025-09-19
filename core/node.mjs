@@ -5,6 +5,7 @@ import { UnicastMessager, DirectMessage } from './unicast.mjs';
 import { Gossip, GossipMessage } from './gossip.mjs';
 import { NetworkEnhancer } from './network-enhancer.mjs';
 import { CryptoCodec, CryptoIdCard } from './crypto-codec.mjs';
+const dgram = !NODE.IS_BROWSER ? await import('dgram') : null; // Node.js only
 
 export class NodeP2P {
 	started = false;
@@ -24,7 +25,7 @@ export class NodeP2P {
 		this.verbose = verbose;
 		this.cryptoCodec = new CryptoCodec(idCard);
 		this.id = idCard.id;
-		this.peerStore = new PeerStore(idCard.id, this.cryptoCodec, this.verbose);
+		this.peerStore = new PeerStore(idCard.id, this.cryptoCodec, bootstraps, this.verbose);
 		this.messager = new UnicastMessager(idCard.id, this.cryptoCodec, this.peerStore, this.verbose);
 		this.gossip = new Gossip(idCard.id, this.cryptoCodec, this.peerStore, this.verbose);
 		this.networkEnhancer = new NetworkEnhancer(idCard.id, this.gossip, this.messager, this.peerStore, bootstraps);
@@ -57,7 +58,7 @@ export class NodeP2P {
 		if (this.verbose > ((selfIsPublic || remoteIsPublic) ? 3 : 2)) console.log(`(${this.id}) ${direction === 'in' ? 'Incoming' : 'Outgoing'} connection established with peer ${peerId}`);
 		
 		const dispatchEvents = () => {
-			const isHandshakeInitiator = (remoteIsPublic || direction === 'in');
+			const isHandshakeInitiator = remoteIsPublic || direction === 'in';
 			if (isHandshakeInitiator) this.sendMessage(peerId, this.id, 'handshake');
 			if (DISCOVERY.ON_CONNECT_DISPATCH.BROADCAST_EVENT && !remoteIsPublic) this.broadcast(peerId, 'peer_connected');
 			if (DISCOVERY.ON_CONNECT_DISPATCH.BROADCAST_NEIGHBORS) this.broadcast({ neighbours: this.peerStore.neighbours }, 'my_neighbours');
@@ -82,15 +83,17 @@ export class NodeP2P {
 		else setTimeout(dispatchEvents, DISCOVERY.ON_DISCONNECT_DISPATCH.DELAY);
 	}
 	#onData = (peerId, data) => {
-		if (data[0] > 127) this.gossip.handleGossipMessage(peerId, data);
-		else this.messager.handleDirectMessage(peerId, data);
+		const d = new Uint8Array(data);
+		if (d[0] > 127) this.gossip.handleGossipMessage(peerId, d);
+		else this.messager.handleDirectMessage(peerId, d);
 	}
 
 	// PUBLIC API
 	/** @param {Array<string>} bootstraps @param {CryptoIdCard} [idCard] generated if not provided @param {boolean} [start] default: false @param {string} [domain] public node only, ex: 'localhost' @param {number} [port] public node only, ex: 8080 @param {string | undefined} [followerId] (twitch cosmetic) */
 	static createNode(bootstraps, idCard, start = true, domain, port = NODE.SERVICE.PORT, followerId) {
 		const node = new NodeP2P(idCard || CryptoIdCard.generate(followerId), bootstraps);
-		if (domain) node.#setAsPublic(domain, port);
+		if (domain) node.#setAsPublic(domain, port); 
+		if (domain && !SIMULATION.USE_TEST_TRANSPORTS) node.#startSTUNServer(domain, port + 1);
 		if (start) node.start();
 		return node;
 	}
@@ -100,7 +103,7 @@ export class NodeP2P {
 			this.started = true;
 			if (!initIntervals) return true;
 			this.enhancerInterval = setInterval(() => this.networkEnhancer.autoEnhancementTick(), DISCOVERY.LOOP_DELAY);
-			this.peerStoreInterval = setInterval(() => { this.peerStore.cleanupExpired(); this.peerStore.sdpOfferManager.tick(); }, 802);
+			this.peerStoreInterval = setInterval(() => { this.peerStore.cleanupExpired(); this.peerStore.sdpOfferManager.tick(); }, 2500);
 		});
 		return true;
 	}
@@ -137,8 +140,9 @@ export class NodeP2P {
 				if (remoteId) for (const cb of this.peerStore.callbacks.data) cb(remoteId, data);
 				else { // First message should be handshake with id
 					// C'EST PAS TERRIBLE !
-					if (data[0] > 127) return; // not unicast, ignore
-					const { route, type } = this.cryptoCodec.readUnicastMessage(data) || {};
+					const d = new Uint8Array(data);
+					if (d[0] > 127) return; // not unicast, ignore
+					const { route, type } = this.cryptoCodec.readUnicastMessage(d) || {};
 					if (type !== 'handshake' || route.length !== 2 || route[1] !== this.id) return;
 
 					remoteId = route[0];
@@ -150,6 +154,48 @@ export class NodeP2P {
 		});
 
 		return { id: this.id, publicUrl: this.publicUrl };
+	}
+	#startSTUNServer(host, port) {
+		this.stunServer = dgram.createSocket('udp4');
+		
+		this.stunServer.on('message', (msg, rinfo) => {
+			console.log(`STUN message from ${rinfo.address}:${rinfo.port} - ${msg.toString('hex')}`);
+			if (!this.#isValidSTUNRequest(msg)) return;
+			
+			const response = this.#buildSTUNResponse(msg, rinfo);
+			this.stunServer.send(response, rinfo.port, rinfo.address);
+		});
+		
+		this.stunServer.bind(port, host);
+	}
+	#isValidSTUNRequest(msg) {
+		if (msg.length < 20) return false;
+		const messageType = msg.readUInt16BE(0);
+		const magicCookie = msg.readUInt32BE(4);
+		return messageType === 0x0001 && magicCookie === 0x2112A442;
+	}
+	#buildSTUNResponse(request, rinfo) {
+		const transactionId = request.subarray(8, 20); // copie les 12 bytes
+		
+		// Header : Success Response (0x0101) + length + magic + transaction
+		const response = Buffer.allocUnsafe(32); // 20 header + 12 attribute
+		response.writeUInt16BE(0x0101, 0);     // Binding Success Response
+		response.writeUInt16BE(12, 2);         // Message Length (12 bytes d'attributs)
+		response.writeUInt32BE(0x2112A442, 4); // Magic Cookie
+		transactionId.copy(response, 8);       // Transaction ID
+		
+		// Attribut MAPPED-ADDRESS (8 bytes)
+		response.writeUInt16BE(0x0001, 20);    // Type: MAPPED-ADDRESS
+		response.writeUInt16BE(8, 22);         // Length: 8 bytes
+		response.writeUInt16BE(0x0001, 24);    // Family: IPv4
+		response.writeUInt16BE(rinfo.port, 26); // Port
+		response.writeUInt32BE(this.#ipToInt(rinfo.address), 28); // IP
+		
+		console.log(`STUN Response: client will discover IP ${rinfo.address}:${rinfo.port}`);
+		return response;
+	}
+	#ipToInt(ip) {
+		return ip.split('.').reduce((int, oct) => (int << 8) + parseInt(oct, 10), 0);
 	}
 	destroy() {
 		if (this.enhancerInterval) clearInterval(this.enhancerInterval);

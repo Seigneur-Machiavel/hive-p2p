@@ -1,6 +1,5 @@
 import { CLOCK, GOSSIP, DISCOVERY, IDENTITY } from './global_parameters.mjs';
 import { xxHash32 } from '../utils/xxhash32.mjs';
-import { CryptoIdCard } from './crypto-codec.mjs';
 
 export class GossipMessage {
 	topic = 'gossip';
@@ -59,7 +58,7 @@ class DegenerateBloomFilter {
 		if (this.seenTimeouts[h]) return;
 
 		const topic = GOSSIP.MARKERS_BYTES[marker];
-		const senderId = CryptoIdCard.idFromPublicKey(pubkey);
+		const senderId = this.cryptoCodec.idFromPublicKey(pubkey);
 		const expiration = n + GOSSIP.CACHE_DURATION;
 		this.cache.push({ hash: h, senderId, topic, serializedMessage, timestamp, expiration });
 		this.seenTimeouts[h] = expiration;

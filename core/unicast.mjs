@@ -107,14 +107,15 @@ export class UnicastMessager {
 		if (this.peerStore.isBanned(from)) return;
 
 		const message = this.cryptoCodec.readUnicastMessage(serialized);
-		if (!message) return; // invalid message
+		if (!message || !message.route?.length) return this.verbose > 1 ? console.warn(`Received invalid unicast message from ${from}.`) : null;
 
 		const { traveledRoute, selfPosition, senderId, targetId, prevId, nextId } = message.extractRouteInfo(this.id);
 		for (const cb of this.callbacks.message_handle || []) cb(); // Simulator counter
 
 		// RACE CONDITION CAN OCCUR IN SIMULATION !!
 		// ref: simulation/race-condition-demonstration.js
-		if (selfPosition === -1) throw new Error(`DirectMessage selfPosition is -1 for peer ${from}.`); // race condition or not => ignore message
+		if (selfPosition === -1)
+			throw new Error(`DirectMessage selfPosition is -1 for peer ${from}.`); // race condition or not => ignore message
 		
 		//const [senderId, prevId, nextId, targetId] = [route[0], route[selfPosition - 1], route[selfPosition + 1], route[route.length - 1]];
 		if (from === senderId && from === this.id) // FATAL ERROR

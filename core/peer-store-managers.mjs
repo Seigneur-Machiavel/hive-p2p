@@ -60,7 +60,11 @@ export class Punisher { // manage kick and ban of peers
 	}
 }
 
-/** - 'OfferObj' Definition
+/** - 'bootstrapInfo' Definition & 'OfferObj' Definition
+ * @typedef {Object} bootstrapInfo
+ * @property {string} id
+ * @property {string} publicUrl
+ * 
  * @typedef {Object} OfferObj
  * @property {number} timestamp
  * @property {boolean} isUsed // => if true => should be deleted
@@ -72,9 +76,15 @@ export class Punisher { // manage kick and ban of peers
 
 export class SdpOfferManager { // Manages the creation of SDP offers and handling of answers
 	id;
+	stunUrls = [];
 	verbose = 0;
-	constructor(id = 'toto', verbose = 0) { this.id = id; this.verbose = verbose; }
-	
+	/** @param {Array<bootstrapInfo>} bootstraps */
+	constructor(id = 'toto', bootstraps = [], verbose = 0) {
+		this.id = id;
+		this.#deriveSTUNServers(bootstraps);
+		this.verbose = verbose;
+	}
+
 	onSignalAnswer = null; // function(remoteId, signalData, offerHash)
 	onConnect = null; // function(remoteId, transportInstance)
 	
@@ -128,8 +138,21 @@ export class SdpOfferManager { // Manages the creation of SDP offers and handlin
 		const instance = this.#createOffererInstance(expiration);
 		this.offerInstanceByExpiration[expiration] = instance;
 	};
+	/** @param {Array<bootstrapInfo>} bootstraps */
+	#deriveSTUNServers(bootstraps) {
+		for (const b of bootstraps) {
+			const domain = b.publicUrl.split(':')[1].replace('//', '');
+			const port = parseInt(b.publicUrl.split(':')[2]) + 1;
+			this.stunUrls.push({ urls: `stun:${domain}:${port}` });
+		}
+		// CENTRALIZED STUN SERVERS FALLBACK (GOOGLE) - OPTIONAL
+		/*this.stunUrls.push({ urls: 'stun:stun.l.google.com:19302' });
+		this.stunUrls.push({ urls: 'stun:stun.l.google.com:5349' });
+		this.stunUrls.push({ urls: 'stun:stun1.l.google.com:3478' });
+		this.stunUrls.push({ urls: 'stun:stun1.l.google.com:5349' });*/
+	}
 	#createOffererInstance(expiration) {
-		const instance = new TRANSPORTS.PEER({ initiator: true, trickle: false, wrtc });
+		const instance = new TRANSPORTS.PEER({ initiator: true, trickle: false, wrtc, config: { iceServers: this.stunUrls } });
 		instance.on('error', error => this.#onError(error));
 		instance.on('signal', data => { // trickle: false => only one signal event with the full offer
 			const { candidate, type } = data; // with trickle, we need to adapt the approach.
@@ -204,7 +227,7 @@ export class SdpOfferManager { // Manages the creation of SDP offers and handlin
 			}
 			
 			// type === 'offer' => CREATE ANSWERER INSTANCE
-			const instance = new TRANSPORTS.PEER({ initiator: false, trickle: false, wrtc });
+			const instance = new TRANSPORTS.PEER({ initiator: false, trickle: false, wrtc, config: { iceServers: this.stunUrls } });
 			instance.on('error', (error) => this.#onError(error));
 			instance.on('signal', (data) => this.onSignalAnswer(remoteId, data, offerHash));
 			instance.on('connect', () => this.onConnect(remoteId, instance));
