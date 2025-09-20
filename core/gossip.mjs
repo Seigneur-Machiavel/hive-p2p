@@ -4,16 +4,17 @@ import { xxHash32 } from '../libs/xxhash32.mjs';
 export class GossipMessage {
 	topic = 'gossip';
 	timestamp;
+	neighbors;
 	HOPS;
 	senderId;
 	pubkey;
 	data;
 	signature;
 
-	/** @param {string} topic @param {number} timestamp @param {number} HOPS @param {string} senderId @param {string} pubkey @param {string | Uint8Array | Object} data @param {string | undefined} signature */
-	constructor(topic, timestamp, HOPS, senderId, pubkey, data, signature) { // PROBABLY DEPRECATED
-		this.topic = topic; this.timestamp = timestamp; this.HOPS = HOPS;
-		this.senderId = senderId; this.pubkey = pubkey; this.data = data;
+	/** @param {string} topic @param {number} timestamp @param {string[]} neighbors @param {number} HOPS @param {string} senderId @param {string} pubkey @param {string | Uint8Array | Object} data @param {string | undefined} signature */
+	constructor(topic, timestamp, neighbors, HOPS, senderId, pubkey, data, signature) { // PROBABLY DEPRECATED
+		this.topic = topic; this.timestamp = timestamp; this.neighbors = neighbors;
+		this.HOPS = HOPS; this.senderId = senderId; this.pubkey = pubkey; this.data = data;
 		this.signature = signature;
 	}
 }
@@ -49,10 +50,10 @@ class DegenerateBloomFilter {
 	/** @param {Uint8Array} serializedMessage */
 	addMessage(serializedMessage) {
     	const n = CLOCK.time;
-		const { marker, timestamp, dataLength, pubkey, associatedId, data } = this.cryptoCodec.readBufferHeader(serializedMessage);
+		const { marker, neighLength, timestamp, dataLength, pubkey, associatedId } = this.cryptoCodec.readBufferHeader(serializedMessage);
 		if (n - timestamp > GOSSIP.EXPIRATION) return;
 
-		const hashableData = serializedMessage.subarray(0, 46 + dataLength);
+		const hashableData = serializedMessage.subarray(0, 47 + neighLength + dataLength);
 		const h = xxHash32(hashableData);
 		this.xxHash32UsageCount++;
 		if (this.seenTimeouts[h]) return;
@@ -104,10 +105,11 @@ export class Gossip {
 	 * @param {string | Uint8Array | Object} data @param {string} topic @param {number} [HOPS] */
 	broadcastToAll(data, topic = 'gossip', HOPS) {
 		const hops = HOPS || GOSSIP.HOPS[topic] || GOSSIP.HOPS.default;
-		const serializedMessage = this.cryptoCodec.createGossipMessage(topic, data, hops);
+		const neighbors = Object.keys(this.peerStore.connected);
+		const serializedMessage = this.cryptoCodec.createGossipMessage(topic, data, hops, neighbors);
 		if (!this.bloomFilter.addMessage(serializedMessage)) return; // avoid sending duplicate messages
-		if (this.verbose > 3) console.log(`(${this.id}) Gossip ${topic}, to ${JSON.stringify(Object.keys(this.peerStore.connected))}: ${data}`);
-		for (const peerId of Object.keys(this.peerStore.connected)) this.#broadcastToPeer(peerId, serializedMessage);
+		if (this.verbose > 3) console.log(`(${this.id}) Gossip ${topic}, to ${JSON.stringify(neighbors)}: ${data}`);
+		for (const peerId of neighbors) this.#broadcastToPeer(peerId, serializedMessage);
 	}
 	/** @param {string} targetId @param {any} serializedMessage */
 	#broadcastToPeer(targetId, serializedMessage) {
@@ -131,13 +133,14 @@ export class Gossip {
 		const message = this.cryptoCodec.readGossipMessage(serialized);
 		if (!message) throw new Error(`Failed to deserialize gossip message from ${from}.`);
 		
-		const { topic, timestamp, HOPS, senderId, data } = message;
+		const { topic, timestamp, neighbors, HOPS, senderId, data } = message;
 		
 		if (this.verbose > 3)
 			if (senderId === from) console.log(`(${this.id}) Gossip ${topic} from ${senderId}: ${data}`);
 			else console.log(`(${this.id}) Gossip ${topic} from ${senderId} (by: ${from}): ${data}`);
 		if (senderId === this.id) throw new Error(`#${this.id}#${from}# Received our own message back from peer ${from}.`);
 
+		this.peerStore.digestPeerNeighbours(senderId, neighbors);
 		for (const cb of this.callbacks[topic] || []) cb(senderId, data, HOPS, message); // specific topic callback
 		if (HOPS < 1) return; // stop forwarding if HOPS is 0
 

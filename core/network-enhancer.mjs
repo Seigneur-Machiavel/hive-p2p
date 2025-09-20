@@ -74,9 +74,8 @@ export class NetworkEnhancer {
 	handleIncomingSignal(senderId, data, HOPS) {
 		if (!senderId) return;
 		if (HOPS !== undefined && HOPS >= GOSSIP.HOPS.signal_offer - 1) return; // easy topology improvement
-		const { signal, neighbours, offerHash } = data || {}; // remoteInfo
-		if (!Array.isArray(neighbours) || (signal.type !== 'offer' && signal.type !== 'answer')) return;
-		this.peerStore.digestPeerNeighbours(senderId, neighbours);
+		const { signal, offerHash } = data || {}; // remoteInfo
+		if (signal.type !== 'offer' && signal.type !== 'answer') return;
 
 		if (this.peerStore.connected[senderId]) return; // already connected
 		if (signal.type === 'answer' && this.peerStore.connecting[senderId]?.['out']) return; // already connecting out
@@ -201,7 +200,7 @@ export class NetworkEnhancer {
 				else if (p1n1[id]) sharedCount++;
 			return sharedCount;
 		}
-		
+
 		// General case, compare two different peers (not ourself as peerId2)
 		const p2n1 = this.peerStore.known[peerId2]?.neighbours || {};
 		const [shortest, longest] = Object.keys(p1n1).length < Object.keys(p2n1).length ? [p1n1, p2n1] : [p2n1, p1n1];

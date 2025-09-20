@@ -1,8 +1,8 @@
 import { CLOCK, SIMULATION, NODE, TRANSPORTS, IDENTITY, DISCOVERY } from './global_parameters.mjs';
 import { PeerStore } from './peer-store.mjs';
 import { PeerConnection } from './peer-store-managers.mjs';
-import { UnicastMessager, DirectMessage } from './unicast.mjs';
-import { Gossip, GossipMessage } from './gossip.mjs';
+import { UnicastMessager } from './unicast.mjs';
+import { Gossip } from './gossip.mjs';
 import { NetworkEnhancer } from './network-enhancer.mjs';
 import { CryptoCodec } from './crypto-codec.mjs';
 const dgram = !NODE.IS_BROWSER ? await import('dgram') : null; // Node.js only
@@ -24,6 +24,7 @@ export class NodeP2P {
 	constructor(cryptoCodec, bootstraps = [], verbose = NODE.DEFAULT_VERBOSE) {
 		this.verbose = verbose;
 		this.cryptoCodec = cryptoCodec || new CryptoCodec();
+		if (!this.cryptoCodec.publicKey) this.cryptoCodec.generate(this.publicUrl);
 		this.id = this.cryptoCodec.id;
 		this.peerStore = new PeerStore(this.id, this.cryptoCodec, bootstraps, this.verbose);
 		this.messager = new UnicastMessager(this.id, this.cryptoCodec, this.peerStore, this.verbose);
@@ -45,7 +46,6 @@ export class NodeP2P {
 		gossip.on('signal_offer', (senderId, data, HOPS) => networkEnhancer.handleIncomingSignal(senderId, data, HOPS));
 		gossip.on('peer_connected', (senderId, data) => peerStore.handlePeerConnectedGossipEvent(senderId, data));
 		gossip.on('peer_disconnected', (senderId, data) => peerStore.unlinkPeers(data, senderId));
-		gossip.on('my_neighbours', (senderId, data) => peerStore.digestPeerNeighbours(senderId, data));
 
 		if (verbose > 2) console.log(`NodeP2P initialized: ${this.id}`);
 	}
@@ -61,7 +61,6 @@ export class NodeP2P {
 			const isHandshakeInitiator = remoteIsPublic || direction === 'in';
 			if (isHandshakeInitiator) this.sendMessage(peerId, this.id, 'handshake');
 			if (DISCOVERY.ON_CONNECT_DISPATCH.BROADCAST_EVENT && !remoteIsPublic) this.broadcast(peerId, 'peer_connected');
-			if (DISCOVERY.ON_CONNECT_DISPATCH.BROADCAST_NEIGHBORS) this.broadcast({ neighbours: this.peerStore.neighbours }, 'my_neighbours');
 			if (DISCOVERY.ON_CONNECT_DISPATCH.SHARE_HISTORY) 
 				if (Object.keys(this.peerStore.known[peerId]?.neighbours).length <= 1) this.gossip.sendGossipHistoryToPeer(peerId);
 		};

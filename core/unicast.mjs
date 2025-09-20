@@ -6,15 +6,16 @@ const RouteBuilder = RouteBuilder_V2; // temporary switch
 export class DirectMessage {
 	type = 'message';
 	timestamp;
+	neighbors;
 	route;
 	pubkey;
 	data;
 	signature;
 
-	/** @param {string} type @param {number} timestamp @param {string[]} route @param {string} pubkey @param {string | Uint8Array | Object} data @param {string | undefined} signature */
-	constructor(type, timestamp, route, pubkey, data, signature) {
-		this.type = type; this.timestamp = timestamp; this.route = route;
-		this.pubkey = pubkey; this.data = data; this.signature = signature;
+	/** @param {string} type @param {number} timestamp @param {string[]} neighbors @param {string[]} route @param {string} pubkey @param {string | Uint8Array | Object} data @param {string | undefined} signature */
+	constructor(type, timestamp, neighbors, route, pubkey, data, signature) {
+		this.type = type; this.timestamp = timestamp; this.neighbors = neighbors;
+		this.route = route; this.pubkey = pubkey; this.data = data; this.signature = signature;
 	}
 	getSenderId() { return this.route[0]; }
 	getTargetId() { return this.route[this.route.length - 1]; }
@@ -81,6 +82,7 @@ export class UnicastMessager {
 		if (!builtResult.success) return false;
 
 		// Caution: re-routing usage who can involve insane results
+		const neighbors = Object.keys(this.peerStore.connected);
 		const finalSpread = builtResult.success === 'blind' ? 1 : spread; // Spread only if re-routing is false
 		for (let i = 0; i < Math.min(finalSpread, builtResult.routes.length); i++) {
 			const route = builtResult.routes[i].path;
@@ -88,7 +90,7 @@ export class UnicastMessager {
 				if (this.verbose > 1) console.warn(`Cannot send unicast message to ${remoteId} as route exceeds maxHops (${UNICAST.MAX_HOPS}). BFS incurred.`);
 				continue; // too long route
 			}
-			const message = this.cryptoCodec.createUnicastMessage(type, data, route);
+			const message = this.cryptoCodec.createUnicastMessage(type, data, route, neighbors);
 			this.#sendMessageToPeer(route[1], message); // send to next peer
 		}
 		return true;
@@ -131,6 +133,7 @@ export class UnicastMessager {
 			if (senderId === from) console.log(`(${this.id}) Direct ${message.type} from ${senderId}: ${message.data}`);
 			else console.log(`(${this.id}) Direct ${message.type} from ${senderId} (lastRelay: ${from}): ${message.data}`);
 		
+		this.peerStore.digestPeerNeighbours(senderId, message.neighbors);
 		if (DISCOVERY.ON_UNICAST.DIGEST_TRAVELED_ROUTE) this.peerStore.digestValidRoute(traveledRoute);
 		if (this.id === targetId) { for (const cb of this.callbacks[message.type] || []) cb(senderId, message.data); return; } // message for self
 

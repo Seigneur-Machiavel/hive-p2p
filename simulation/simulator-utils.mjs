@@ -38,7 +38,7 @@ export class Statician { // DO NOT ADD VARIABLES, JUST COUNTERS !!
 					else { establishedWrtcConnCount++; break; }
 			}
 
-			if (verbose) console.info(`%c${Math.floor((Date.now() - sVARS.startTime) / 1000)}sec elapsed | Active: ${sVARS.publicInit + sVARS.nextPeerToInit}/${Object.keys(peers.all).length} (${establishedWrtcConnCount}/${wrtcToEstablishCount} established WebRTC) | STATS/sec: ${this.#getSimulationStatsPerSecond(delay)}`, 'color: yellow;');
+			if (verbose) console.info(`%c${Math.floor((Date.now() - sVARS.startTime) / 1000)}sec elapsed | Active: ${sVARS.publicInit + (sVARS.nextPeerToInit - 1)}/${Object.keys(peers.all).length} (${establishedWrtcConnCount}/${wrtcToEstablishCount} established WebRTC) | STATS/sec: ${this.#getSimulationStatsPerSecond(delay)}`, 'color: yellow;');
 			for (const key in this) this[key] = 0;
 		}, delay);
 	}

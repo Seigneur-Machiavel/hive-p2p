@@ -16,8 +16,8 @@ export const SIMULATION = {
 	// SIMULATOR OPTIONS
 	AVOID_FOLLOWERS_NODES: false, 	// avoid twitch nodes creation | default: true
 	AUTO_START: true,				// auto start the simulation, false to wait the frontend | default: true
-	PUBLIC_PEERS_COUNT: 100,		// stable: 3,  medium: 100, strong: 200 | default: 2
-	PEERS_COUNT: 4900,				// stable: 25, medium: 800, strong: 1600 | default: 12
+	PUBLIC_PEERS_COUNT: 2,			// stable: 3,  medium: 20,  strong: 100 | default: 2
+	PEERS_COUNT: 10,				// stable: 25, medium: 800, strong: 4900 | default: 12
 	BOOTSTRAPS_PER_PEER: 10,		// will not be exact, more like a limit. null = all of them | default: 10
 	DELAY_BETWEEN_INIT: 60,			// 0 = faster for simulating big networks but > 0 = should be more realistic | default: 60 (60sec to start 1000 peers)
 	RANDOM_UNICAST_PER_SEC: .1,		// default: .1, capped at a total of 500msg/sec | default: 1
@@ -27,7 +27,7 @@ export const SIMULATION = {
 }
 
 export const NODE = {
-	DEFAULT_VERBOSE: 1, // 0: none, 1: errors, 2: +important info, 3: +debug, 4: +everything
+	DEFAULT_VERBOSE: 2, // 0: none, 1: errors, 2: +important info, 3: +debug, 4: +everything
 	IS_BROWSER: isNode ? false : true,	// Flag to indicate if we are running in a browser environment
 	CONNECTION_UPGRADE_TIMEOUT: 15_000, // time to close connection of connecting peer | default: 15_000 (15 seconds), to make signal throw: 4_000 (4 seconds)
 	SERVICE: {
@@ -44,7 +44,7 @@ export const IDENTITY = {
 	PUBKEY_LENGTH: 32,				// length of public/private keys | (ed25519) default: 32 bytes
 	PRIVATEKEY_LENGTH: 32,			// length of private key | (ed25519) default: 32 bytes
 	SIGNATURE_LENGTH: 64,			// length of signature | default: 64 bytes
-	PUBLIC_PREFIX: 'P', 			// Identifier prefix for public nodes | default: 'P'
+	PUBLIC_PREFIX: '0', 			// Identifier prefix for public nodes | default: 'P'
 }
 
 export const TRANSPORTS = {
@@ -64,8 +64,6 @@ export const DISCOVERY = {
 	ON_CONNECT_DISPATCH: {		// => on Node.#onConnect()
 		DELAY: 0, 					// delay before dispatching events | default: 100 (.1 seconds)
 		BROADCAST_EVENT: false,		// Boolean to indicate if we broadcast 'peer_connected'
-		BROADCAST_NEIGHBORS: true,	// Boolean to indicate if we broadcast 'my_neighbours'
-		SEND_NEIGHBORS: true,		// Boolean to indicate if we unicast 'my_neighbours' // DISABLED FOR NOW
 		SHARE_HISTORY: false,		// Boolean to indicate if we broadcastToPeer some gossip history to the new peer | default: true
 	},
 	ON_DISCONNECT_DISPATCH: {	// => on Node.#onDisconnect()
@@ -91,7 +89,6 @@ export const UNICAST = { // MARKERS RANGE: 0-127
 		'2': 'signal_answer',
 		signal_offer: 3,
 		'3': 'signal_offer',
-		
 	},
 }
 
@@ -103,7 +100,6 @@ export const GOSSIP = { // MARKERS RANGE: 128-255
 		// signal_offer: 6, // works with 3
 		// peer_connected: 3,
 		// peer_disconnected: 3,
-		// my_neighbours: 3
 	},
 	TRANSMISSION_RATE: { // GOSSIP PONDERATION > LOWERING THE TRANSMISSION RATE BASED ON NEIGHBOURS COUNT
 		MIN_NEIGHBOURS_TO_APPLY_PONDERATION: 2, // DECREASE TO APPLY PONDERATION SOONER, default: 4
@@ -112,7 +108,6 @@ export const GOSSIP = { // MARKERS RANGE: 128-255
 		signal_offer: .618, 		// 1 === 100%
 		// peer_connected: .5, 		// we can reduce this, but lowering the map quality
 		// peer_disconnected: .618
-		my_neighbours: .5, 			// we can reduce this a lot, but lowering the map quality
 	},
 	MARKERS_BYTES: { // FIRST BYTE MARKER | RANGE: 128-255
 		gossip: 128,
@@ -123,9 +118,7 @@ export const GOSSIP = { // MARKERS RANGE: 128-255
 		'130': 'peer_connected',
 		peer_disconnected: 131,
 		'131': 'peer_disconnected',
-		my_neighbours: 132,
-		'132': 'my_neighbours',
-		diffusion_test: 133,
-		'133': 'diffusion_test',
+		diffusion_test: 132,
+		'132': 'diffusion_test',
 	},
 }
