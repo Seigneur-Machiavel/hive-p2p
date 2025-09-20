@@ -4,7 +4,7 @@ import { PeerConnection } from './peer-store-managers.mjs';
 import { UnicastMessager, DirectMessage } from './unicast.mjs';
 import { Gossip, GossipMessage } from './gossip.mjs';
 import { NetworkEnhancer } from './network-enhancer.mjs';
-import { CryptoCodec, CryptoIdCard } from './crypto-codec.mjs';
+import { CryptoCodec } from './crypto-codec.mjs';
 const dgram = !NODE.IS_BROWSER ? await import('dgram') : null; // Node.js only
 
 export class NodeP2P {
@@ -19,16 +19,16 @@ export class NodeP2P {
 	/** @type {string | undefined} WebSocket URL (public node only) */ publicUrl;
 
 	/** Initialize a new P2P node instance, use .start() to init networkEnhancer
-	 * @param {CryptoIdCard} idCard Identity card containing id, public & private keys
+	 * @param {CryptoCodec} [cryptoCodec] - Identity of the node; if not provided, a new one will be generated
 	 * @param {Array<Record<string, string>>} bootstraps List of bootstrap nodes used as P2P network entry */
-	constructor(idCard, bootstraps = [], verbose = NODE.DEFAULT_VERBOSE) {
+	constructor(cryptoCodec, bootstraps = [], verbose = NODE.DEFAULT_VERBOSE) {
 		this.verbose = verbose;
-		this.cryptoCodec = new CryptoCodec(idCard);
-		this.id = idCard.id;
-		this.peerStore = new PeerStore(idCard.id, this.cryptoCodec, bootstraps, this.verbose);
-		this.messager = new UnicastMessager(idCard.id, this.cryptoCodec, this.peerStore, this.verbose);
-		this.gossip = new Gossip(idCard.id, this.cryptoCodec, this.peerStore, this.verbose);
-		this.networkEnhancer = new NetworkEnhancer(idCard.id, this.gossip, this.messager, this.peerStore, bootstraps);
+		this.cryptoCodec = cryptoCodec || new CryptoCodec();
+		this.id = this.cryptoCodec.id;
+		this.peerStore = new PeerStore(this.id, this.cryptoCodec, bootstraps, this.verbose);
+		this.messager = new UnicastMessager(this.id, this.cryptoCodec, this.peerStore, this.verbose);
+		this.gossip = new Gossip(this.id, this.cryptoCodec, this.peerStore, this.verbose);
+		this.networkEnhancer = new NetworkEnhancer(this.id, this.gossip, this.messager, this.peerStore, bootstraps);
 		const { peerStore, messager, gossip, networkEnhancer } = this;
 
 		// SETUP TRANSPORTS LISTENERS
@@ -89,10 +89,10 @@ export class NodeP2P {
 	}
 
 	// PUBLIC API
-	/** @param {Array<string>} bootstraps @param {CryptoIdCard} [idCard] generated if not provided @param {boolean} [start] default: false @param {string} [domain] public node only, ex: 'localhost' @param {number} [port] public node only, ex: 8080 @param {string | undefined} [followerId] (twitch cosmetic) */
-	static createNode(bootstraps, idCard, start = true, domain, port = NODE.SERVICE.PORT, followerId) {
-		const node = new NodeP2P(idCard || CryptoIdCard.generate(followerId), bootstraps);
-		if (domain) node.#setAsPublic(domain, port); 
+	/** @param {Array<string>} bootstraps @param {CryptoCodec} [cryptoCodec] - Identity of the node; if not provided, a new one will be generated @param {boolean} [start] default: false @param {string} [domain] public node only, ex: 'localhost' @param {number} [port] public node only, ex: 8080 */
+	static createNode(bootstraps, cryptoCodec, start = true, domain, port = NODE.SERVICE.PORT) {
+		const node = new NodeP2P(cryptoCodec, bootstraps);
+		if (domain) node.#setAsPublic(domain, port);
 		if (domain && !SIMULATION.USE_TEST_TRANSPORTS) node.#startSTUNServer(domain, port + 1);
 		if (start) node.start();
 		return node;

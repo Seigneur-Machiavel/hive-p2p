@@ -49,7 +49,7 @@ class DegenerateBloomFilter {
 	/** @param {Uint8Array} serializedMessage */
 	addMessage(serializedMessage) {
     	const n = CLOCK.time;
-		const { marker, timestamp, dataLength, pubkey, data } = this.cryptoCodec.readBufferHeader(serializedMessage);
+		const { marker, timestamp, dataLength, pubkey, associatedId, data } = this.cryptoCodec.readBufferHeader(serializedMessage);
 		if (n - timestamp > GOSSIP.EXPIRATION) return;
 
 		const hashableData = serializedMessage.subarray(0, 46 + dataLength);
@@ -58,7 +58,7 @@ class DegenerateBloomFilter {
 		if (this.seenTimeouts[h]) return;
 
 		const topic = GOSSIP.MARKERS_BYTES[marker];
-		const senderId = this.cryptoCodec.idFromPublicKey(pubkey);
+		const senderId = associatedId;
 		const expiration = n + GOSSIP.CACHE_DURATION;
 		this.cache.push({ hash: h, senderId, topic, serializedMessage, timestamp, expiration });
 		this.seenTimeouts[h] = expiration;

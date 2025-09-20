@@ -8,7 +8,6 @@ export const CLOCK = Clock.instance;
 
 export const SIMULATION = {
 	// FACILITIES TO SIMULATE NETWORK CONDITIONS AND SCENARIOS
-	AVOID_CRYPTO: false,			// avoid crypto operations for faster simulation | default: false
 	AVOID_INTERVALS: true,			// avoid intervals for faster simulation | default: true
 	USE_TEST_TRANSPORTS: true, 		// enable simulation features
 	ICE_DELAY: { min: 250, max: 3000 }, // ICE candidates in ms | default: { min: 250, max: 3000 }
@@ -41,7 +40,7 @@ export const NODE = {
 }
 
 export const IDENTITY = {
-	ID_LENGTH: 16,								// length of peer id | default: 16
+	ID_LENGTH: 16,								// !!EVEN NUMBER ONLY!! length of peer id | default: 16
 	PUBKEY_LENGTH: 32,							// length of public/private keys | (ed25519) default: 32 bytes
 	PRIVATEKEY_LENGTH: 32,						// length of private key | (ed25519) default: 32 bytes
 	SIGNATURE_LENGTH: 64,						// length of signature | default: 64 bytes

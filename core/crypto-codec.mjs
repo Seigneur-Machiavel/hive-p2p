@@ -7,55 +7,39 @@ const [ed, {sha512}] = await Promise.all([
     import(NODE.IS_BROWSER ? 'https://unpkg.com/@noble/hashes@1.4.0/sha2.js' : '@noble/hashes/sha2.js')
 ]);
 ed.hashes.sha512 = sha512;
+
 const { sign, verify, keygen, getPublicKey } = ed;
-function fakeKeygen(nodeId = 'toto') { // Fake keygen for simulation only, require nodeId.
-	const fakePrivateKey = new Uint8Array(32).fill(0);
-	const fakePublicKey = new Uint8Array(32).fill(0);
-	const id = nodeId.padEnd(IDENTITY.ID_LENGTH, ' ').slice(0, IDENTITY.ID_LENGTH);
-	const idBytes = new TextEncoder().encode(id); // use nodeId to create a fake public key
-	for (let i = 0; i < IDENTITY.ID_LENGTH; i++) fakePublicKey[i] = idBytes[i];
-	return { secretKey: fakePrivateKey, publicKey: fakePublicKey };
-}
-
-export class CryptoIdCard {
-    /** @type {string} */ id;
-    /** @type {Uint8Array} */ publicKey;
-    /** @type {Uint8Array} */ privateKey;
-
-    constructor(id, publicKey, privateKey) {
-        this.id = id;
-        this.publicKey = publicKey;
-        this.privateKey = privateKey;
-    }
-
-    sign(message) { return sign(message, this.privateKey); }
-    //verifySignature(signature, message) { return verify(signature, message, this.publicKey); }
-	
-	/** @param {Uint8Array} signature @param {Uint8Array} message @param {Uint8Array} publicKey */
-	static verifySignature(signature, message, publicKey) { return verify(signature, message, publicKey); }
-    static generate(nodeId = 'toto') { // Generate Ed25519 keypair cross-platform | set id only for simulator
-        if (SIMULATION.AVOID_CRYPTO) {
-			const id = nodeId.padEnd(IDENTITY.ID_LENGTH, ' ').slice(0, IDENTITY.ID_LENGTH);
-			const { secretKey, publicKey } = fakeKeygen(nodeId);
-			return new CryptoIdCard(id, publicKey, secretKey);
-		}
-
-		const { secretKey, publicKey } = keygen();
-		const id = new CryptoCodec().idFromPublicKey(publicKey);
-        return new CryptoIdCard(id, publicKey, secretKey);
-    }
-}
 
 export class CryptoCodec {
-	converter = new Converter();
 	verbose = NODE.DEFAULT_VERBOSE;
-	idCard;
+	AVOID_CRYPTO = false;
+	ID_LENGTH = IDENTITY.ID_LENGTH;
+	/** @type {string} */ id;
+    /** @type {Uint8Array} */ publicKey;
+    /** @type {Uint8Array} */ privateKey;
+	converter = new Converter();
 
-	/** @param {CryptoIdCard} [idCard] */
-	constructor(idCard) { this.idCard = idCard; }
+	/** @param {string} [nodeId] If provided: used to generate a fake keypair > disable crypto operations */
+	constructor(nodeId) {
+		if (!nodeId) return; // IF NOT PROVIDED: generate() should be called.
+		this.AVOID_CRYPTO = true;
+		this.idFromPublicKey = (publicKey) => this.converter.bytesToString(publicKey.slice(0, this.ID_LENGTH));
+		this.id = nodeId.padEnd(this.ID_LENGTH, ' ').slice(0, this.ID_LENGTH);
+		this.privateKey = new Uint8Array(32).fill(0); this.publicKey = new Uint8Array(32).fill(0);
+		const idBytes = new TextEncoder().encode(this.id); // use nodeId to create a fake public key
+		for (let i = 0; i < this.ID_LENGTH; i++) this.publicKey[i] = idBytes[i];
+	}
 
 	/** @param {Uint8Array} publicKey */
-    idFromPublicKey(publicKey) { return this.converter.bytesToString(publicKey.slice(0, IDENTITY.ID_LENGTH)); }
+    idFromPublicKey(publicKey) { return this.converter.bytesToHex(publicKey.slice(0, this.ID_LENGTH / 2), this.ID_LENGTH); }
+	/** @param {Uint8Array} [seed] The privateKey. DON'T USE IN SIMULATION */
+	generate(seed) { // Generate Ed25519 keypair cross-platform | set id only for simulator
+		if (this.nodeId) return;
+		const { secretKey, publicKey } = keygen(seed);
+		this.id = this.idFromPublicKey(publicKey);
+		this.privateKey = secretKey; this.publicKey = publicKey;
+    }
+
 	signBufferViewAndAppendSignature(bufferView, privateKey, signaturePosition = bufferView.length - IDENTITY.SIGNATURE_LENGTH) {
 		const dataToSign = bufferView.subarray(0, signaturePosition);
 		bufferView.set(sign(dataToSign, privateKey), signaturePosition);
@@ -84,16 +68,15 @@ export class CryptoCodec {
 		
 		// 1, 1, 8, 4, 32, X, 64, 1
 		const { dataCode, dataBytes } = this.#dataToBytes(data);
-		const { publicKey, privateKey } = this.idCard;
 		const totalBytes = 1 + 1 + 8 + 4 + 32 + dataBytes.length + IDENTITY.SIGNATURE_LENGTH + 1;
 		const buffer = new ArrayBuffer(totalBytes);
 		const bufferView = new Uint8Array(buffer);
-		this.#setBufferHeader(bufferView, MARKER, dataCode, timestamp, dataBytes, publicKey);
+		this.#setBufferHeader(bufferView, MARKER, dataCode, timestamp, dataBytes, this.publicKey);
 		bufferView.set(dataBytes, 46); 			// X bytes for data
 		bufferView.set([Math.min(255, HOPS)], totalBytes - 1); // 1 byte for HOPS (Unsigned)
 
-		if (SIMULATION.AVOID_CRYPTO) return bufferView;
-		this.signBufferViewAndAppendSignature(bufferView, privateKey, totalBytes - IDENTITY.SIGNATURE_LENGTH - 1);
+		if (this.AVOID_CRYPTO) return bufferView;
+		this.signBufferViewAndAppendSignature(bufferView, this.privateKey, totalBytes - IDENTITY.SIGNATURE_LENGTH - 1);
 		return bufferView;
 	}
 	/** Decrement the HOPS value in a serialized gossip message @param {Uint8Array} serializedMessage */
@@ -113,17 +96,16 @@ export class CryptoCodec {
 		// 1, 1, 8, 4, 32, X, 1, X, 64
 		const routeBytes = this.converter.stringToBytes(route.join(''));
 		const { dataCode, dataBytes } = this.#dataToBytes(data);
-		const { publicKey, privateKey } = this.idCard;
 		const totalBytes = 1 + 1 + 8 + 4 + 32 + 1 + routeBytes.length + dataBytes.length + IDENTITY.SIGNATURE_LENGTH;
 		const buffer = new ArrayBuffer(totalBytes);
 		const bufferView = new Uint8Array(buffer);
-		this.#setBufferHeader(bufferView, MARKER, dataCode, timestamp, dataBytes, publicKey);
+		this.#setBufferHeader(bufferView, MARKER, dataCode, timestamp, dataBytes, this.publicKey);
 		bufferView.set(dataBytes, 46); // X bytes for data
 		bufferView.set([route.length], 46 + dataBytes.length); // 1 byte for route length
 		bufferView.set(routeBytes, 46 + 1 + dataBytes.length); // X bytes for route
 
-		if (SIMULATION.AVOID_CRYPTO) return bufferView;
-		this.signBufferViewAndAppendSignature(bufferView, privateKey, totalBytes - IDENTITY.SIGNATURE_LENGTH);
+		if (this.AVOID_CRYPTO) return bufferView;
+		this.signBufferViewAndAppendSignature(bufferView, this.privateKey, totalBytes - IDENTITY.SIGNATURE_LENGTH);
 		return bufferView;
 	}
 	/** @param {Uint8Array} serialized @param {string[]} newRoute */
@@ -131,17 +113,16 @@ export class CryptoCodec {
 		if (newRoute.length < 2) throw new Error('Failed to create rerouted unicast message: route must have at least 2 nodes (next hop and target).');
 		if (newRoute.length > UNICAST.MAX_HOPS) throw new Error(`Failed to create rerouted unicast message: route exceeds max hops (${UNICAST.MAX_HOPS}).`);
 	
-		const { publicKey, privateKey } = this.idCard;
 		const routeBytesArray = newRoute.map(id => this.converter.stringToBytes(id));
-		const totalBytes = serialized.length + 32 + (IDENTITY.ID_LENGTH * routeBytesArray.length) + IDENTITY.SIGNATURE_LENGTH;
+		const totalBytes = serialized.length + 32 + (this.ID_LENGTH * routeBytesArray.length) + IDENTITY.SIGNATURE_LENGTH;
 		const buffer = new ArrayBuffer(totalBytes);
 		const bufferView = new Uint8Array(buffer);
 		bufferView.set(serialized, 0); // original serialized message
-		bufferView.set(publicKey, serialized.length); // 32 bytes for new public key
-		for (let i = 0; i < routeBytesArray.length; i++) bufferView.set(routeBytesArray[i], serialized.length + 32 + (i * IDENTITY.ID_LENGTH)); // new route
+		bufferView.set(this.publicKey, serialized.length); // 32 bytes for new public key
+		for (let i = 0; i < routeBytesArray.length; i++) bufferView.set(routeBytesArray[i], serialized.length + 32 + (i * this.ID_LENGTH)); // new route
 		
-		if (SIMULATION.AVOID_CRYPTO) return bufferView;
-		this.signBufferViewAndAppendSignature(bufferView, privateKey, totalBytes - IDENTITY.SIGNATURE_LENGTH);
+		if (this.AVOID_CRYPTO) return bufferView;
+		this.signBufferViewAndAppendSignature(bufferView, this.privateKey, totalBytes - IDENTITY.SIGNATURE_LENGTH);
 		return bufferView;
 	}
 	/** @param {1 | 2 | 3} dataCode @param {Uint8Array} dataBytes @return {string | Uint8Array | Object} */
@@ -152,28 +133,29 @@ export class CryptoCodec {
 		throw new Error(`Failed to parse data: unknown data code '${dataCode}'.`);
 	}
 	/** @param {Uint8Array} bufferView */
-	readBufferHeader(bufferView) {
+	readBufferHeader(bufferView, readAssociatedId = true) {
 		const marker = bufferView[0]; 				// 1 byte for marker
 		const dataCode = bufferView[1];				// 1 byte for data type code
 		const tBytes = bufferView.slice(2, 10);		// 8 bytes for timestamp
 		const lBytes = bufferView.slice(10, 14);	// 4 bytes for data length
 		const pubkey = bufferView.slice(14, 46);	// 32 bytes for pubkey
+		const associatedId = this.idFromPublicKey(pubkey);
 		const timestamp = this.converter.bytes8ToNumber(tBytes);
 		const dataLength = this.converter.bytes4ToNumber(lBytes);
 		const data = bufferView.slice(46, 46 + dataLength); // read X bytes of data
-		return { marker, dataCode, timestamp, dataLength, pubkey, data };
+		return { marker, dataCode, timestamp, dataLength, pubkey, data, associatedId };
 	}
 	/** @param {Uint8Array | ArrayBuffer} serialized @return {GossipMessage | null } */
 	readGossipMessage(serialized) {
 		if (this.verbose > 3) console.log('readGossipMessage', serialized);
 		try { // 1, 1, 8, 4, 32, X, 64, 1
-			const { marker, dataCode, timestamp, dataLength, pubkey, data } = this.readBufferHeader(serialized);
+			const { marker, dataCode, timestamp, dataLength, pubkey, associatedId, data } = this.readBufferHeader(serialized);
 			const topic = GOSSIP.MARKERS_BYTES[marker];
 			if (topic === undefined) throw new Error(`Failed to deserialize gossip message: unknown marker byte ${d[0]}.`);
 			const deserializedData = this.#bytesToData(dataCode, data);
 			const signature = serialized.slice(46 + dataLength, 46 + dataLength + IDENTITY.SIGNATURE_LENGTH);
 			const HOPS = serialized[serialized.length - 1];
-			const senderId = this.idFromPublicKey(pubkey);
+			const senderId = associatedId;
 			return new GossipMessage(topic, timestamp, HOPS, senderId, pubkey, deserializedData, signature);
 		} catch (error) { if (this.verbose > 1) console.warn(`Error deserializing ${topic || 'unknown'} gossip message:`, error.message); }
 		return null;
@@ -182,12 +164,12 @@ export class CryptoCodec {
 	readUnicastMessage(serialized) {
 		if (this.verbose > 3) console.log('readUnicastMessage', serialized);
 		try { // 1, 1, 8, 4, 32, X, 1, X, 64
-			const { marker, dataCode, timestamp, dataLength, pubkey, data } = this.readBufferHeader(serialized);
+			const { marker, dataCode, timestamp, dataLength, pubkey, data } = this.readBufferHeader(serialized, false);
 			const type = UNICAST.MARKERS_BYTES[marker];
 			if (type === undefined) throw new Error(`Failed to deserialize unicast message: unknown marker byte ${d[0]}.`);
 			const deserializedData = this.#bytesToData(dataCode, data);
 			const routeLength = serialized[46 + dataLength];
-			const routeBytesLength = routeLength * IDENTITY.ID_LENGTH;
+			const routeBytesLength = routeLength * this.ID_LENGTH;
 			const signatureStart = 46 + dataLength + 1 + routeBytesLength;
 			const routeBytes = serialized.slice(46 + dataLength + 1, signatureStart);
 			const route = this.readUnicastRoute(routeBytes);
@@ -206,8 +188,8 @@ export class CryptoCodec {
 	/** @param {Uint8Array} serialized */
 	readUnicastRoute(serialized) {
 		const route = [];
-		for (let i = 0; i < serialized.length / IDENTITY.ID_LENGTH; i++) {
-			const idBytes = serialized.slice(i * IDENTITY.ID_LENGTH, (i + 1) * IDENTITY.ID_LENGTH);
+		for (let i = 0; i < serialized.length / this.ID_LENGTH; i++) {
+			const idBytes = serialized.slice(i * this.ID_LENGTH, (i + 1) * this.ID_LENGTH);
 			route.push(this.converter.bytesToString(idBytes));
 		}
 		return route;

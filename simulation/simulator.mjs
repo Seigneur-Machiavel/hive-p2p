@@ -8,8 +8,7 @@ import { TestWsServer, TestWsConnection, TestTransport,
 //import { MessageQueue, Statician, TransmissionAnalyzer, SubscriptionsManager } from './simulator-utils.mjs';
 
 // SETUP SIMULATION ENV -----------------------------------------------\
-CLOCK.mockMode = SIMULATION.USE_TEST_TRANSPORTS; // to speed up simulation						|
-SIMULATION.AVOID_CRYPTO = true; // to speed up simulation				|
+CLOCK.mockMode = SIMULATION.USE_TEST_TRANSPORTS; //						|
 IDENTITY.PUBLIC_PREFIX = 'P_'; //	better readability					|
 IDENTITY.STANDARD_PREFIX = 'N_'; //	better readability					|
 IDENTITY.FOLLOWER_PREFIX = 'F_'; //	better readability					|
@@ -22,7 +21,7 @@ if (SIMULATION.USE_TEST_TRANSPORTS) {//									|
 
 // IMPORT NODE AFTER SIMULATION ENV SETUP
 const { MessageQueue, Statician, TransmissionAnalyzer, SubscriptionsManager } = await import('./simulator-utils.mjs');
-const { CryptoIdCard, CryptoCodec } = await import('../core/crypto-codec.mjs');
+const { CryptoCodec } = await import('../core/crypto-codec.mjs');
 const { NodeP2P } = await import('../core/node.mjs'); // dynamic import to allow simulation overrides
 // TO ACCESS THE VISUALIZER GO TO: http://localhost:3000 ------\
 // LOGS COLORS :											   |
@@ -128,8 +127,8 @@ function addPeer(type, i = 0, bootstraps = [], init = false, setPublic = false) 
 	const selectedBootstraps = type === 'STANDARD_NODE' ? pickUpRandomBootstraps() : bootstraps;
 	const domain = setPublic ? 'localhost' : undefined;
 	const port = setPublic ? 8080 + (i * 2) : undefined;
-	const idCard = CryptoIdCard.generate(`${type === 'STANDARD_NODE' ? IDENTITY.STANDARD_PREFIX : IDENTITY.PUBLIC_PREFIX}${i}`);
-	const peer = NodeP2P.createNode(selectedBootstraps, idCard, init, domain, port);
+	const cryptoCodec = new CryptoCodec(`${type === 'STANDARD_NODE' ? IDENTITY.STANDARD_PREFIX : IDENTITY.PUBLIC_PREFIX}${i}`);
+	const peer = NodeP2P.createNode(selectedBootstraps, cryptoCodec, init, domain, port);
 	peers.all[peer.id] = peer;
 	peers[type === 'STANDARD_NODE' ? 'standard' : 'public'].push(peer);
 	if (setPublic) sVARS.publicPeersCards.push({ id: peer.id, publicUrl: peer.publicUrl });
@@ -288,8 +287,8 @@ class TwitchChatCommandInterpreter {
 			.normalize('NFD')                    // décomposer les accents
 			.replace(/[\u0300-\u036f]/g, '')     // supprimer les accents
 			.replace(/[^\w-]/g, '_')             // remplacer chars spéciaux par _
-		const idCard = CryptoIdCard.generate(`${IDENTITY.FOLLOWER_PREFIX}${cleanUser}`);
-		const peer = NodeP2P.createNode(pickUpRandomBootstraps(), idCard, true);
+		const cryptoCodec = new CryptoCodec(`${IDENTITY.FOLLOWER_PREFIX}${cleanUser}`);
+		const peer = NodeP2P.createNode(pickUpRandomBootstraps(), cryptoCodec, true);
 		this.userNodes[user] = peer;
 		peers.all[peer.id] = peer;
 		peers.standard.unshift(peer);
