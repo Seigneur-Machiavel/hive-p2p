@@ -141,17 +141,16 @@ export class Gossip {
 		for (const cb of this.callbacks[topic] || []) cb(senderId, data, HOPS, message); // specific topic callback
 		if (HOPS < 1) return; // stop forwarding if HOPS is 0
 
-		const neighbours = Object.entries(this.peerStore.connected);
-		const nCount = neighbours.length;
+		const myNeighbours = Object.entries(this.peerStore.connected);
+		const nCount = myNeighbours.length;
 		const trm = Math.max(1, nCount / GOSSIP.TRANSMISSION_RATE.NEIGHBOURS_PONDERATION);
 		const tRateBase = GOSSIP.TRANSMISSION_RATE[topic] || GOSSIP.TRANSMISSION_RATE.default;
 		const transmissionRate = Math.pow(tRateBase, trm);
 		const avoidTransmissionRate = nCount < GOSSIP.TRANSMISSION_RATE.MIN_NEIGHBOURS_TO_APPLY_PONDERATION;
 		const serializedToTransmit = this.cryptoCodec.decrementGossipHops(serialized);
-		for (const [peerId, conn] of neighbours) {
+		for (const [peerId, conn] of myNeighbours)
 			if (peerId === from) continue; // avoid sending back to sender
-			if (!avoidTransmissionRate && Math.random() > transmissionRate) continue; // apply gossip transmission rate
-			this.#broadcastToPeer(peerId, serializedToTransmit);
-		}
+			else if (!avoidTransmissionRate && Math.random() > transmissionRate) continue; // apply gossip transmission rate
+			else this.#broadcastToPeer(peerId, serializedToTransmit);
 	}
 }

@@ -30,6 +30,7 @@ export class CryptoCodec {
 		for (let i = 0; i < this.ID_LENGTH; i++) this.publicKey[i] = idBytes[i];
 	}
 
+	// IDENTITY
 	/** @param {Uint8Array} publicKey */
     idFromPublicKey(publicKey) { return this.converter.bytesToHex(publicKey.slice(0, this.ID_LENGTH / 2), this.ID_LENGTH); }
 	/** @param {Uint8Array} [seed] The privateKey. DON'T USE IN SIMULATION */
@@ -40,6 +41,7 @@ export class CryptoCodec {
 		this.privateKey = secretKey; this.publicKey = publicKey;
     }
 
+	// MESSSAGE CREATION (SERIALIZATION AND SIGNATURE INCLUDED)
 	signBufferViewAndAppendSignature(bufferView, privateKey, signaturePosition = bufferView.length - IDENTITY.SIGNATURE_LENGTH) {
 		const dataToSign = bufferView.subarray(0, signaturePosition);
 		bufferView.set(sign(dataToSign, privateKey), signaturePosition);
@@ -125,6 +127,8 @@ export class CryptoCodec {
 		this.signBufferViewAndAppendSignature(bufferView, this.privateKey, totalBytes - IDENTITY.SIGNATURE_LENGTH);
 		return bufferView;
 	}
+
+	// MESSSAGE READING (DESERIALIZATION AND SIGNATURE VERIFICATION INCLUDED)
 	/** @param {1 | 2 | 3} dataCode @param {Uint8Array} dataBytes @return {string | Uint8Array | Object} */
 	#bytesToData(dataCode, dataBytes) {
 		if (dataCode === 1) return this.converter.bytesToString(dataBytes);

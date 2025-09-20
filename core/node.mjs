@@ -119,10 +119,7 @@ export class NodeP2P {
 		do {
 			if (this.peerStore.sdpOfferManager.readyOffer) break;
 			else await new Promise(r => setTimeout(r, 1000)); // build in progress...
-		} while (retry-- > 0);
-		
-		const readyOffer = this.peerStore.sdpOfferManager.readyOffer;
-		this.messager.sendUnicast(targetId, 'signal_offer', { signal: readyOffer, neighbours: this.peerStore.neighbours });*/
+		} while (retry-- > 0);*/
 	}
 	#setAsPublic(domain = 'localhost', port = NODE.SERVICE.PORT) {
 		this.publicUrl = `ws://${domain}:${port}`;

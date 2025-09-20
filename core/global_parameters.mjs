@@ -33,18 +33,18 @@ export const NODE = {
 	SERVICE: {
 		PORT: 8080,
 		AUTO_KICK_DELAY: { min: 30_000, max: 60_000 }, // default: { min: 30_000, max: 60_000 }
-		AUTO_KICK_DURATION: 60_000, 	// default: 60_000 (1 minute)
-		MAX_WS_IN_CONNS: 20, 			// Limit of WebSocketServer incoming connections | default: 20
-		MAX_WS_OUT_CONNS: 2, 			// Max outgoing WebSocket connections to public nodes | default: 2
+		AUTO_KICK_DURATION: 60_000, // default: 60_000 (1 minute)
+		MAX_WS_IN_CONNS: 20, 		// Limit of WebSocketServer incoming connections | default: 20
+		MAX_WS_OUT_CONNS: 2, 		// Max outgoing WebSocket connections to public nodes | default: 2
 	},
 }
 
 export const IDENTITY = {
-	ID_LENGTH: 16,								// !!EVEN NUMBER ONLY!! length of peer id | default: 16
-	PUBKEY_LENGTH: 32,							// length of public/private keys | (ed25519) default: 32 bytes
-	PRIVATEKEY_LENGTH: 32,						// length of private key | (ed25519) default: 32 bytes
-	SIGNATURE_LENGTH: 64,						// length of signature | default: 64 bytes
-	PUBLIC_PREFIX: 'P', 						// Identifier prefix for public nodes | default: 'P'
+	ID_LENGTH: 16,					// !!EVEN NUMBER ONLY!! length of peer id | default: 16
+	PUBKEY_LENGTH: 32,				// length of public/private keys | (ed25519) default: 32 bytes
+	PRIVATEKEY_LENGTH: 32,			// length of private key | (ed25519) default: 32 bytes
+	SIGNATURE_LENGTH: 64,			// length of signature | default: 64 bytes
+	PUBLIC_PREFIX: 'P', 			// Identifier prefix for public nodes | default: 'P'
 }
 
 export const TRANSPORTS = {
@@ -99,7 +99,7 @@ export const GOSSIP = { // MARKERS RANGE: 128-255
 	EXPIRATION: 10_000, 	// Time to consider a message as valid | default: 10_000 (10 seconds)
 	CACHE_DURATION: 20_000, // Duration to keep messages in cache
 	HOPS: { // GOSSIP LIMITATION > LIMITING THE HOPS BASED ON THE MESSAGE TYPE
-		default: 10,
+		default: 16, 		// 16 should be the maximum
 		// signal_offer: 6, // works with 3
 		// peer_connected: 3,
 		// peer_disconnected: 3,
