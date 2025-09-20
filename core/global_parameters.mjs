@@ -14,10 +14,10 @@ export const SIMULATION = {
 	ICE_OFFER_FAILURE_RATE: .2, 	// default: .2, 20% offer failure
 	ICE_ANSWER_FAILURE_RATE: .15, 	// default: .15, 15% answer failure
 	// SIMULATOR OPTIONS
-	AVOID_FOLLOWERS_NODES: true, 	// avoid twitch nodes creation | default: true
+	AVOID_FOLLOWERS_NODES: false, 	// avoid twitch nodes creation | default: true
 	AUTO_START: true,				// auto start the simulation, false to wait the frontend | default: true
-	PUBLIC_PEERS_COUNT: 2,			// stable: 3,  medium: 20,  strong: 100 | default: 2
-	PEERS_COUNT: 10,				// stable: 25, medium: 800, strong: 4900 | default: 12
+	PUBLIC_PEERS_COUNT: 100,		// stable: 3,  medium: 20,  strong: 100 | default: 2
+	PEERS_COUNT: 4900,				// stable: 25, medium: 800, strong: 4900 | default: 12
 	BOOTSTRAPS_PER_PEER: 10,		// will not be exact, more like a limit. null = all of them | default: 10
 	DELAY_BETWEEN_INIT: 60,			// 0 = faster for simulating big networks but > 0 = should be more realistic | default: 60 (60sec to start 1000 peers)
 	RANDOM_UNICAST_PER_SEC: 0,		// default: .1, capped at a total of 500msg/sec | default: 1
@@ -27,7 +27,7 @@ export const SIMULATION = {
 }
 
 export const NODE = {
-	DEFAULT_VERBOSE: 2, // 0: none, 1: errors, 2: +important info, 3: +debug, 4: +everything
+	DEFAULT_VERBOSE: 1, // 0: none, 1: errors, 2: +important info, 3: +debug, 4: +everything
 	IS_BROWSER: isNode ? false : true,	// Flag to indicate if we are running in a browser environment
 	CONNECTION_UPGRADE_TIMEOUT: 15_000, // time to close connection of connecting peer | default: 15_000 (15 seconds), to make signal throw: 4_000 (4 seconds)
 	SERVICE: {
@@ -40,7 +40,7 @@ export const NODE = {
 }
 
 export const IDENTITY = {
-	ARE_IDS_HEX: true,				// Boolean to indicate if we use hex ids (true) or base58 ids (false) | default: false
+	ARE_IDS_HEX: false,				// Boolean to indicate if we use hex ids, default: true = hex | false = strings as Bytes (can involve in serialization failures)
 	ID_LENGTH: 16,					// !!EVEN NUMBER ONLY!! length of peer id | default: 16
 	PUBKEY_LENGTH: 32,				// length of public/private keys | (ed25519) default: 32 bytes
 	PRIVATEKEY_LENGTH: 32,			// length of private key | (ed25519) default: 32 bytes

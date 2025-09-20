@@ -144,7 +144,6 @@ async function initPeers() {
 	const d = SIMULATION.DELAY_BETWEEN_INIT;
 	for (sVARS.publicInit; sVARS.publicInit < SIMULATION.PUBLIC_PEERS_COUNT; sVARS.publicInit++) addPeer('PUBLIC_NODE', sVARS.publicInit, [], true, true);
 	for (let i = 0; i < SIMULATION.PEERS_COUNT; i++) addPeer('STANDARD_NODE', i, sVARS.publicPeersCards, d === 0);
-	console.log(peers.public.map(p => p.id)); // DEBUG
 
 	console.log(`%c| PEERS CREATED: { Public: ${peers.public.length}, Standard: ${peers.standard.length} } |`, 'color: yellow; font-weight: bold;');
 	if (d === 0) return sVARS.nextPeerToInit = SIMULATION.PEERS_COUNT; // already initialized
@@ -152,7 +151,6 @@ async function initPeers() {
 	sVARS.nextPeerToInit = 0;
 	initInterval = setInterval(() => { // ... Or successively
 		if (peers.standard[sVARS.nextPeerToInit++]?.start()) return;
-		console.log(peers.standard.map(p => p.id)); // DEBUG
 		clearInterval(initInterval);
 		console.log(`%c| °°° ALL PEERS INITIALIZED °°° |`, 'color: yellow; font-weight: bold;');
 	}, d);

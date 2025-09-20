@@ -27,11 +27,7 @@ export class CryptoCodex {
 	/** @param {string} id */
 	static isPublicNode(id) {
 		if (!IDENTITY.ARE_IDS_HEX) return id.startsWith(IDENTITY.PUBLIC_PREFIX);
-		//return Converter.hexToBits(id[0])[0] === IDENTITY.PUBLIC_PREFIX;
-		const firstChar = id[0]; // DEBUG
-		const firstCharBits = Converter.hexToBits(firstChar);
-		const isPub = firstCharBits.startsWith(IDENTITY.PUBLIC_PREFIX);
-		return isPub;
+		return Converter.hexToBits(id[0])[0] === IDENTITY.PUBLIC_PREFIX;
 	}
 	/** @param {string} id */
 	isPublicNode(id) { return CryptoCodex.isPublicNode(id); }

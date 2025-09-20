@@ -80,7 +80,7 @@ export class TransmissionAnalyzer {
 		if (!this.gossip.sendAt) return null;
 		const timestamps = Object.values(this.gossip.receivedBy);
 		const latencies = timestamps.map(t => t - this.gossip.sendAt);
-		const initializedPeersCount = this.sVARS.publicInit + this.sVARS.nextPeerToInit;
+		const initializedPeersCount = this.sVARS.publicInit + this.sVARS.nextPeerToInit - 1;
 		const stats = {
 			received: `${Object.keys(this.gossip.receivedBy).length}/${initializedPeersCount - 1}`,
 			averageLatency: latencies.length === 0 ? 0 : Math.round(latencies.reduce((a, b) => a + b, 0) / latencies.length)
