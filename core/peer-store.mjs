@@ -1,4 +1,4 @@
-import { CLOCK, SIMULATION, IDENTITY, DISCOVERY } from './global_parameters.mjs';
+import { CLOCK, SIMULATION, DISCOVERY } from './global_parameters.mjs';
 import { PeerConnection, KnownPeer, SdpOfferManager, Punisher } from './peer-store-managers.mjs';
 const { SANDBOX, ICE_CANDIDATE_EMITTER, TEST_WS_EVENT_MANAGER } = SIMULATION.ENABLED ? await import('../simulation/test-transports.mjs') : {};
 
@@ -92,7 +92,7 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 		this.neighbours.push(peerId);
 		this.#linkPeers(this.id, peerId); // Add link in self store
 		//this.sdpOfferManager.isConnectedToAtLeastOnePeer = true; // flag for offer creation
-		if (this.verbose > (peerId.startsWith(IDENTITY.PUBLIC_PREFIX) ? 3 : 2)) console.log(`(${this.id}) ${direction === 'in' ? 'Incoming' : 'Outgoing'} ${peerConn.isWebSocket ? 'WebSocket' : 'WRTC'} connection established with peer ${peerId}`);
+		if (this.verbose > (this.cryptoCodec.isPublicNode(peerId) ? 3 : 2)) console.log(`(${this.id}) ${direction === 'in' ? 'Incoming' : 'Outgoing'} ${peerConn.isWebSocket ? 'WebSocket' : 'WRTC'} connection established with peer ${peerId}`);
 	}
 	#handleDisconnect(peerId, direction) { // First callback assigned in constructor
 		this.#removePeer(peerId, 'connected', direction);

@@ -14,7 +14,7 @@ export const SIMULATION = {
 	ICE_OFFER_FAILURE_RATE: .2, 	// default: .2, 20% offer failure
 	ICE_ANSWER_FAILURE_RATE: .15, 	// default: .15, 15% answer failure
 	// SIMULATOR OPTIONS
-	AVOID_FOLLOWERS_NODES: false, 	// avoid twitch nodes creation | default: true
+	AVOID_FOLLOWERS_NODES: true, 	// avoid twitch nodes creation | default: true
 	AUTO_START: true,				// auto start the simulation, false to wait the frontend | default: true
 	PUBLIC_PEERS_COUNT: 2,			// stable: 3,  medium: 20,  strong: 100 | default: 2
 	PEERS_COUNT: 10,				// stable: 25, medium: 800, strong: 4900 | default: 12
@@ -40,6 +40,7 @@ export const NODE = {
 }
 
 export const IDENTITY = {
+	ARE_IDS_HEX: true,				// Boolean to indicate if we use hex ids (true) or base58 ids (false) | default: false
 	ID_LENGTH: 16,					// !!EVEN NUMBER ONLY!! length of peer id | default: 16
 	PUBKEY_LENGTH: 32,				// length of public/private keys | (ed25519) default: 32 bytes
 	PRIVATEKEY_LENGTH: 32,			// length of private key | (ed25519) default: 32 bytes

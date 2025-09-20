@@ -1,4 +1,4 @@
-import { CLOCK, SIMULATION, NODE, TRANSPORTS, IDENTITY, DISCOVERY } from './global_parameters.mjs';
+import { CLOCK, SIMULATION, NODE, TRANSPORTS, DISCOVERY } from './global_parameters.mjs';
 import { PeerStore } from './peer-store.mjs';
 import { PeerConnection } from './peer-store-managers.mjs';
 import { UnicastMessager } from './unicast.mjs';
@@ -53,7 +53,7 @@ export class NodeP2P {
 	// PRIVATE METHODS
 	/** @param {string} peerId @param {'in' | 'out'} direction */
 	#onConnect = (peerId, direction) => {
-		const [selfIsPublic, remoteIsPublic] = [this.publicUrl, peerId.startsWith(IDENTITY.PUBLIC_PREFIX)];
+		const [selfIsPublic, remoteIsPublic] = [this.publicUrl, this.cryptoCodec.isPublicNode(peerId)];
 		if (selfIsPublic) return; // public node do not need to do anything special on connect
 		if (this.verbose > ((selfIsPublic || remoteIsPublic) ? 3 : 2)) console.log(`(${this.id}) ${direction === 'in' ? 'Incoming' : 'Outgoing'} connection established with peer ${peerId}`);
 		
@@ -69,7 +69,7 @@ export class NodeP2P {
 	}
 	/** @param {string} peerId @param {'in' | 'out'} direction */
 	#onDisconnect = (peerId, direction) => {
-		const [selfIsPublic, remoteIsPublic] = [this.publicUrl, peerId.startsWith(IDENTITY.PUBLIC_PREFIX)];
+		const [selfIsPublic, remoteIsPublic] = [this.publicUrl, this.cryptoCodec.isPublicNode(peerId)];
 		const connDuration = this.peerStore.connected[peerId]?.getConnectionDuration() || 0;
 		if (connDuration < DISCOVERY.ON_DISCONNECT_DISPATCH.MIN_CONNECTION_TIME) return;
 		if (this.peerStore.connected[peerId]) return; // still connected, ignore disconnection for now ?

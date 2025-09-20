@@ -40,7 +40,6 @@ export class Converter {
 	// OTHERS
 	/** @param {string} hex - Hex string to convert to bits @param {'string' | 'array'} format - Output format */
 	static hexToBits(hex = 'ffffff', format = 'string') {
-		if (hex.length % 2 !== 0) throw new Error('The length of the input is not a multiple of 2.');
 		let bitsString = ''; // WE USE STRING METHODS FOR PERFORMANCE (number '0' = 8 Bytes | string '0' = 1 Byte)
 		for (let i = 0; i < hex.length; i++) bitsString += parseInt(hex[i], 16).toString(2).padStart(4, '0');
 		return format === 'string' ? bitsString : bitsString.split('');

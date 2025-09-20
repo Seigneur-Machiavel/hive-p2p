@@ -1,4 +1,5 @@
-import { SIMULATION, NODE, UNICAST, GOSSIP, IDENTITY } from '../core/global_parameters.mjs';
+import { SIMULATION, NODE, UNICAST, GOSSIP } from '../core/global_parameters.mjs';
+import { CryptoCodec } from '../core/crypto-codec.mjs';
 
 export class MessageQueue {
 	/** @type {Record<string, any>} */
@@ -31,10 +32,10 @@ export class Statician { // DO NOT ADD VARIABLES, JUST COUNTERS !!
 			let establishedWrtcConnCount = 0;
 			let wrtcToEstablishCount = 0;
 			for (const [peerId, p] of Object.entries(peers.all)) {
-				if (peerId.startsWith(IDENTITY.PUBLIC_PREFIX)) continue;
+				if (CryptoCodec.isPublicNode(peerId)) continue;
 				if (p.started) wrtcToEstablishCount++;
 				for (const id of Object.keys(p.peerStore.connected))
-					if (id.startsWith(IDENTITY.PUBLIC_PREFIX)) continue;
+					if (CryptoCodec.isPublicNode(id)) continue;
 					else { establishedWrtcConnCount++; break; }
 			}
 

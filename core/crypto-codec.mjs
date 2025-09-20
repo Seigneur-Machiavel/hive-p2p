@@ -8,7 +8,6 @@ export class CryptoCodec {
 	verbose = NODE.DEFAULT_VERBOSE;
 	AVOID_CRYPTO = false;
 	ID_LENGTH = IDENTITY.ID_LENGTH;
-	ARE_IDS_HEX = true; // if true: #idFromPublicKey() returns hex | else: string
 	/** @type {string} */ id;
     /** @type {Uint8Array} */ publicKey;
     /** @type {Uint8Array} */ privateKey;
@@ -18,7 +17,6 @@ export class CryptoCodec {
 	constructor(nodeId) {
 		if (!nodeId) return; // IF NOT PROVIDED: generate() should be called.
 		this.AVOID_CRYPTO = true;
-		this.ARE_IDS_HEX = false;
 		this.id = nodeId.padEnd(this.ID_LENGTH, ' ').slice(0, this.ID_LENGTH);
 		this.privateKey = new Uint8Array(32).fill(0); this.publicKey = new Uint8Array(32).fill(0);
 		const idBytes = new TextEncoder().encode(this.id); // use nodeId to create a fake public key
@@ -26,13 +24,15 @@ export class CryptoCodec {
 	}
 
 	// IDENTITY
-	isPublicNode(id) {
-		if (this.ARE_IDS_HEX) return id.startsWith(IDENTITY.PUBLIC_PREFIX);
-		else return id.startsWith(IDENTITY.PUBLIC_PREFIX);
+	/** @param {string} id */
+	static isPublicNode(id) {
+		if (!IDENTITY.ARE_IDS_HEX) return id.startsWith(IDENTITY.PUBLIC_PREFIX);
+		return Converter.hexToBits(id[0])[0] === IDENTITY.PUBLIC_PREFIX;
 	}
-	/** @param {Uint8Array} publicKey */
+	/** @param {string} id */
+	isPublicNode(id) { return CryptoCodec.isPublicNode(id); }
     #idFromPublicKey(publicKey) {
-		if (this.ARE_IDS_HEX) return this.converter.bytesToHex(publicKey.slice(0, this.ID_LENGTH / 2), this.ID_LENGTH);
+		if (IDENTITY.ARE_IDS_HEX) return this.converter.bytesToHex(publicKey.slice(0, this.ID_LENGTH / 2), this.ID_LENGTH);
 		return this.converter.bytesToString(publicKey.slice(0, this.ID_LENGTH));
 	}
 	/** @param {Uint8Array} [seed] The privateKey. DON'T USE IN SIMULATION */
@@ -41,11 +41,12 @@ export class CryptoCodec {
 		this.#generateAntiSybilIdentity(seed, isPublicNode ? true : false, 0);
     }
 	#generateAntiSybilIdentity(seed, isPublicNode, difficulty = 0) {
-		while(true) {
+		for (let i = 0; i < 1000; i++) { // avoid infinite loop
 			const { secretKey, publicKey } = keygen(seed);
 			const id = this.#idFromPublicKey(publicKey);
-			const bits = this.converter.hexToBits(id);
-			// Check difficulty
+			const isPublicNodeId = this.isPublicNode(id);
+			if (isPublicNode && !isPublicNodeId) continue; // Check prefix
+			if (!isPublicNode && isPublicNodeId) continue; // Check prefix
 			this.id = id;
 			this.privateKey = secretKey; this.publicKey = publicKey;
 		}
@@ -54,18 +55,18 @@ export class CryptoCodec {
 	// MESSSAGE CREATION (SERIALIZATION AND SIGNATURE INCLUDED)
 	/** @param {string[]} ids */
 	idsToBytes(ids) {
-		if (this.ARE_IDS_HEX) return this.converter.hexToBytes(ids.join(''), this.ID_LENGTH * ids.length);
+		if (IDENTITY.ARE_IDS_HEX) return this.converter.hexToBytes(ids.join(''), this.ID_LENGTH * ids.length);
 		return this.converter.stringToBytes(ids.join(''));
 	}
 	/** @param {Uint8Array} serialized */
-	bytesToIds(serialized) {
+	#bytesToIds(serialized) {
 		const ids = [];
-		const idLength = this.ARE_IDS_HEX ? this.ID_LENGTH / 2 : this.ID_LENGTH;
+		const idLength = IDENTITY.ARE_IDS_HEX ? this.ID_LENGTH / 2 : this.ID_LENGTH;
 		if (serialized.length % idLength !== 0) throw new Error('Failed to parse ids: invalid serialized length.');
 
 		for (let i = 0; i < serialized.length / idLength; i++) {
 			const idBytes = serialized.slice(i * idLength, (i + 1) * idLength);
-			if (this.ARE_IDS_HEX) ids.push(this.converter.bytesToHex(idBytes, this.ID_LENGTH));
+			if (IDENTITY.ARE_IDS_HEX) ids.push(this.converter.bytesToHex(idBytes, this.ID_LENGTH));
 			else ids.push(this.converter.bytesToString(idBytes));
 		}
 		return ids;
@@ -138,7 +139,7 @@ export class CryptoCodec {
 		const NDBL = neighboursBytes.length + dataBytes.length;
 		bufferView.set(neighboursBytes, 47); 					// X bytes for neighbours
 		bufferView.set(dataBytes, 47 + neighboursBytes.length); // X bytes for data
-		bufferView.set([route.length], 47 + NDBL); 				// 1 byte for route length
+		bufferView.set([route.length], 47 + NDBL);				// 1 byte for route length
 		bufferView.set(routeBytes, 47 + 1 + NDBL);				// X bytes for route
 
 		if (this.AVOID_CRYPTO) return bufferView;
@@ -181,7 +182,7 @@ export class CryptoCodec {
 		const lBytes = bufferView.slice(11, 15);	// 4 bytes for data length
 		const pubkey = bufferView.slice(15, 47);	// 32 bytes for pubkey
 		const associatedId = readAssociatedId ? this.#idFromPublicKey(pubkey) : null;
-		const neighLength = this.ID_LENGTH * neighboursCount;
+		const neighLength = neighboursCount * (IDENTITY.ARE_IDS_HEX ? this.ID_LENGTH / 2 : this.ID_LENGTH);
 		const timestamp = this.converter.bytes8ToNumber(tBytes);
 		const dataLength = this.converter.bytes4ToNumber(lBytes);
 		return { marker, dataCode, neighLength, timestamp, dataLength, pubkey, associatedId };
@@ -194,7 +195,7 @@ export class CryptoCodec {
 			const topic = GOSSIP.MARKERS_BYTES[marker];
 			if (topic === undefined) throw new Error(`Failed to deserialize gossip message: unknown marker byte ${d[0]}.`);
 			const NDBL = neighLength + dataLength;
-			const neighbors = this.bytesToIds(serialized.slice(47, 47 + neighLength));
+			const neighbors = this.#bytesToIds(serialized.slice(47, 47 + neighLength));
 			const deserializedData = this.#bytesToData(dataCode, serialized.slice(47 + neighLength, 47 + NDBL));
 			const signature = serialized.slice(47 + NDBL, 47 + NDBL + IDENTITY.SIGNATURE_LENGTH);
 			const HOPS = serialized[serialized.length - 1];
@@ -211,21 +212,21 @@ export class CryptoCodec {
 			const type = UNICAST.MARKERS_BYTES[marker];
 			if (type === undefined) throw new Error(`Failed to deserialize unicast message: unknown marker byte ${d[0]}.`);
 			const NDBL = neighLength + dataLength;
-			const neighbors = this.bytesToIds(serialized.slice(47, 47 + neighLength));
+			const neighbors = this.#bytesToIds(serialized.slice(47, 47 + neighLength));
 			const deserializedData = this.#bytesToData(dataCode, serialized.slice(47 + neighLength, 47 + NDBL));
 			const routeLength = serialized[47 + NDBL];
-			const idLength = this.ARE_IDS_HEX ? this.ID_LENGTH / 2 : this.ID_LENGTH;
+			const idLength = IDENTITY.ARE_IDS_HEX ? this.ID_LENGTH / 2 : this.ID_LENGTH;
 			const routeBytesLength = routeLength * idLength;
 			const signatureStart = 47 + NDBL + 1 + routeBytesLength;
 			const routeBytes = serialized.slice(47 + NDBL + 1, signatureStart);
-			const route = this.bytesToIds(routeBytes);
+			const route = this.#bytesToIds(routeBytes);
 			const initialMessageEnd = signatureStart + IDENTITY.SIGNATURE_LENGTH;
 			const signature = serialized.slice(signatureStart, initialMessageEnd);
 			const isPatched = (serialized.length > initialMessageEnd);
 			if (!isPatched) return new DirectMessage(type, timestamp, neighbors, route, pubkey, deserializedData, signature);
 
 			const rerouterPubkey = serialized.slice(initialMessageEnd, initialMessageEnd + 32);
-			const newRoute = this.bytesToIds(serialized.slice(initialMessageEnd + 32, serialized.length - IDENTITY.SIGNATURE_LENGTH));
+			const newRoute = this.#bytesToIds(serialized.slice(initialMessageEnd + 32, serialized.length - IDENTITY.SIGNATURE_LENGTH));
 			const rerouterSignature = serialized.slice(serialized.length - IDENTITY.SIGNATURE_LENGTH);
 			return new ReroutedDirectMessage(type, timestamp, neighbors, route, pubkey, deserializedData, signature, rerouterPubkey, newRoute, rerouterSignature);
 		} catch (error) { if (this.verbose > 1) console.warn(`Error deserializing ${type || 'unknown'} unicast message:`, error.stack); }

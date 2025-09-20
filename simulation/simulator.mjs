@@ -127,8 +127,7 @@ function addPeer(type, i = 0, bootstraps = [], init = false, setPublic = false) 
 	const selectedBootstraps = type === 'STANDARD_NODE' ? pickUpRandomBootstraps() : bootstraps;
 	const domain = setPublic ? 'localhost' : undefined;
 	const port = setPublic ? 8080 + (i * 2) : undefined;
-	//const cryptoCodec = new CryptoCodec(`${type === 'STANDARD_NODE' ? IDENTITY.STANDARD_PREFIX : IDENTITY.PUBLIC_PREFIX}${i}`);
-	const cryptoCodec = new CryptoCodec();
+	const cryptoCodec = IDENTITY.ARE_IDS_HEX ? new CryptoCodec() : new CryptoCodec(`${type === 'STANDARD_NODE' ? IDENTITY.STANDARD_PREFIX : IDENTITY.PUBLIC_PREFIX}${i}`);
 	const peer = NodeP2P.createNode(selectedBootstraps, cryptoCodec, init, domain, port);
 	peers.all[peer.id] = peer;
 	peers[type === 'STANDARD_NODE' ? 'standard' : 'public'].push(peer);
@@ -277,7 +276,7 @@ class TwitchChatCommandInterpreter {
 		const splitted  = message.split(':');
 		const command = splitted[0].trim().toLowerCase();
 		const args = splitted.slice(1).map(arg => arg.trim());
-		const targetNodeId = args[0] ? args[0].startsWith(IDENTITY.FOLLOWER_PREFIX) ? args[0] : `${IDENTITY.FOLLOWER_PREFIX}${args[0]}` : null;
+		const targetNodeId = args[0] ? CryptoCodec.isPublicNode(args[0]) ? args[0] : `${IDENTITY.FOLLOWER_PREFIX}${args[0]}` : null;
 		if (user === 'bot' && command === '!addfollower' && !SIMULATION.AVOID_FOLLOWERS_NODES) this.#createUserNode(args[0]);
 		if (command === '!connectto' && targetNodeId) this.userNodes[user]?.tryConnectToPeer(targetNodeId);
 	}
@@ -288,8 +287,8 @@ class TwitchChatCommandInterpreter {
 			.normalize('NFD')                    // décomposer les accents
 			.replace(/[\u0300-\u036f]/g, '')     // supprimer les accents
 			.replace(/[^\w-]/g, '_')             // remplacer chars spéciaux par _
-		//const cryptoCodec = new CryptoCodec(`${IDENTITY.FOLLOWER_PREFIX}${cleanUser}`);
-		const cryptoCodec = new CryptoCodec();
+
+		const cryptoCodec = IDENTITY.ARE_IDS_HEX ? new CryptoCodec() : new CryptoCodec(`${IDENTITY.FOLLOWER_PREFIX}${cleanUser}`);
 		const peer = NodeP2P.createNode(pickUpRandomBootstraps(), cryptoCodec, true);
 		this.userNodes[user] = peer;
 		peers.all[peer.id] = peer;
