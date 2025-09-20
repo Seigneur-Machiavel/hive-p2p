@@ -1,6 +1,6 @@
 import wrtc from 'wrtc';
 import { CLOCK, SIMULATION, NODE, TRANSPORTS } from './global_parameters.mjs';
-import { xxHash32 } from '../utils/xxhash32.mjs';
+import { xxHash32 } from '../libs/xxhash32.mjs';
 const { SANDBOX, ICE_CANDIDATE_EMITTER, TEST_WS_EVENT_MANAGER } = SIMULATION.ENABLED ? await import('../simulation/test-transports.mjs') : {};
 
 export class PeerConnection { // WebSocket or WebRTC connection wrapper

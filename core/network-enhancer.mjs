@@ -87,7 +87,7 @@ export class NetworkEnhancer {
 		if (nonPublicNeighborsCount > DISCOVERY.TARGET_NEIGHBORS_COUNT) return;
 
 		// AVOID OVERLAP
-		const overlap = this.#getOverlap(senderId, this.id, true, 1);
+		const overlap = this.#getOverlap(senderId, this.id);
 		const overlapMalus = nonPublicNeighborsCount > DISCOVERY.TARGET_NEIGHBORS_COUNT / 2 ? 1 : 0;
 		if (overlap > DISCOVERY.MAX_OVERLAP - overlapMalus) return;
 
@@ -191,29 +191,28 @@ export class NetworkEnhancer {
 		if (this.peerStore.addConnectingPeer(senderId, signal, offerHash) !== true) return;
 		this.peerStore.assignSignal(senderId, signal, offerHash, timestamp);
 	}
-	/** @param {string} peerId1 @param {string} [peerId2] default: this.id @param {boolean} [ignorePublic] default: true @param {1 | 2} [degree] default: 1 */
-	#getOverlap(peerId1, peerId2 = this.id, ignorePublic = true, degree = 1) {
+	/** @param {string} peerId1 @param {string} [peerId2] default: this.id @param {boolean} [ignorePublic] default: true */
+	#getOverlap(peerId1, peerId2 = this.id, ignorePublic = true) {
 		const p1n1 = this.peerStore.known[peerId1]?.neighbours || {};
-		const p2n1 = peerId2 !== this.peerStore.id ? this.peerStore.known[peerId2]?.neighbours : Object.fromEntries(this.peerStore.neighbours.map(item => [item, true])) || {};
-		if (degree === 2) {
-			for (const n1 of Object.keys(p1n1))
-				for (const n2 of Object.keys(this.peerStore.known[n1]?.neighbours || {})) if (n2 !== peerId1) p1n1[n2] = true;
-			for (const n1 of Object.keys(p2n1))
-				for (const n2 of Object.keys(this.peerStore.known[n1]?.neighbours || {})) if (n2 !== peerId2) p2n1[n2] = true;
+		let sharedCount = 0;
+		if (peerId2 === this.id) { // Going straight to the point.
+			for (const id of this.peerStore.neighbours)
+				if (ignorePublic && id.startsWith(IDENTITY.PUBLIC_PREFIX)) continue;
+				else if (p1n1[id]) sharedCount++;
+			return sharedCount;
 		}
-
-		const p1Neighbours = Object.keys(p1n1);
-		const p2Neighbours = Object.keys(p2n1);
-		const sharedNeighbours = {};
-		for (const id of p1Neighbours)
-			if (ignorePublic && id.startsWith(IDENTITY.PUBLIC_PREFIX)) continue;
-			else for (const id2 of p2Neighbours) if (id === id2) { sharedNeighbours[id] = true; break; }
-
-		return Object.keys(sharedNeighbours).length;
+		
+		// General case, compare two different peers (not ourself as peerId2)
+		const p2n1 = this.peerStore.known[peerId2]?.neighbours || {};
+		const [shortest, longest] = Object.keys(p1n1).length < Object.keys(p2n1).length ? [p1n1, p2n1] : [p2n1, p1n1];
+		for (const [id, lastSeen] of Object.entries(shortest))
+			if ((ignorePublic && id.startsWith(IDENTITY.PUBLIC_PREFIX))) continue;
+			else if (longest[id]) sharedCount++;
+		return sharedCount;
 	}
 	#improveTopologyByKickingPeers() { // KICK THE PEER WITH THE BIGGEST OVERLAP
 		const connectedPeers = Object.entries(this.peerStore.connected).filter(([id]) => !id.startsWith(IDENTITY.PUBLIC_PREFIX));
-		const peersWithOverlap = connectedPeers.map(([id, conn]) => [id, this.#getOverlap(id, this.id, true, 1)]);
+		const peersWithOverlap = connectedPeers.map(([id, conn]) => [id, this.#getOverlap(id, this.id)]);
 		const sortedPeers = peersWithOverlap.sort((a, b) => b[1] - a[1]);
 		this.peerStore.kickPeer(sortedPeers[0][0], 60_000);
 	}

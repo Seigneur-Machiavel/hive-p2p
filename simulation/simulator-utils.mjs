@@ -28,7 +28,6 @@ export class Statician { // DO NOT ADD VARIABLES, JUST COUNTERS !!
 	constructor(sVARS, peers, delay = 10_000) {
 		const verbose = NODE.DEFAULT_VERBOSE;
 		setInterval(() => {
-			const nextPeerToInit = sVARS.nextPeerToInit > 0 ? sVARS.nextPeerToInit : 0;
 			let establishedWrtcConnCount = 0;
 			let wrtcToEstablishCount = 0;
 			for (const [peerId, p] of Object.entries(peers.all)) {
@@ -39,7 +38,7 @@ export class Statician { // DO NOT ADD VARIABLES, JUST COUNTERS !!
 					else { establishedWrtcConnCount++; break; }
 			}
 
-			if (verbose) console.info(`%c${Math.floor((Date.now() - sVARS.startTime) / 1000)}sec elapsed | Active: ${nextPeerToInit}/${Object.keys(peers.all).length} (${establishedWrtcConnCount}/${wrtcToEstablishCount} established WebRTC) | STATS/sec: ${this.#getSimulationStatsPerSecond(delay)}`, 'color: yellow;');
+			if (verbose) console.info(`%c${Math.floor((Date.now() - sVARS.startTime) / 1000)}sec elapsed | Active: ${sVARS.publicInit + sVARS.nextPeerToInit}/${Object.keys(peers.all).length} (${establishedWrtcConnCount}/${wrtcToEstablishCount} established WebRTC) | STATS/sec: ${this.#getSimulationStatsPerSecond(delay)}`, 'color: yellow;');
 			for (const key in this) this[key] = 0;
 		}, delay);
 	}

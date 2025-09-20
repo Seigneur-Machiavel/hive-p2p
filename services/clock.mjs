@@ -128,7 +128,7 @@ export class Clock {
 }
 
 
-async function TEST() { // DEBUG TEST WHILE RUNNING AS STANDALONE
+export async function CLOCK_TEST() { // DEBUG TEST WHILE RUNNING AS STANDALONE
 	const startTime = Date.now();
 	const clock = new Clock();
 	clock.sync().then(() => {
