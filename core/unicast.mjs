@@ -48,7 +48,7 @@ export class ReroutedDirectMessage extends DirectMessage {
 }
 
 export class UnicastMessager {
-	cryptoCodec;
+	cryptoCodex;
 	verbose;
 	/** @type {Record<string, Function[]>} */ callbacks = { message_handle: [] };
 	id;
@@ -58,9 +58,9 @@ export class UnicastMessager {
 	maxRoutes = UNICAST.MAX_ROUTES;
 	maxNodes = UNICAST.MAX_NODES;
 
-	/** @param {string} selfId @param {import('./crypto-codec.mjs').CryptoCodec} cryptoCodec @param {import('./peer-store.mjs').PeerStore} peerStore */
-	constructor(selfId, cryptoCodec, peerStore, verbose = 0) {
-		this.cryptoCodec = cryptoCodec;
+	/** @param {string} selfId @param {import('./crypto-codex.mjs').CryptoCodex} cryptoCodex @param {import('./peer-store.mjs').PeerStore} peerStore */
+	constructor(selfId, cryptoCodex, peerStore, verbose = 0) {
+		this.cryptoCodex = cryptoCodex;
 		this.verbose = verbose;
 		this.id = selfId;
 		this.peerStore = peerStore;
@@ -90,7 +90,7 @@ export class UnicastMessager {
 				if (this.verbose > 1) console.warn(`Cannot send unicast message to ${remoteId} as route exceeds maxHops (${UNICAST.MAX_HOPS}). BFS incurred.`);
 				continue; // too long route
 			}
-			const message = this.cryptoCodec.createUnicastMessage(type, data, route, neighbors);
+			const message = this.cryptoCodex.createUnicastMessage(type, data, route, neighbors);
 			this.#sendMessageToPeer(route[1], message); // send to next peer
 		}
 		return true;
@@ -108,7 +108,7 @@ export class UnicastMessager {
 	handleDirectMessage(from, serialized) {
 		if (this.peerStore.isBanned(from)) return;
 
-		const message = this.cryptoCodec.readUnicastMessage(serialized);
+		const message = this.cryptoCodex.readUnicastMessage(serialized);
 		if (!message || !message.route?.length) return this.verbose > 1 ? console.warn(`Received invalid unicast message from ${from}.`) : null;
 
 		const { traveledRoute, selfPosition, senderId, targetId, prevId, nextId } = message.extractRouteInfo(this.id);
@@ -149,7 +149,7 @@ export class UnicastMessager {
 				return; // too long route
 			}
 				
-			const patchedMessage = this.cryptoCodec.createReroutedUnicastMessage(serialized, newRoute);
+			const patchedMessage = this.cryptoCodex.createReroutedUnicastMessage(serialized, newRoute);
 			const nextPeerId = newRoute[selfPosition + 1];
 			this.#sendMessageToPeer(nextPeerId, patchedMessage);
 		}

@@ -28,7 +28,7 @@ export class GossipMessage {
  * @property {number} expiration
  */
 class DegenerateBloomFilter {
-	cryptoCodec;
+	cryptoCodex;
 	xxHash32UsageCount = 0;
 	/** @type {Record<string, number>} */
 	seenTimeouts = {}; // Map of message hashes to their expiration timestamps
@@ -38,8 +38,8 @@ class DegenerateBloomFilter {
 	cleanupIn = 100;
 	cleanupDurationWarning = 10;
 
-	/** @param {import('./crypto-codec.mjs').CryptoCodec} cryptoCodec */
-	constructor(cryptoCodec) { this.cryptoCodec = cryptoCodec; }
+	/** @param {import('./crypto-codex.mjs').CryptoCodex} cryptoCodex */
+	constructor(cryptoCodex) { this.cryptoCodex = cryptoCodex; }
 
 	// PUBLIC API
 	/** @param {'asc' | 'desc'} order */
@@ -50,7 +50,7 @@ class DegenerateBloomFilter {
 	/** @param {Uint8Array} serializedMessage */
 	addMessage(serializedMessage) {
     	const n = CLOCK.time;
-		const { marker, neighLength, timestamp, dataLength, pubkey, associatedId } = this.cryptoCodec.readBufferHeader(serializedMessage);
+		const { marker, neighLength, timestamp, dataLength, pubkey, associatedId } = this.cryptoCodex.readBufferHeader(serializedMessage);
 		if (n - timestamp > GOSSIP.EXPIRATION) return;
 
 		const hashableData = serializedMessage.subarray(0, 47 + neighLength + dataLength);
@@ -80,20 +80,20 @@ class DegenerateBloomFilter {
 }
 
 export class Gossip {
-	cryptoCodec;
+	cryptoCodex;
 	verbose;
 	id;
 	peerStore;
 	bloomFilter;
 	/** @type {Record<string, Function[]>} */ callbacks = { message_handle: [] };
 	
-	/** @param {string} peerId @param {import('./crypto-codec.mjs').CryptoCodec} cryptoCodec @param {import('./peer-store.mjs').PeerStore} peerStore */
-	constructor(peerId, cryptoCodec, peerStore, verbose = 0) {
-		this.cryptoCodec = cryptoCodec;
+	/** @param {string} peerId @param {import('./crypto-codex.mjs').CryptoCodex} cryptoCodex @param {import('./peer-store.mjs').PeerStore} peerStore */
+	constructor(peerId, cryptoCodex, peerStore, verbose = 0) {
+		this.cryptoCodex = cryptoCodex;
 		this.verbose = verbose;
 		this.id = peerId;
 		this.peerStore = peerStore;
-		this.bloomFilter = new DegenerateBloomFilter(cryptoCodec);
+		this.bloomFilter = new DegenerateBloomFilter(cryptoCodex);
 	}
 
 	/** @param {string} callbackType @param {Function} callback */
@@ -106,7 +106,7 @@ export class Gossip {
 	broadcastToAll(data, topic = 'gossip', HOPS) {
 		const hops = HOPS || GOSSIP.HOPS[topic] || GOSSIP.HOPS.default;
 		const neighbors = Object.keys(this.peerStore.connected);
-		const serializedMessage = this.cryptoCodec.createGossipMessage(topic, data, hops, neighbors);
+		const serializedMessage = this.cryptoCodex.createGossipMessage(topic, data, hops, neighbors);
 		if (!this.bloomFilter.addMessage(serializedMessage)) return; // avoid sending duplicate messages
 		if (this.verbose > 3) console.log(`(${this.id}) Gossip ${topic}, to ${JSON.stringify(neighbors)}: ${data}`);
 		for (const peerId of neighbors) this.#broadcastToPeer(peerId, serializedMessage);
@@ -130,7 +130,7 @@ export class Gossip {
 		if (!this.bloomFilter.addMessage(serialized)) return; // already processed this message
 
 		// ==> NOTE: WE SHOULD SIGN THE MESSAGE AND VERIFY THE SIGNATURE <==
-		const message = this.cryptoCodec.readGossipMessage(serialized);
+		const message = this.cryptoCodex.readGossipMessage(serialized);
 		if (!message) throw new Error(`Failed to deserialize gossip message from ${from}.`);
 		
 		const { topic, timestamp, neighbors, HOPS, senderId, data } = message;
@@ -150,7 +150,7 @@ export class Gossip {
 		const tRateBase = GOSSIP.TRANSMISSION_RATE[topic] || GOSSIP.TRANSMISSION_RATE.default;
 		const transmissionRate = Math.pow(tRateBase, trm);
 		const avoidTransmissionRate = nCount < GOSSIP.TRANSMISSION_RATE.MIN_NEIGHBOURS_TO_APPLY_PONDERATION;
-		const serializedToTransmit = this.cryptoCodec.decrementGossipHops(serialized);
+		const serializedToTransmit = this.cryptoCodex.decrementGossipHops(serialized);
 		for (const [peerId, conn] of myNeighbours)
 			if (peerId === from) continue; // avoid sending back to sender
 			else if (!avoidTransmissionRate && Math.random() > transmissionRate) continue; // apply gossip transmission rate

@@ -1,6 +1,6 @@
 import { CLOCK, SIMULATION, TRANSPORTS, NODE, DISCOVERY, GOSSIP } from './global_parameters.mjs';
 import { PeerConnection } from './peer-store-managers.mjs';
-import { CryptoCodec } from './crypto-codec.mjs';
+import { CryptoCodex } from './crypto-codex.mjs';
 const { SANDBOX, ICE_CANDIDATE_EMITTER, TEST_WS_EVENT_MANAGER } = SIMULATION.ENABLED ? await import('../simulation/test-transports.mjs') : {};
 
 /** - 'bootstrapInfo' Definition & 'SignalData' Definition
@@ -46,7 +46,7 @@ export class NetworkEnhancer {
 	autoEnhancementTick() {
 		const neighboursCount = this.peerStore.neighbours.length;
 		const isEnough = neighboursCount >= DISCOVERY.TARGET_NEIGHBORS_COUNT;
-		const nonPublicNeighborsCount = this.peerStore.neighbours.filter(id => !CryptoCodec.isPublicNode(id)).length;
+		const nonPublicNeighborsCount = this.peerStore.neighbours.filter(id => !CryptoCodex.isPublicNode(id)).length;
 		const isTooMany = nonPublicNeighborsCount > DISCOVERY.TARGET_NEIGHBORS_COUNT;
 		const offersToCreate = nonPublicNeighborsCount >= DISCOVERY.TARGET_NEIGHBORS_COUNT / 3 ? 1 : TRANSPORTS.MAX_SDP_OFFERS;
 		this.peerStore.sdpOfferManager.offersToCreate = isEnough ? 0 : offersToCreate;
@@ -83,7 +83,7 @@ export class NetworkEnhancer {
 		if (this.isPublicNode || this.peerStore.isKicked(senderId)) return;
 
 		// AVOID CONNECTING TO TOO MANY "NON-PUBLIC PEERS"
-		const nonPublicNeighborsCount = this.peerStore.neighbours.filter(id => !CryptoCodec.isPublicNode(id)).length;
+		const nonPublicNeighborsCount = this.peerStore.neighbours.filter(id => !CryptoCodex.isPublicNode(id)).length;
 		if (nonPublicNeighborsCount > DISCOVERY.TARGET_NEIGHBORS_COUNT) return;
 
 		// AVOID OVERLAP
@@ -164,7 +164,7 @@ export class NetworkEnhancer {
 		// ALREADY CONNECTED, SEND USING UNICAST TO THE BEST 10 CANDIDATES
 		let sentToCount = 0;
 		const sentTo = {};
-		const knowPeerIds = Object.keys(this.peerStore.known).filter(id => id !== this.id && !this.peerStore.connected[id] && !this.peerStore.isKicked(id) && !CryptoCodec.isPublicNode(id));
+		const knowPeerIds = Object.keys(this.peerStore.known).filter(id => id !== this.id && !this.peerStore.connected[id] && !this.peerStore.isKicked(id) && !CryptoCodex.isPublicNode(id));
 		for (let i = 0; i < Math.min(knowPeerIds.length, 50); i++) {
 			const randomIndex = Math.random() * knowPeerIds.length | 0;
 			const peerId = knowPeerIds[randomIndex];
@@ -197,7 +197,7 @@ export class NetworkEnhancer {
 		let sharedCount = 0;
 		if (peerId2 === this.id) { // Going straight to the point.
 			for (const id of this.peerStore.neighbours)
-				if (ignorePublic && CryptoCodec.isPublicNode(id)) continue;
+				if (ignorePublic && CryptoCodex.isPublicNode(id)) continue;
 				else if (p1n1[id]) sharedCount++;
 			return sharedCount;
 		}
@@ -206,12 +206,12 @@ export class NetworkEnhancer {
 		const p2n1 = this.peerStore.known[peerId2]?.neighbours || {};
 		const [shortest, longest] = Object.keys(p1n1).length < Object.keys(p2n1).length ? [p1n1, p2n1] : [p2n1, p1n1];
 		for (const [id, lastSeen] of Object.entries(shortest))
-			if ((ignorePublic && CryptoCodec.isPublicNode(id))) continue;
+			if ((ignorePublic && CryptoCodex.isPublicNode(id))) continue;
 			else if (longest[id]) sharedCount++;
 		return sharedCount;
 	}
 	#improveTopologyByKickingPeers() { // KICK THE PEER WITH THE BIGGEST OVERLAP
-		const connectedPeers = Object.entries(this.peerStore.connected).filter(([id]) => !CryptoCodec.isPublicNode(id));
+		const connectedPeers = Object.entries(this.peerStore.connected).filter(([id]) => !CryptoCodex.isPublicNode(id));
 		const peersWithOverlap = connectedPeers.map(([id, conn]) => [id, this.#getOverlap(id, this.id)]);
 		const sortedPeers = peersWithOverlap.sort((a, b) => b[1] - a[1]);
 		this.peerStore.kickPeer(sortedPeers[0][0], 60_000);
@@ -230,6 +230,10 @@ export class NetworkEnhancer {
 		}
 	}
 	#connectToPublicNode(remoteId = 'toto', publicUrl = 'localhost:8080') {
+		if (!CryptoCodex.isPublicNode(remoteId)) {
+			if (this.verbose) console.warn(`NetworkEnhancer: trying to connect to a non-public node (${remoteId})`);
+			return;
+		}
 		const ws = new TRANSPORTS.WS_CLIENT(publicUrl);
 		ws.binaryType = 'arraybuffer';
 		this.peerStore.connecting[remoteId] = { out: new PeerConnection(remoteId, ws, 'out', true) };

@@ -4,13 +4,13 @@ import { PeerConnection } from './peer-store-managers.mjs';
 import { UnicastMessager } from './unicast.mjs';
 import { Gossip } from './gossip.mjs';
 import { NetworkEnhancer } from './network-enhancer.mjs';
-import { CryptoCodec } from './crypto-codec.mjs';
+import { CryptoCodex } from './crypto-codex.mjs';
 const dgram = !NODE.IS_BROWSER ? await import('dgram') : null; // Node.js only
 
 export class NodeP2P {
 	started = false;
 	verbose;
-	cryptoCodec;
+	cryptoCodex;
 	/** should be based on crypto */ id;
 	/** class managing network connections */ peerStore;
 	/** class who manage direct messages */ messager;
@@ -19,16 +19,15 @@ export class NodeP2P {
 	/** @type {string | undefined} WebSocket URL (public node only) */ publicUrl;
 
 	/** Initialize a new P2P node instance, use .start() to init networkEnhancer
-	 * @param {CryptoCodec} [cryptoCodec] - Identity of the node; if not provided, a new one will be generated
+	 * @param {CryptoCodex} cryptoCodex - Identity of the node.
 	 * @param {Array<Record<string, string>>} bootstraps List of bootstrap nodes used as P2P network entry */
-	constructor(cryptoCodec, bootstraps = [], verbose = NODE.DEFAULT_VERBOSE) {
+	constructor(cryptoCodex, bootstraps = [], verbose = NODE.DEFAULT_VERBOSE) {
 		this.verbose = verbose;
-		this.cryptoCodec = cryptoCodec || new CryptoCodec();
-		if (!this.cryptoCodec.publicKey) this.cryptoCodec.generate(this.publicUrl);
-		this.id = this.cryptoCodec.id;
-		this.peerStore = new PeerStore(this.id, this.cryptoCodec, bootstraps, this.verbose);
-		this.messager = new UnicastMessager(this.id, this.cryptoCodec, this.peerStore, this.verbose);
-		this.gossip = new Gossip(this.id, this.cryptoCodec, this.peerStore, this.verbose);
+		this.cryptoCodex = cryptoCodex;
+		this.id = this.cryptoCodex.id;
+		this.peerStore = new PeerStore(this.id, this.cryptoCodex, bootstraps, this.verbose);
+		this.messager = new UnicastMessager(this.id, this.cryptoCodex, this.peerStore, this.verbose);
+		this.gossip = new Gossip(this.id, this.cryptoCodex, this.peerStore, this.verbose);
 		this.networkEnhancer = new NetworkEnhancer(this.id, this.gossip, this.messager, this.peerStore, bootstraps);
 		const { peerStore, messager, gossip, networkEnhancer } = this;
 
@@ -53,7 +52,7 @@ export class NodeP2P {
 	// PRIVATE METHODS
 	/** @param {string} peerId @param {'in' | 'out'} direction */
 	#onConnect = (peerId, direction) => {
-		const [selfIsPublic, remoteIsPublic] = [this.publicUrl, this.cryptoCodec.isPublicNode(peerId)];
+		const [selfIsPublic, remoteIsPublic] = [this.publicUrl, this.cryptoCodex.isPublicNode(peerId)];
 		if (selfIsPublic) return; // public node do not need to do anything special on connect
 		if (this.verbose > ((selfIsPublic || remoteIsPublic) ? 3 : 2)) console.log(`(${this.id}) ${direction === 'in' ? 'Incoming' : 'Outgoing'} connection established with peer ${peerId}`);
 		
@@ -69,7 +68,7 @@ export class NodeP2P {
 	}
 	/** @param {string} peerId @param {'in' | 'out'} direction */
 	#onDisconnect = (peerId, direction) => {
-		const [selfIsPublic, remoteIsPublic] = [this.publicUrl, this.cryptoCodec.isPublicNode(peerId)];
+		const [selfIsPublic, remoteIsPublic] = [this.publicUrl, this.cryptoCodex.isPublicNode(peerId)];
 		const connDuration = this.peerStore.connected[peerId]?.getConnectionDuration() || 0;
 		if (connDuration < DISCOVERY.ON_DISCONNECT_DISPATCH.MIN_CONNECTION_TIME) return;
 		if (this.peerStore.connected[peerId]) return; // still connected, ignore disconnection for now ?
@@ -88,9 +87,12 @@ export class NodeP2P {
 	}
 
 	// PUBLIC API
-	/** @param {Array<string>} bootstraps @param {CryptoCodec} [cryptoCodec] - Identity of the node; if not provided, a new one will be generated @param {boolean} [start] default: false @param {string} [domain] public node only, ex: 'localhost' @param {number} [port] public node only, ex: 8080 */
-	static createNode(bootstraps, cryptoCodec, start = true, domain, port = NODE.SERVICE.PORT) {
-		const node = new NodeP2P(cryptoCodec, bootstraps);
+	/** @param {Array<string>} bootstraps @param {CryptoCodex} [cryptoCodex] - Identity of the node; if not provided, a new one will be generated @param {boolean} [start] default: false @param {string} [domain] public node only, ex: 'localhost' @param {number} [port] public node only, ex: 8080 */
+	static createNode(bootstraps, cryptoCodex, start = true, domain, port = NODE.SERVICE.PORT) {
+		const codex = cryptoCodex || CryptoCodex.create();
+		if (!codex.publicKey) codex.generate(domain ? true : false);
+
+		const node = new NodeP2P(codex, bootstraps);
 		if (domain) node.#setAsPublic(domain, port);
 		if (domain && !SIMULATION.USE_TEST_TRANSPORTS) node.#startSTUNServer(domain, port + 1);
 		if (start) node.start();
@@ -138,7 +140,7 @@ export class NodeP2P {
 					// C'EST PAS TERRIBLE !
 					const d = new Uint8Array(data);
 					if (d[0] > 127) return; // not unicast, ignore
-					const { route, type } = this.cryptoCodec.readUnicastMessage(d) || {};
+					const { route, type } = this.cryptoCodex.readUnicastMessage(d) || {};
 					if (type !== 'handshake' || route.length !== 2 || route[1] !== this.id) return;
 
 					remoteId = route[0];

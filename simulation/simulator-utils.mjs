@@ -1,5 +1,5 @@
 import { SIMULATION, NODE, UNICAST, GOSSIP } from '../core/global_parameters.mjs';
-import { CryptoCodec } from '../core/crypto-codec.mjs';
+import { CryptoCodex } from '../core/crypto-codex.mjs';
 
 export class MessageQueue {
 	/** @type {Record<string, any>} */
@@ -32,10 +32,10 @@ export class Statician { // DO NOT ADD VARIABLES, JUST COUNTERS !!
 			let establishedWrtcConnCount = 0;
 			let wrtcToEstablishCount = 0;
 			for (const [peerId, p] of Object.entries(peers.all)) {
-				if (CryptoCodec.isPublicNode(peerId)) continue;
+				if (CryptoCodex.isPublicNode(peerId)) continue;
 				if (p.started) wrtcToEstablishCount++;
 				for (const id of Object.keys(p.peerStore.connected))
-					if (CryptoCodec.isPublicNode(id)) continue;
+					if (CryptoCodex.isPublicNode(id)) continue;
 					else { establishedWrtcConnCount++; break; }
 			}
 
@@ -112,7 +112,7 @@ export class TransmissionAnalyzer {
 
 export class SubscriptionsManager {
 	verbose;
-	cryptoCodec;
+	cryptoCodex;
 	/** @type {Function} */ sendFnc;
 	/** @type {Record<string, Record<string, import('../core/node.mjs').NodeP2P>} */ peers;
 	unicastCount = { session: 0, total: 0 };
@@ -132,12 +132,12 @@ export class SubscriptionsManager {
 	onPeerMessage = null; // currently subscribed peer
 	interval;
 
-	/** @param {Function} sendFnc @param {Record<string, import('../core/node.mjs').NodeP2P>} peers @param {import('../core/crypto-codec.mjs').CryptoCodec} cryptoCodec @param {number} verbose @param {number} [delay] default: 10 seconds */
-	constructor(sendFnc, peers, cryptoCodec, verbose, delay = 10_000) {
+	/** @param {Function} sendFnc @param {Record<string, import('../core/node.mjs').NodeP2P>} peers @param {import('../core/crypto-codex.mjs').CryptoCodex} cryptoCodex @param {number} verbose @param {number} [delay] default: 10 seconds */
+	constructor(sendFnc, peers, cryptoCodex, verbose, delay = 10_000) {
 		console.info('SubscriptionsManager initialized');
 		this.sendFnc = sendFnc;
 		this.peers = peers;
-		this.cryptoCodec = cryptoCodec;
+		this.cryptoCodex = cryptoCodex;
 		this.verbose = verbose;
 		const divider = delay / 1000;
 		this.interval = setInterval(() => {
@@ -218,12 +218,12 @@ export class SubscriptionsManager {
 			const markerByte = data[0];
 			try {
 				if (GOSSIP.MARKERS_BYTES[markerByte]) { // gossip message
-					const d = this.cryptoCodec.readGossipMessage(data);
+					const d = this.cryptoCodex.readGossipMessage(data);
 					this.#countMessage(d.topic, true);
 					this.#countBandwidth(d.topic, data.length, true);
 					this.sendFnc({ type: 'peerMessage', remoteId, data: d }); // without identifier
 				} else if (UNICAST.MARKERS_BYTES[markerByte]) { // unicast message
-					const d = this.cryptoCodec.readUnicastMessage(data);
+					const d = this.cryptoCodex.readUnicastMessage(data);
 					this.#countMessage(d.type, false);
 					this.#countBandwidth(d.type, data.length, false);
 					this.sendFnc({ type: 'peerMessage', remoteId, data: d }); // without identifier

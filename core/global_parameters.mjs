@@ -20,7 +20,7 @@ export const SIMULATION = {
 	PEERS_COUNT: 10,				// stable: 25, medium: 800, strong: 4900 | default: 12
 	BOOTSTRAPS_PER_PEER: 10,		// will not be exact, more like a limit. null = all of them | default: 10
 	DELAY_BETWEEN_INIT: 60,			// 0 = faster for simulating big networks but > 0 = should be more realistic | default: 60 (60sec to start 1000 peers)
-	RANDOM_UNICAST_PER_SEC: .1,		// default: .1, capped at a total of 500msg/sec | default: 1
+	RANDOM_UNICAST_PER_SEC: 0,		// default: .1, capped at a total of 500msg/sec | default: 1
 	RANDOM_GOSSIP_PER_SEC: 0,		// default: 0, capped at a total of 200msg/sec | default: 1
 	DIFFUSION_TEST_DELAY: 10_000,	// frequency of diffusion test | default: 20_000 (20 seconds)
 	DIFFUSION_TEST_HOPS: 10,		// HOPS for diffusion test | default: 10

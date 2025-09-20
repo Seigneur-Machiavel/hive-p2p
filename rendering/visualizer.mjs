@@ -1,5 +1,5 @@
 import { NetworkRenderer } from './NetworkRenderer.mjs';
-import { CryptoCodec } from '../core/crypto-codec.mjs';
+import { CryptoCodex } from '../core/crypto-codex.mjs';
 
 class SimulationInterface {
 	#connectingWs = false;
@@ -172,7 +172,7 @@ class NetworkVisualizer {
 
 		const newlyUpdated = {};
 		const digestPeerUpdate = (id = 'toto', status = 'unknown', neighbours = []) => {
-			const isPublic = CryptoCodec.isPublicNode(id);
+			const isPublic = CryptoCodex.isPublicNode(id);
 			this.networkRenderer.addOrUpdateNode(id, status, isPublic, neighbours);
 			newlyUpdated[id] = true;
 		}

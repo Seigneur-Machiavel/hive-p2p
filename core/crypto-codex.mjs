@@ -4,7 +4,7 @@ import { DirectMessage, ReroutedDirectMessage } from './unicast.mjs';
 import { Converter } from '../services/converter.mjs';
 import { sign, verify, keygen, getPublicKey, hash } from '../services/cryptos.mjs';
 
-export class CryptoCodec {
+export class CryptoCodex {
 	verbose = NODE.DEFAULT_VERBOSE;
 	AVOID_CRYPTO = false;
 	ID_LENGTH = IDENTITY.ID_LENGTH;
@@ -27,10 +27,14 @@ export class CryptoCodec {
 	/** @param {string} id */
 	static isPublicNode(id) {
 		if (!IDENTITY.ARE_IDS_HEX) return id.startsWith(IDENTITY.PUBLIC_PREFIX);
-		return Converter.hexToBits(id[0])[0] === IDENTITY.PUBLIC_PREFIX;
+		//return Converter.hexToBits(id[0])[0] === IDENTITY.PUBLIC_PREFIX;
+		const firstChar = id[0]; // DEBUG
+		const firstCharBits = Converter.hexToBits(firstChar);
+		const isPub = firstCharBits.startsWith(IDENTITY.PUBLIC_PREFIX);
+		return isPub;
 	}
 	/** @param {string} id */
-	isPublicNode(id) { return CryptoCodec.isPublicNode(id); }
+	isPublicNode(id) { return CryptoCodex.isPublicNode(id); }
     #idFromPublicKey(publicKey) {
 		if (IDENTITY.ARE_IDS_HEX) return this.converter.bytesToHex(publicKey.slice(0, this.ID_LENGTH / 2), this.ID_LENGTH);
 		return this.converter.bytesToString(publicKey.slice(0, this.ID_LENGTH));
@@ -44,9 +48,8 @@ export class CryptoCodec {
 		for (let i = 0; i < 1000; i++) { // avoid infinite loop
 			const { secretKey, publicKey } = keygen(seed);
 			const id = this.#idFromPublicKey(publicKey);
-			const isPublicNodeId = this.isPublicNode(id);
-			if (isPublicNode && !isPublicNodeId) continue; // Check prefix
-			if (!isPublicNode && isPublicNodeId) continue; // Check prefix
+			if (isPublicNode && !this.isPublicNode(id)) continue; // Check prefix
+			if (!isPublicNode && this.isPublicNode(id)) continue; // Check prefix
 			this.id = id;
 			this.privateKey = secretKey; this.publicKey = publicKey;
 		}
@@ -109,8 +112,7 @@ export class CryptoCodec {
 		bufferView.set(neighboursBytes, 47); 					// X bytes for neighbours
 		bufferView.set(dataBytes, 47 + neighboursBytes.length); // X bytes for data
 		bufferView.set([Math.min(255, HOPS)], totalBytes - 1); 	// 1 byte for HOPS (Unsigned)
-		if (this.AVOID_CRYPTO) return bufferView;
-		this.signBufferViewAndAppendSignature(bufferView, this.privateKey, totalBytes - IDENTITY.SIGNATURE_LENGTH - 1);
+		if (!this.AVOID_CRYPTO) this.signBufferViewAndAppendSignature(bufferView, this.privateKey, totalBytes - IDENTITY.SIGNATURE_LENGTH - 1);
 		return bufferView;
 	}
 	/** Decrement the HOPS value in a serialized gossip message @param {Uint8Array} serializedMessage */
@@ -142,8 +144,7 @@ export class CryptoCodec {
 		bufferView.set([route.length], 47 + NDBL);				// 1 byte for route length
 		bufferView.set(routeBytes, 47 + 1 + NDBL);				// X bytes for route
 
-		if (this.AVOID_CRYPTO) return bufferView;
-		this.signBufferViewAndAppendSignature(bufferView, this.privateKey, totalBytes - IDENTITY.SIGNATURE_LENGTH);
+		if (!this.AVOID_CRYPTO) this.signBufferViewAndAppendSignature(bufferView, this.privateKey, totalBytes - IDENTITY.SIGNATURE_LENGTH);
 		return bufferView;
 	}
 	/** @param {Uint8Array} serialized @param {string[]} newRoute */
@@ -159,8 +160,7 @@ export class CryptoCodec {
 		bufferView.set(this.publicKey, serialized.length); // 32 bytes for new public key
 		for (let i = 0; i < routeBytesArray.length; i++) bufferView.set(routeBytesArray[i], serialized.length + 32 + (i * this.ID_LENGTH)); // new route
 		
-		if (this.AVOID_CRYPTO) return bufferView;
-		this.signBufferViewAndAppendSignature(bufferView, this.privateKey, totalBytes - IDENTITY.SIGNATURE_LENGTH);
+		if (!this.AVOID_CRYPTO) this.signBufferViewAndAppendSignature(bufferView, this.privateKey, totalBytes - IDENTITY.SIGNATURE_LENGTH);
 		return bufferView;
 	}
 

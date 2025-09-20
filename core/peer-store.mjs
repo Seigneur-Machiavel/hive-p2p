@@ -3,7 +3,7 @@ import { PeerConnection, KnownPeer, SdpOfferManager, Punisher } from './peer-sto
 const { SANDBOX, ICE_CANDIDATE_EMITTER, TEST_WS_EVENT_MANAGER } = SIMULATION.ENABLED ? await import('../simulation/test-transports.mjs') : {};
 
 export class PeerStore { // Manages all peers informations and connections (WebSocket and WebRTC)
-	cryptoCodec;
+	cryptoCodex;
 	verbose;
 	id;
 	sdpOfferManager;
@@ -23,9 +23,9 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 		'data': []
 	};
 
-	/** @param {string} selfId @param {import('./crypto-codec.mjs').CryptoCodec} cryptoCodec @param {Array<bootstrapInfo>} bootstraps @param {number} [verbose] default: 0 */
-	constructor(selfId, cryptoCodec, bootstraps, verbose = 0) { // SETUP SDP_OFFER_MANAGER CALLBACKS
-		this.cryptoCodec = cryptoCodec;
+	/** @param {string} selfId @param {import('./crypto-codex.mjs').CryptoCodex} cryptoCodex @param {Array<bootstrapInfo>} bootstraps @param {number} [verbose] default: 0 */
+	constructor(selfId, cryptoCodex, bootstraps, verbose = 0) { // SETUP SDP_OFFER_MANAGER CALLBACKS
+		this.cryptoCodex = cryptoCodex;
 		this.verbose = verbose;
 		this.id = selfId;
 		this.sdpOfferManager = new SdpOfferManager(selfId, bootstraps, verbose);
@@ -51,7 +51,7 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 				else { // First data should be handshake with id
 					// C'EST PAS TERRIBLE (non plus)
 					if (data[0] > 127) return; // not unicast, ignore
-					const { route, type } = cryptoCodec.readUnicastMessage(data) || {};
+					const { route, type } = cryptoCodex.readUnicastMessage(data) || {};
 					if (type !== 'handshake' || route.length !== 2 || route[1] !== this.id) return;
 
 					peerId = route[0];
@@ -92,7 +92,7 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 		this.neighbours.push(peerId);
 		this.#linkPeers(this.id, peerId); // Add link in self store
 		//this.sdpOfferManager.isConnectedToAtLeastOnePeer = true; // flag for offer creation
-		if (this.verbose > (this.cryptoCodec.isPublicNode(peerId) ? 3 : 2)) console.log(`(${this.id}) ${direction === 'in' ? 'Incoming' : 'Outgoing'} ${peerConn.isWebSocket ? 'WebSocket' : 'WRTC'} connection established with peer ${peerId}`);
+		if (this.verbose > (this.cryptoCodex.isPublicNode(peerId) ? 3 : 2)) console.log(`(${this.id}) ${direction === 'in' ? 'Incoming' : 'Outgoing'} ${peerConn.isWebSocket ? 'WebSocket' : 'WRTC'} connection established with peer ${peerId}`);
 	}
 	#handleDisconnect(peerId, direction) { // First callback assigned in constructor
 		this.#removePeer(peerId, 'connected', direction);
