@@ -94,10 +94,12 @@ export class SdpOfferManager { // Manages the creation of SDP offers and handlin
 
 	offerCreationTimeout = null;
 	offerInstanceByExpiration = {};
+
 	tick() { // called in peerStore to avoid multiple intervals
 		const now = CLOCK.time;
 		// CLEAR EXPIRED CREATOR OFFER INSTANCES
-		for (const [expiration, instance] of Object.entries(this.offerInstanceByExpiration)) {
+		for (const expiration in this.offerInstanceByExpiration) {
+			const instance = this.offerInstanceByExpiration[expiration];
 			if (now < expiration) continue; // not expired yet
 			instance?.destroy();
 			delete this.offerInstanceByExpiration[expiration];
@@ -105,7 +107,8 @@ export class SdpOfferManager { // Manages the creation of SDP offers and handlin
 		}
 			
 		// CLEAR USED AND EXPIRED OFFERS
-		for (const [hash, offer] of Object.entries(this.offers)) {
+		for (const hash in this.offers) {
+			const offer = this.offers[hash];
 			if (offer.offererInstance.destroyed) { delete this.offers[hash]; continue; } // offerer destroyed
 			if (offer.isUsed) { delete this.offers[hash]; continue; } // used offer => remove it (handled by peerStore)
 			if (offer.timestamp + TRANSPORTS.SDP_OFFER_EXPIRATION > now) continue; // not expired yet
@@ -114,7 +117,10 @@ export class SdpOfferManager { // Manages the creation of SDP offers and handlin
 		}
 
 		// TRY TO USE AVAILABLE ANSWERS
-		for (const [hash, offer] of Object.entries(this.offers)) {
+		let offerCount = 0;
+		for (const hash in this.offers) {
+			const offer = this.offers[hash];
+			offerCount++; // used just behind -> avoid Object.keys() call
 			if (offer.offererInstance.destroyed) continue; // offerer destroyed
 			const unusedAnswers = offer.answers.filter(a => !a.used);
 			if (!unusedAnswers.length) continue; // no answers available
@@ -129,7 +135,7 @@ export class SdpOfferManager { // Manages the creation of SDP offers and handlin
 		}
 
 		if (this.creatingOffer) return; // already creating one or unable to send
-		if (Object.keys(this.offers).length >= this.offersToCreate) return; // already have enough offers
+		if (offerCount >= this.offersToCreate) return; // already have enough offers
 		
 		// CREATE NEW OFFER
 		this.creatingOffer = true;
@@ -234,6 +240,6 @@ export class SdpOfferManager { // Manages the creation of SDP offers and handlin
 		} catch (error) { if (this.verbose > 3) console.error(error.message); }
 	}
 	destroy() {
-		for (const [offerHash, offerObj] of Object.entries(this.offers)) offerObj.offererInstance?.destroy();
+		for (const offerHash in this.offers) this.offers[offerHash].offererInstance?.destroy();
 	}
 }

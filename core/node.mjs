@@ -62,7 +62,7 @@ export class NodeP2P {
 			if (isHandshakeInitiator) this.sendMessage(peerId, this.id, 'handshake');
 			if (DISCOVERY.ON_CONNECT_DISPATCH.BROADCAST_EVENT && !remoteIsPublic) this.broadcast(peerId, 'peer_connected');
 			if (DISCOVERY.ON_CONNECT_DISPATCH.SHARE_HISTORY) 
-				if (Object.keys(this.peerStore.known[peerId]?.neighbors).length <= 1) this.gossip.sendGossipHistoryToPeer(peerId);
+				if (this.peerStore.known[peerId]?.connectionsCount <= 1) this.gossip.sendGossipHistoryToPeer(peerId);
 		};
 		if (!DISCOVERY.ON_CONNECT_DISPATCH.DELAY) dispatchEvents();
 		else setTimeout(dispatchEvents, DISCOVERY.ON_CONNECT_DISPATCH.DELAY);

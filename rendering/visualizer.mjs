@@ -187,7 +187,7 @@ class NetworkVisualizer {
 		knownToIgnore[this.currentPeerId] = true;
 		for (const id of peerInfo.store.connecting) knownToIgnore[id] = true;
 		for (const id of peerInfo.store.connected) knownToIgnore[id] = true;
-		for (const [ id, peer ] of Object.entries(peerInfo.store.known))
+		for (const id in peerInfo.store.known)
 			if (!knownToIgnore[id]) digestPeerUpdate(id, 'known', getNeighbors(id));
 		
 		for (const id of peerInfo.store.connecting) digestPeerUpdate(id, 'connecting', getNeighbors(id));
@@ -204,8 +204,8 @@ class NetworkVisualizer {
 
 		// Create connections
 		const connections = [];
-		for (const [id, node] of Object.entries(nodes))
-			for (const neighborId of node.neighbors) connections.push([id, neighborId]);
+		for (const id in nodes)
+			for (const neighborId of nodes[id].neighbors) connections.push([id, neighborId]);
 
 		//console.log(`Updated network map: ${Object.keys(nodes).length} nodes | ${Object.keys(connections).length} connections`);
 		this.networkRenderer.digestConnectionsArray(connections);
@@ -227,8 +227,8 @@ class NetworkVisualizer {
 		//element.innerHTML = '<h3>Peers list</h3>';
 
 		const peerIds = {};
-		for (const [category, ids] of Object.entries(peersData))
-			for (const peerId of ids) {
+		for (const category in peersData)
+			for (const peerId of peersData[category]) {
 				peerIds[peerId] = true;
 				if (this.peersList[peerId]) continue; // already listed
 				const peerItem = this.#createPeerItem(peerId);

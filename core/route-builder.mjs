@@ -11,64 +11,6 @@
  * @property {number} nodesExplored - Number of nodes visited during search
  */
 
-/** Simple prototype of a path finder searching to sort the possible routes form peerA to peerB
- * This logic can be improved a lot, especially in terms of efficiency and flexibility.
- * I chose a BFS approach for its simplicity and completeness. */
-export class RouteBuilder_V1 {
-	id;
-	peerStore;
-
-	/** @param {string} selfId @param {PeerStore} peerStore */
-	constructor(selfId, peerStore) {
-		this.id = selfId;
-		this.peerStore = peerStore;
-	}
-
-	/** Find all possible routes between two peers using exhaustive BFS
-	 * - CAN BE IMPROVED
-	 * @param {string} remoteId - Destination peer ID
-	 * @param {number} maxRoutes - Maximum number of routes to return (default: 5)
-	 * @param {number} maxHops - Maximum relays allowed (default: 3)
-	 * @param {number} maxNodes - Maximum nodes to explore (default: 1728 = 12³)
-	 * @param {boolean} sortByScore - Whether to sort routes by score (default: true)
-	 * @returns {RouteResult} Result containing found routes and metadata */
-	buildRoutes(remoteId, maxRoutes = 5, maxHops = 3, maxNodes = 1728, sortByScore = true) {
-		if (this.id === remoteId) throw new Error('Cannot build route to self');
-		if (this.peerStore.connected[remoteId]) return { routes: [{ path: [this.id, remoteId] }], success: true, nodesExplored: 1 };
-		if (!this.peerStore.known[remoteId]) return { routes: [], success: false, nodesExplored: 0 };
-
-		let nodesExplored = 0;
-		const foundRoutes = [];
-		const queue = [{ node: this.id, path: [this.id], depth: 0 }]; // Initialize BFS queue with starting point
-		while (queue.length > 0 && nodesExplored < maxNodes) { // Exhaustive search: explore ALL paths up to maxHops
-			const { node: current, path, depth } = queue.shift();
-			nodesExplored++;
-			if (depth >= maxHops) continue; // Don't explore beyond max depth
-
-			const neighbors = current === this.id ? this.peerStore.neighbors : Object.keys(this.peerStore.known[current]?.neighbors || {});
-			for (const neighbor of neighbors) {
-				if (path.includes(neighbor)) continue; // Skip if this would create a cycle
-				
-				// If we reached destination record this route or Continue exploring from this neighbor
-				const newPath = [...path, neighbor];
-				if (neighbor === remoteId) foundRoutes.push(newPath);
-				else queue.push({ node: neighbor, path: newPath, depth: depth + 1 });
-			}
-		}
-
-		if (foundRoutes.length === 0) return { routes: [], success: false, nodesExplored };
-		
-		const routesWithScores = foundRoutes.map(path => ({
-			path,
-			hops: path.length - 1,
-			score: Math.max(0, 1 - (path.length * .1))
-		}));
-
-		if (sortByScore) routesWithScores.sort((a, b) => b.score - a.score); // Sort by score (best first)
-		return { routes: routesWithScores.slice(0, maxRoutes), success: true, nodesExplored };
-	}
-}
-
 /** Optimized route finder using bidirectional BFS and early stopping
  * Much more efficient than V1 for longer paths by searching from both ends */
 export class RouteBuilder_V2 {
@@ -104,7 +46,7 @@ export class RouteBuilder_V2 {
 
 	#buildBlindRoutes(remoteId, randomizeOrder = true) {
 		const routes = [];
-		const connected = this.peerStore.neighbors;
+		const connected = this.peerStore.neighborsList;
 		const shuffledIndexes = [...Array(connected.length).keys()].sort(() => Math.random() - 0.5);
 		for (const i of shuffledIndexes) routes.push({ path: [this.id, connected[i], remoteId], hops: 0, score: 0 });
 
@@ -173,19 +115,21 @@ export class RouteBuilder_V2 {
 		if (depth >= maxDepth) return [];
 
 		const meetings = [];
-		const neighbors = current === this.id ? this.peerStore.neighbors : Object.keys(this.peerStore.known[current]?.neighbors || {});
-		for (const neighbor of neighbors) {
-			if (pathSet.has(neighbor)) continue;
+		function processNeighbor(neighborId) {
+			if (pathSet.has(neighborId)) return;
 			
 			const newDepth = depth + 1;
-			if (otherVisited.has(neighbor)) meetings.push(neighbor);
-			if (visited.has(neighbor)) continue;
-			
-			const newPath = [...path, neighbor];
-			const newPathSet = new Set(pathSet).add(neighbor);
-			visited.set(neighbor, newPath);
-			queue.push({ node: neighbor, path: newPath, pathSet: newPathSet, depth: newDepth });
+			if (otherVisited.has(neighborId)) meetings.push(neighborId);
+			if (visited.has(neighborId)) return;
+
+			const newPath = [...path, neighborId];
+			const newPathSet = new Set(pathSet).add(neighborId);
+			visited.set(neighborId, newPath);
+			queue.push({ node: neighborId, path: newPath, pathSet: newPathSet, depth: newDepth });
 		}
+
+		if (current === this.id) for (const neighborId of this.peerStore.neighborsList) processNeighbor(neighborId);
+		else for (const neighborId in this.peerStore.known[current]?.neighbors || {}) processNeighbor(neighborId);
 
 		return meetings;
 	}

@@ -31,10 +31,10 @@ export class Statician { // DO NOT ADD VARIABLES, JUST COUNTERS !!
 		setInterval(() => {
 			let establishedWrtcConnCount = 0;
 			let wrtcToEstablishCount = 0;
-			for (const [peerId, p] of Object.entries(peers.all)) {
+			for (const peerId in peers.all) {
 				if (CryptoCodex.isPublicNode(peerId)) continue;
-				if (p.started) wrtcToEstablishCount++;
-				for (const id of Object.keys(p.peerStore.connected))
+				if (peers.all[peerId].started) wrtcToEstablishCount++;
+				for (const id in peers.all[peerId].peerStore.connected)
 					if (CryptoCodex.isPublicNode(id)) continue;
 					else { establishedWrtcConnCount++; break; }
 			}
@@ -94,7 +94,7 @@ export class TransmissionAnalyzer {
 		for (let i = 0; i < 50; i++) { // try to find a connected peer
 			const randomPeerId = peersIds[Math.floor(Math.random() * peersIds.length)];
 			const peer = this.peers.all[randomPeerId];
-			if (!peer.started || peer.peerStore.neighbors.length === 0) continue;
+			if (!peer.started || peer.peerStore.neighborsList.length === 0) continue;
 			this.gossip.nonce = Math.floor(Math.random() * 1000000).toString(16).padStart(6, '0');
 			this.gossip.sendAt = Date.now();
 			peer.gossip.broadcastToAll(this.gossip.nonce, 'diffusion_test', SIMULATION.DIFFUSION_TEST_HOPS);
@@ -174,7 +174,7 @@ export class SubscriptionsManager {
 		: type === 'gossip' ? this.bTopic : this.bType;
 
 		const suffix = mode === 'count' ? '' : ' bytes';
-		for (const [key, value] of Object.entries(targets)) stats[key] = `${mode === 'count' ? (value / divider).toFixed(1) : Math.round(value)}${suffix}`;
+		for (const key in targets) stats[key] = `${mode === 'count' ? (targets[key] / divider).toFixed(1) : Math.round(targets[key])}${suffix}`;
 		if (Object.keys(stats).length === 0) return null;
 		if (Object.values(stats).every(v => v === 0)) return null;
 		return !formating ? stats : statsFormating(stats);

@@ -1,20 +1,20 @@
 import { SIMULATION, DISCOVERY, UNICAST } from "./global_parameters.mjs";
-import { RouteBuilder_V1, RouteBuilder_V2 } from "./route-builder.mjs";
+import { RouteBuilder_V2 } from "./route-builder.mjs";
 const { SANDBOX, ICE_CANDIDATE_EMITTER, TEST_WS_EVENT_MANAGER } = SIMULATION.ENABLED ? await import('../simulation/test-transports.mjs') : {};
 const RouteBuilder = RouteBuilder_V2; // temporary switch
 
-export class DirectMessage {
+export class DirectMessage { // TYPE DEFINITION
 	type = 'message';
 	timestamp;
-	neighbors;
+	neighborsList;
 	route;
 	pubkey;
 	data;
 	signature;
 
-	/** @param {string} type @param {number} timestamp @param {string[]} neighbors @param {string[]} route @param {string} pubkey @param {string | Uint8Array | Object} data @param {string | undefined} signature */
-	constructor(type, timestamp, neighbors, route, pubkey, data, signature) {
-		this.type = type; this.timestamp = timestamp; this.neighbors = neighbors;
+	/** @param {string} type @param {number} timestamp @param {string[]} neighborsList @param {string[]} route @param {string} pubkey @param {string | Uint8Array | Object} data @param {string | undefined} signature */
+	constructor(type, timestamp, neighborsList, route, pubkey, data, signature) {
+		this.type = type; this.timestamp = timestamp; this.neighborsList = neighborsList;
 		this.route = route; this.pubkey = pubkey; this.data = data; this.signature = signature;
 	}
 	getSenderId() { return this.route[0]; }
@@ -123,7 +123,7 @@ export class UnicastMessager {
 			if (senderId === from) console.log(`(${this.id}) Direct ${message.type} from ${senderId}: ${message.data}`);
 			else console.log(`(${this.id}) Direct ${message.type} from ${senderId} (lastRelay: ${from}): ${message.data}`);
 		
-		this.peerStore.digestPeerNeighbors(senderId, message.neighbors);
+		this.peerStore.digestPeerNeighbors(senderId, message.neighborsList);
 		if (DISCOVERY.ON_UNICAST.DIGEST_TRAVELED_ROUTE) this.peerStore.digestValidRoute(traveledRoute);
 		if (this.id === targetId) { for (const cb of this.callbacks[message.type] || []) cb(senderId, message.data); return; } // message for self
 

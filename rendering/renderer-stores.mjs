@@ -163,8 +163,8 @@ export class ConnectionsStore {
 		this.store[validKey].line.userData = { fromId, toId, type: 'connection' };
 	}
 	resetHovered() {
-		for (const [key, peerConn] of Object.entries(this.store))
-			if (peerConn.isHovered) this.unset(...key.split(':'), true);
+		for (const key in this.store)
+			if (this.store[key].isHovered) this.unset(...key.split(':'), true);
 	}
 	updateOrAssignLineColor(fromId = 'toto', toId = 'tutu', color = 0x666666, opacity = .4, ignoreRepaintFrames) {
 		const { key1, key2, validKey } = this.#getKeys(fromId, toId);
@@ -185,7 +185,8 @@ export class ConnectionsStore {
 		const batchSize = Math.floor(Math.min(nodeIdsCount, this.updateBatchMax));
 		if (batchSize >= nodeIdsCount) return { batchIds: nodeIds, forceMultiplier: 1 };*/
 
-		for (const [connStr, peerConn] of Object.entries(this.peerConnsWithLines)) {
+		for (const connStr in this.peerConnsWithLines) {
+			const peerConn = this.peerConnsWithLines[connStr]; if (!peerConn) continue;
 			const [fromId, toId] = connStr.split(':');
 			const fromPos = this.nodesStore.get(fromId)?.position;
 			const toPos = this.nodesStore.get(toId)?.position;

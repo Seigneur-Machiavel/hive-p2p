@@ -61,13 +61,15 @@ export class ICECandidateEmitter { // --- ICE SIMULATION ---
 			if (!success) receiverInstance.dispatchError(reason || `Failed to digest signal for peer: ${this.id}`);
 		}
 	}
-	#cleanupExpiredSignals(n = Date.now()) { // AVOIDS MEMORY LEAK
-		for (const [transportId, offers] of Object.entries(this.PENDING_OFFERS))
-			for (const [signalId, signalData] of Object.entries(offers))
-				if (n > signalData.expiration) delete this.PENDING_OFFERS[transportId][signalId];
+	#cleanupExpiredSignals(n = Date.now()) { // AVOIDS MEMORY LEAKS
+		for (const transportId in this.PENDING_OFFERS)
+			for (const signalId in this.PENDING_OFFERS[transportId])
+				if (n > this.PENDING_OFFERS[transportId][signalId].expiration) delete this.PENDING_OFFERS[transportId][signalId];
 
-		for (const [transportId, answer] of Object.entries(this.PENDING_ANSWERS))
+		for (const transportId in this.PENDING_ANSWERS) {
+			const answer = this.PENDING_ANSWERS[transportId];
 			if (n > answer.expiration) delete this.PENDING_ANSWERS[transportId];
+		}
 	}
 	/** @param {string} receiverId @param {string} senderId */
 	#buildSDP(id, type) { // A BIT TRICKY, BUT IT SHOULD WORK

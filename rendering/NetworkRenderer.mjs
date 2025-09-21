@@ -50,8 +50,8 @@ export class NetworkRenderer {
 	/** @type {NodesStore} */ nodesStore;
 	/** @type {ConnectionsStore} */ connectionsStore;
 
-	updateBatchMax = 1000; // auto-adjusted based on fps
-	initUpdateBatchMax = 1000;
+	updateBatchMax = 500; // auto-adjusted based on fps
+	initUpdateBatchMax = 500;
 
 	// State
 	currentPeerId = null;
@@ -270,9 +270,11 @@ export class NetworkRenderer {
 		
 		// remove physicConnections that are not in the array
 		// remove visual lines that are not in the array
-		for (const [connStr, peerConn] of Object.entries(this.connectionsStore.store))
+		for (const connStr in this.connectionsStore.store) {
+			const peerConn = this.connectionsStore.store[connStr];
 			if (!existingConnsKeys[connStr]) this.connectionsStore.unset(...connStr.split(':'));
 			else if (!drawLinesKeys[connStr] && peerConn.line) this.connectionsStore.unassignLine(...connStr.split(':'));
+		}
 	}
 	displayDirectMessageRoute(relayerId, route = [], frameToIgnore = 30) {
 		const maxTraveledColorIndex = this.colors.traveledConnection.length - 1;
@@ -332,7 +334,8 @@ export class NetworkRenderer {
 		this.indexNodeMap = {};
 
 		// Clear borders
-		for (const [id, border] of Object.entries(this.nodeBorders)) {
+		for (const id in this.nodeBorders) {
+			const border = this.nodeBorders[id];
 			this.scene.remove(border);
 			border.geometry.dispose();
 			border.material.dispose();

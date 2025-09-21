@@ -1,19 +1,19 @@
 import { CLOCK, GOSSIP, DISCOVERY } from './global_parameters.mjs';
 import { xxHash32 } from '../libs/xxhash32.mjs';
 
-export class GossipMessage {
+export class GossipMessage { // TYPE DEFINITION
 	topic = 'gossip';
 	timestamp;
-	neighbors;
+	neighborsList;
 	HOPS;
 	senderId;
 	pubkey;
 	data;
 	signature;
 
-	/** @param {string} topic @param {number} timestamp @param {string[]} neighbors @param {number} HOPS @param {string} senderId @param {string} pubkey @param {string | Uint8Array | Object} data @param {string | undefined} signature */
-	constructor(topic, timestamp, neighbors, HOPS, senderId, pubkey, data, signature) { // PROBABLY DEPRECATED
-		this.topic = topic; this.timestamp = timestamp; this.neighbors = neighbors;
+	/** @param {string} topic @param {number} timestamp @param {string[]} neighborsList @param {number} HOPS @param {string} senderId @param {string} pubkey @param {string | Uint8Array | Object} data @param {string | undefined} signature */
+	constructor(topic, timestamp, neighborsList, HOPS, senderId, pubkey, data, signature) { // PROBABLY DEPRECATED
+		this.topic = topic; this.timestamp = timestamp; this.neighborsList = neighborsList;
 		this.HOPS = HOPS; this.senderId = senderId; this.pubkey = pubkey; this.data = data;
 		this.signature = signature;
 	}
@@ -133,25 +133,24 @@ export class Gossip {
 		const message = this.cryptoCodex.readGossipMessage(serialized);
 		if (!message) throw new Error(`Failed to deserialize gossip message from ${from}.`);
 		
-		const { topic, timestamp, neighbors, HOPS, senderId, data } = message;
+		const { topic, timestamp, neighborsList, HOPS, senderId, data } = message;
 		
 		if (this.verbose > 3)
 			if (senderId === from) console.log(`(${this.id}) Gossip ${topic} from ${senderId}: ${data}`);
 			else console.log(`(${this.id}) Gossip ${topic} from ${senderId} (by: ${from}): ${data}`);
 		if (senderId === this.id) throw new Error(`#${this.id}#${from}# Received our own message back from peer ${from}.`);
 
-		this.peerStore.digestPeerNeighbors(senderId, neighbors);
+		this.peerStore.digestPeerNeighbors(senderId, neighborsList);
 		for (const cb of this.callbacks[topic] || []) cb(senderId, data, HOPS, message); // specific topic callback
 		if (HOPS < 1) return; // stop forwarding if HOPS is 0
 
-		const myNeighbors = Object.entries(this.peerStore.connected);
-		const nCount = myNeighbors.length;
+		const nCount = this.peerStore.neighborsList.length;
 		const trm = Math.max(1, nCount / GOSSIP.TRANSMISSION_RATE.NEIGHBOURS_PONDERATION);
 		const tRateBase = GOSSIP.TRANSMISSION_RATE[topic] || GOSSIP.TRANSMISSION_RATE.default;
 		const transmissionRate = Math.pow(tRateBase, trm);
 		const avoidTransmissionRate = nCount < GOSSIP.TRANSMISSION_RATE.MIN_NEIGHBOURS_TO_APPLY_PONDERATION;
 		const serializedToTransmit = this.cryptoCodex.decrementGossipHops(serialized);
-		for (const [peerId, conn] of myNeighbors)
+		for (const peerId of this.peerStore.neighborsList)
 			if (peerId === from) continue; // avoid sending back to sender
 			else if (!avoidTransmissionRate && Math.random() > transmissionRate) continue; // apply gossip transmission rate
 			else this.#broadcastToPeer(peerId, serializedToTransmit);

@@ -162,7 +162,7 @@ function getPeerInfo(peerId) {
 	return {
 		id: peer.id,
 		store: {
-			connected: peer.peerStore.neighbors, // ids only
+			connected: peer.peerStore.neighborsList, // ids only
 			connecting: Object.keys(peer.peerStore.connecting), // ids only
 			known: peer.peerStore.known
 		}

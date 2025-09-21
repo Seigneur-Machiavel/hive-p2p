@@ -44,9 +44,9 @@ export class NetworkEnhancer {
 
 	// PUBLIC METHODS
 	autoEnhancementTick() {
-		const neighborsCount = this.peerStore.neighbors.length;
+		const neighborsCount = this.peerStore.neighborsList.length;
 		const isEnough = neighborsCount >= DISCOVERY.TARGET_NEIGHBORS_COUNT;
-		const nonPublicNeighborsCount = this.peerStore.neighbors.filter(id => !CryptoCodex.isPublicNode(id)).length;
+		const nonPublicNeighborsCount = this.peerStore.standardNeighborsList.length;
 		const isTooMany = nonPublicNeighborsCount > DISCOVERY.TARGET_NEIGHBORS_COUNT;
 		const offersToCreate = nonPublicNeighborsCount >= DISCOVERY.TARGET_NEIGHBORS_COUNT / 3 ? 1 : TRANSPORTS.MAX_SDP_OFFERS;
 		this.peerStore.sdpOfferManager.offersToCreate = isEnough ? 0 : offersToCreate;
@@ -83,7 +83,7 @@ export class NetworkEnhancer {
 		if (this.isPublicNode || this.peerStore.isKicked(senderId)) return;
 
 		// AVOID CONNECTING TO TOO MANY "NON-PUBLIC PEERS"
-		const nonPublicNeighborsCount = this.peerStore.neighbors.filter(id => !CryptoCodex.isPublicNode(id)).length;
+		const nonPublicNeighborsCount = this.peerStore.standardNeighborsList.length;
 		if (nonPublicNeighborsCount > DISCOVERY.TARGET_NEIGHBORS_COUNT) return;
 
 		// AVOID OVERLAP
@@ -118,9 +118,9 @@ export class NetworkEnhancer {
 		if (this.bootstraps.length === 0) return;
 		
 		const [connected, connecting] = [this.peerStore.connected, this.peerStore.connecting];
-		const connectingCount = Object.keys(connecting).filter(id => this.bootstrapsIds[id]).length;
-		const connectedCount = this.peerStore.neighbors.filter(id => this.bootstrapsIds[id]).length;
-		
+		const connectedCount = this.peerStore.neighborsList.filter(id => this.bootstrapsIds[id]).length;
+		const connectingCount = []; for (const id in connecting) if (this.bootstrapsIds[id]) connectingCount.push(id);
+
 		// MINIMIZE BOOTSTRAP CONNECTIONS DEPENDING ON HOW MANY NEIGHBOURS WE HAVE
 		if (connectedCount + connectingCount >= NODE.SERVICE.MAX_WS_OUT_CONNS) return; // already connected to enough bootstraps
 		if (connectedCount && neighborsCount >= DISCOVERY.TARGET_NEIGHBORS_COUNT / 2) return; // no more bootstrap needed (half of target)
@@ -141,7 +141,8 @@ export class NetworkEnhancer {
 		// BETTER TO NOT AVOID, BUT JUST SEND OFFER USING UNICAST WHILE WE ARE CONNECTED/ING
 
 		let [ offerHash, readyOffer, since ] = [ null, null, null ];
-		for (const [hash, offer] of Object.entries(this.peerStore.sdpOfferManager.offers)) {
+		for (const hash in this.peerStore.sdpOfferManager.offers) {
+			const offer = this.peerStore.sdpOfferManager.offers[hash];
 			const { isUsed, sentCounter, signal, timestamp } = offer;
 			if (isUsed || sentCounter > 0) continue; // already used or already sent at least once
 			const createdSince = CLOCK.time - timestamp;
@@ -164,10 +165,17 @@ export class NetworkEnhancer {
 		// ALREADY CONNECTED, SEND USING UNICAST TO THE BEST 10 CANDIDATES
 		let sentToCount = 0;
 		const sentTo = {};
-		const knowPeerIds = Object.keys(this.peerStore.known).filter(id => id !== this.id && !this.peerStore.connected[id] && !this.peerStore.isKicked(id) && !CryptoCodex.isPublicNode(id));
-		for (let i = 0; i < Math.min(knowPeerIds.length, 50); i++) {
-			const randomIndex = Math.random() * knowPeerIds.length | 0;
-			const peerId = knowPeerIds[randomIndex];
+		const knownPeerIds = [];
+		for (const id in this.peerStore.known) {
+			if (id === this.id) continue;
+			if (this.peerStore.connected[id]) continue;
+			if (this.peerStore.isKicked(id)) continue;
+			if (CryptoCodex.isPublicNode(id)) continue;
+			knownPeerIds.push(id);
+		}
+		for (let i = 0; i < Math.min(knownPeerIds.length, 50); i++) {
+			const randomIndex = Math.random() * knownPeerIds.length | 0;
+			const peerId = knownPeerIds[randomIndex];
 			if (sentTo[peerId]) continue; // already sent to this one
 			if (this.peerStore.connected[peerId]) continue; // skip connected peers
 			if (this.#getOverlap(peerId, this.id) > DISCOVERY.MAX_OVERLAP * .8) continue; // only to peers with good chances to connect
@@ -196,7 +204,7 @@ export class NetworkEnhancer {
 		const p1n1 = this.peerStore.known[peerId1]?.neighbors || {};
 		let sharedCount = 0;
 		if (peerId2 === this.id) { // Going straight to the point.
-			for (const id of this.peerStore.neighbors)
+			for (const id of this.peerStore.neighborsList)
 				if (ignorePublic && CryptoCodex.isPublicNode(id)) continue;
 				else if (p1n1[id]) sharedCount++;
 			return sharedCount;
@@ -205,14 +213,13 @@ export class NetworkEnhancer {
 		// General case, compare two different peers (not ourself as peerId2)
 		const p2n1 = this.peerStore.known[peerId2]?.neighbors || {};
 		const [shortest, longest] = Object.keys(p1n1).length < Object.keys(p2n1).length ? [p1n1, p2n1] : [p2n1, p1n1];
-		for (const [id, lastSeen] of Object.entries(shortest))
+		for (const id in shortest)
 			if ((ignorePublic && CryptoCodex.isPublicNode(id))) continue;
 			else if (longest[id]) sharedCount++;
 		return sharedCount;
 	}
 	#improveTopologyByKickingPeers() { // KICK THE PEER WITH THE BIGGEST OVERLAP
-		const connectedPeers = Object.entries(this.peerStore.connected).filter(([id]) => !CryptoCodex.isPublicNode(id));
-		const peersWithOverlap = connectedPeers.map(([id, conn]) => [id, this.#getOverlap(id, this.id)]);
+		const peersWithOverlap = this.peerStore.standardNeighborsList.map(id => [id, this.#getOverlap(id, this.id)]);
 		const sortedPeers = peersWithOverlap.sort((a, b) => b[1] - a[1]);
 		this.peerStore.kickPeer(sortedPeers[0][0], 60_000);
 	}
