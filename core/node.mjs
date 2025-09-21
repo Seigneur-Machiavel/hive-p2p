@@ -43,8 +43,9 @@ export class NodeP2P {
 
 		// GOSSIP LISTENERS
 		gossip.on('signal_offer', (senderId, data, HOPS) => networkEnhancer.handleIncomingSignal(senderId, data, HOPS));
-		gossip.on('peer_connected', (senderId, data) => peerStore.handlePeerConnectedGossipEvent(senderId, data));
-		gossip.on('peer_disconnected', (senderId, data) => peerStore.unlinkPeers(data, senderId));
+		// DEPRECIATING =>
+		//gossip.on('peer_connected', (senderId, data) => peerStore.handlePeerConnectedGossipEvent(senderId, data));
+		//gossip.on('peer_disconnected', (senderId, data) => peerStore.unlinkPeers(data, senderId));
 
 		if (verbose > 2) console.log(`NodeP2P initialized: ${this.id}`);
 	}

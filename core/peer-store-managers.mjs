@@ -89,7 +89,6 @@ export class SdpOfferManager { // Manages the creation of SDP offers and handlin
 	onConnect = null; // function(remoteId, transportInstance)
 	
 	creatingOffer = false; // flag
-	isConnectedToAtLeastOnePeer = true; // flag updated by peerStore
 	offersToCreate = TRANSPORTS.MAX_SDP_OFFERS;
 	/** @type {Record<string, OfferObj>} key: offerHash **/ offers = {};
 
@@ -129,7 +128,7 @@ export class SdpOfferManager { // Manages the creation of SDP offers and handlin
 			if (this.verbose > 2) console.log(`(SdpOfferManager) Using answer from ${newestAnswer.peerId} for offer ${hash} (received since ${receivedSince} ms)`);
 		}
 
-		if (this.creatingOffer || !this.isConnectedToAtLeastOnePeer) return; // already creating one or unable to send
+		if (this.creatingOffer) return; // already creating one or unable to send
 		if (Object.keys(this.offers).length >= this.offersToCreate) return; // already have enough offers
 		
 		// CREATE NEW OFFER

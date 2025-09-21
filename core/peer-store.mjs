@@ -1,6 +1,7 @@
 import { CLOCK, SIMULATION, DISCOVERY } from './global_parameters.mjs';
 import { PeerConnection, KnownPeer, SdpOfferManager, Punisher } from './peer-store-managers.mjs';
 const { SANDBOX, ICE_CANDIDATE_EMITTER, TEST_WS_EVENT_MANAGER } = SIMULATION.ENABLED ? await import('../simulation/test-transports.mjs') : {};
+/** @typedef {{ in: PeerConnection, out: PeerConnection }} PeerConnecting */
 
 export class PeerStore { // Manages all peers informations and connections (WebSocket and WebRTC)
 	cryptoCodex;
@@ -8,15 +9,11 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 	id;
 	sdpOfferManager;
 	punisher = new Punisher();
-	/** @type {string[]} The neighbors IDs */    neighbors = []; // faster access
-	/** @type {Record<string, { in: PeerConnection, out: PeerConnection }>} */ connecting = {};
-	/** @type {Record<string, PeerConnection>} */ connected = {};
-	/** @type {Record<string, KnownPeer>} */ 	  known = {};
-
-	/** @type {Record<string, number>} key: peerId1:peerId2, value: expiration */
-	pendingLinks = {};
-
-	/** @type {Record<string, Function[]>} */ callbacks = {
+	/** @type {string[]} The neighbors IDs */ 		neighbors = []; // faster access
+	/** @type {Record<string, PeerConnecting>} */ 	connecting = {};
+	/** @type {Record<string, PeerConnection>} */ 	connected = {};
+	/** @type {Record<string, KnownPeer>} */ 	  	known = {};
+	/** @type {Record<string, Function[]>} */ 		callbacks = {
 		'connect': [(peerId, direction) => this.#handleConnect(peerId, direction)],
 		'disconnect': [(peerId, direction) => this.#handleDisconnect(peerId, direction)],
 		'signal': [],
@@ -25,9 +22,7 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 
 	/** @param {string} selfId @param {import('./crypto-codex.mjs').CryptoCodex} cryptoCodex @param {Array<bootstrapInfo>} bootstraps @param {number} [verbose] default: 0 */
 	constructor(selfId, cryptoCodex, bootstraps, verbose = 0) { // SETUP SDP_OFFER_MANAGER CALLBACKS
-		this.cryptoCodex = cryptoCodex;
-		this.verbose = verbose;
-		this.id = selfId;
+		this.cryptoCodex = cryptoCodex; this.verbose = verbose; this.id = selfId;
 		this.sdpOfferManager = new SdpOfferManager(selfId, bootstraps, verbose);
 
 		/** @param {string} remoteId @param {any} signalData @param {string} [offerHash] answer only */
@@ -80,13 +75,11 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 		this.connected[peerId] = peerConn;
 		this.neighbors.push(peerId);
 		this.#linkPeers(this.id, peerId); // Add link in self store
-		//this.sdpOfferManager.isConnectedToAtLeastOnePeer = true; // flag for offer creation
 		if (this.verbose > (this.cryptoCodex.isPublicNode(peerId) ? 3 : 2)) console.log(`(${this.id}) ${direction === 'in' ? 'Incoming' : 'Outgoing'} ${peerConn.isWebSocket ? 'WebSocket' : 'WRTC'} connection established with peer ${peerId}`);
 	}
 	#handleDisconnect(peerId, direction) { // First callback assigned in constructor
 		this.#removePeer(peerId, 'connected', direction);
 		this.unlinkPeers(this.id, peerId); // Remove link in self known store
-		//if (!this.neighbors.length) this.sdpOfferManager.isConnectedToAtLeastOnePeer = false; // flag for offer creation
 	}
 	/** @param {string} remoteId @param {'connected' | 'connecting' | 'both'} [status] default: both @param {'in' | 'out' | 'both'} [direction] default: both */
 	#removePeer(remoteId, status = 'both', direction = 'both') {
@@ -126,9 +119,6 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 				this.#removePeer(peerId, 'connecting', dir);
 			}
 
-		for (const [key, expiration] of Object.entries(this.pendingLinks))
-			if (expiration < now) delete this.pendingLinks[key];
-
 		if (!andUpdateKnownBasedOnNeighbors) return;
 		this.neighbors = Object.keys(this.connected);
 		this.digestPeerNeighbors(this.id, this.neighbors); // Update self known store
@@ -167,20 +157,6 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 			if (signal.type === 'answer') this.sdpOfferManager.addSignalAnswer(remoteId, signal, offerHash, timestamp);
 			else peerConn.transportInstance.signal(signal);
 		} catch (error) { console.error(`Error signaling ${signal?.type} for ${remoteId}:`, error.stack); }
-	}
-	/** Link two peers if both declared the connection in a short delay(10s), trigger on:
-	 * - 'peer_connected' gossip message
-	 * - 'peer_connected' from gossipHistory (unicast message following onConnect) */
-	handlePeerConnectedGossipEvent(peerId1 = 'toto', peerId2 = 'tutu', timeout = DISCOVERY.PEER_LINK_DELAY) {
-		const key1 = `${peerId1}:${peerId2}`;
-		const key2 = `${peerId2}:${peerId1}`;
-		const pendingLinkExpiration = this.pendingLinks[key1] || this.pendingLinks[key2];
-		if (!pendingLinkExpiration) this.pendingLinks[key1] = CLOCK.time + timeout;
-		else { // only one pendingLinks exist, by deleting both we ensure deletion
-			delete this.pendingLinks[key1];
-			delete this.pendingLinks[key2];
-			this.#linkPeers(peerId1, peerId2);
-		}
 	}
 	/** Improve discovery by considering used route as peer links @param {string[]} route */
 	digestValidRoute(route = []) { for (let i = 1; i < route.length; i++) this.#linkPeers(route[i - 1], route[i]); }
