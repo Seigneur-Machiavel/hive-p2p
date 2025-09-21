@@ -28,8 +28,9 @@ export class CryptoCodex {
 	static isPublicNode(id) { return (IDENTITY.ARE_IDS_HEX ? Converter.hexToBits(id[0]) : id).startsWith(IDENTITY.PUBLIC_PREFIX); }
 	/** @param {string} id */
 	isPublicNode(id) { return CryptoCodex.isPublicNode(id); }
+	get idLength() { return IDENTITY.ARE_IDS_HEX ? IDENTITY.ID_LENGTH / 2 : IDENTITY.ID_LENGTH; }
     #idFromPublicKey(publicKey) {
-		if (IDENTITY.ARE_IDS_HEX) return this.converter.bytesToHex(publicKey.slice(0, IDENTITY.ID_LENGTH / 2), IDENTITY.ID_LENGTH);
+		if (IDENTITY.ARE_IDS_HEX) return this.converter.bytesToHex(publicKey.slice(0, this.idLength), IDENTITY.ID_LENGTH);
 		return this.converter.bytesToString(publicKey.slice(0, IDENTITY.ID_LENGTH));
 	}
 	/** @param {Uint8Array} [seed] The privateKey. DON'T USE IN SIMULATION */
@@ -53,19 +54,6 @@ export class CryptoCodex {
 	idsToBytes(ids) {
 		if (IDENTITY.ARE_IDS_HEX) return this.converter.hexToBytes(ids.join(''), IDENTITY.ID_LENGTH * ids.length);
 		return this.converter.stringToBytes(ids.join(''));
-	}
-	/** @param {Uint8Array} serialized */
-	#bytesToIds(serialized) {
-		const ids = [];
-		const idLength = IDENTITY.ARE_IDS_HEX ? IDENTITY.ID_LENGTH / 2 : IDENTITY.ID_LENGTH;
-		if (serialized.length % idLength !== 0) throw new Error('Failed to parse ids: invalid serialized length.');
-
-		for (let i = 0; i < serialized.length / idLength; i++) {
-			const idBytes = serialized.slice(i * idLength, (i + 1) * idLength);
-			if (IDENTITY.ARE_IDS_HEX) ids.push(this.converter.bytesToHex(idBytes, IDENTITY.ID_LENGTH));
-			else ids.push(this.converter.bytesToString(idBytes));
-		}
-		return ids;
 	}
 	signBufferViewAndAppendSignature(bufferView, privateKey, signaturePosition = bufferView.length - IDENTITY.SIGNATURE_LENGTH) {
 		if (this.AVOID_CRYPTO) return;
@@ -159,6 +147,19 @@ export class CryptoCodex {
 	}
 
 	// MESSSAGE READING (DESERIALIZATION AND SIGNATURE VERIFICATION INCLUDED)
+	/** @param {Uint8Array} serialized */
+	#bytesToIds(serialized) {
+		const ids = [];
+		const idLength = this.idLength;
+		if (serialized.length % idLength !== 0) throw new Error('Failed to parse ids: invalid serialized length.');
+
+		for (let i = 0; i < serialized.length / idLength; i++) {
+			const idBytes = serialized.slice(i * idLength, (i + 1) * idLength);
+			if (IDENTITY.ARE_IDS_HEX) ids.push(this.converter.bytesToHex(idBytes, IDENTITY.ID_LENGTH));
+			else ids.push(this.converter.bytesToString(idBytes));
+		}
+		return ids;
+	}
 	/** @param {1 | 2 | 3} dataCode @param {Uint8Array} dataBytes @return {string | Uint8Array | Object} */
 	#bytesToData(dataCode, dataBytes) {
 		if (dataCode === 1) return this.converter.bytesToString(dataBytes);
@@ -176,7 +177,7 @@ export class CryptoCodex {
 		const lBytes = bufferView.slice(11, 15);	// 4 bytes for data length
 		const pubkey = bufferView.slice(15, 47);	// 32 bytes for pubkey
 		const associatedId = readAssociatedId ? this.#idFromPublicKey(pubkey) : null;
-		const neighLength = neighboursCount * (IDENTITY.ARE_IDS_HEX ? IDENTITY.ID_LENGTH / 2 : IDENTITY.ID_LENGTH);
+		const neighLength = neighboursCount * this.idLength;
 		const timestamp = this.converter.bytes8ToNumber(tBytes);
 		const dataLength = this.converter.bytes4ToNumber(lBytes);
 		return { marker, dataCode, neighLength, timestamp, dataLength, pubkey, associatedId };
@@ -209,8 +210,7 @@ export class CryptoCodex {
 			const neighbors = this.#bytesToIds(serialized.slice(47, 47 + neighLength));
 			const deserializedData = this.#bytesToData(dataCode, serialized.slice(47 + neighLength, 47 + NDBL));
 			const routeLength = serialized[47 + NDBL];
-			const idLength = IDENTITY.ARE_IDS_HEX ? IDENTITY.ID_LENGTH / 2 : IDENTITY.ID_LENGTH;
-			const routeBytesLength = routeLength * idLength;
+			const routeBytesLength = routeLength * this.idLength;
 			const signatureStart = 47 + NDBL + 1 + routeBytesLength;
 			const routeBytes = serialized.slice(47 + NDBL + 1, signatureStart);
 			const route = this.#bytesToIds(routeBytes);

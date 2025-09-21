@@ -63,12 +63,12 @@ export const DISCOVERY = {
 	MAX_OVERLAP: 4, 				// Max of shared neighbours | soft: 5, default: 4, strict: 3
 	LOOP_DELAY: 2_500, 				// delay between connection attempts | default: 2_500 (2.5 seconds)
 	TARGET_NEIGHBORS_COUNT: 5, 		// default: 8, light: 6, super-light: 4
-	ON_CONNECT_DISPATCH: {		// => on Node.#onConnect()
+	ON_CONNECT_DISPATCH: {		// => on Node.#onConnect() // DEPRECATING
 		DELAY: 0, 					// delay before dispatching events | default: 100 (.1 seconds)
 		BROADCAST_EVENT: false,		// Boolean to indicate if we broadcast 'peer_connected'
 		SHARE_HISTORY: false,		// Boolean to indicate if we broadcastToPeer some gossip history to the new peer | default: true
 	},
-	ON_DISCONNECT_DISPATCH: {	// => on Node.#onDisconnect()
+	ON_DISCONNECT_DISPATCH: {	// => on Node.#onDisconnect() // DEPRECATING
 		MIN_CONNECTION_TIME: 2_500, // minimum connection time to dispatch the 'disconnected' event | default: 2_500 (2.5 seconds)
 		DELAY: 0, 					// delay before dispatching the 'disconnected' event | default: 500 (.5 seconds)
 		BROADCAST_EVENT: false,		// Boolean to indicate if we broadcast 'peer_disconnected'
