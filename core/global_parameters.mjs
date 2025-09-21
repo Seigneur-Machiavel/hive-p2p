@@ -41,12 +41,13 @@ export const NODE = {
 
 export const IDENTITY = {
 	ARE_IDS_HEX: false,				// Boolean to indicate if we use hex ids, default: true = hex | false = strings as Bytes (can involve in serialization failures)
+	PUBLIC_PREFIX: '0', 			// Identifier prefix for public nodes | default: '0'
 	ID_LENGTH: 16,					// !!EVEN NUMBER ONLY!! length of peer id | default: 16
 	PUBKEY_LENGTH: 32,				// length of public/private keys | (ed25519) default: 32 bytes
 	PRIVATEKEY_LENGTH: 32,			// length of private key | (ed25519) default: 32 bytes
 	SIGNATURE_LENGTH: 64,			// length of signature | default: 64 bytes
-	PUBLIC_PREFIX: '0', 			// Identifier prefix for public nodes | default: 'P'
 }
+if (!IDENTITY.ARE_IDS_HEX) IDENTITY.PUBLIC_PREFIX = 'P_'; // FOR SIMULTOR STRING IDS
 
 export const TRANSPORTS = {
 	MAX_SDP_OFFERS: 3, 				// max SDP offers to create in advance | default: 3

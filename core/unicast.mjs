@@ -113,21 +113,11 @@ export class UnicastMessager {
 
 		const { traveledRoute, selfPosition, senderId, targetId, prevId, nextId } = message.extractRouteInfo(this.id);
 		for (const cb of this.callbacks.message_handle || []) cb(); // Simulator counter
-
-		// RACE CONDITION CAN OCCUR IN SIMULATION !!
-		// ref: simulation/race-condition-demonstration.js
-		if (selfPosition === -1)
-			throw new Error(`DirectMessage selfPosition is -1 for peer ${from}.`); // race condition or not => ignore message
-		
-		//const [senderId, prevId, nextId, targetId] = [route[0], route[selfPosition - 1], route[selfPosition + 1], route[route.length - 1]];
-		if (from === senderId && from === this.id) // FATAL ERROR
-			throw new Error('DirectMessage senderId and from are both self id !!');
+		if (selfPosition === -1) throw new Error(`DirectMessage selfPosition is -1 for peer ${from}.`);
+		if (prevId && from !== prevId) throw new Error(`DirectMessage previous hop id (${prevId}) does not match the actual from id (${from}).`);
+		if (from === senderId && from === this.id) throw new Error('DirectMessage senderId and from are both self id !!');
 		if (senderId === this.id) // !!Attacker can modify the route to kick a peer a by building a loop
 			return this.peerStore.kickPeer(from, 0); // from self is not allowed.
-				
-		// RACE CONDITION CAN OCCUR IN SIMULATION !!
-		// ref: simulation/race-condition-demonstration.js
-		if (prevId && from !== prevId) throw new Error(`DirectMessage previous hop id (${prevId}) does not match the actual from id (${from}).`);
 		
 		if (this.verbose > 3)
 			if (senderId === from) console.log(`(${this.id}) Direct ${message.type} from ${senderId}: ${message.data}`);

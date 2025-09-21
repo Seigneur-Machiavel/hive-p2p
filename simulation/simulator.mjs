@@ -9,11 +9,6 @@ import { TestWsServer, TestWsConnection, TestTransport,
 
 // SETUP SIMULATION ENV -----------------------------------------------\
 CLOCK.mockMode = SIMULATION.USE_TEST_TRANSPORTS; //						|
-if (!IDENTITY.ARE_IDS_HEX) { // 										|
-	IDENTITY.PUBLIC_PREFIX = 'P_'; //	better readability				|
-	IDENTITY.STANDARD_PREFIX = 'N_'; //	better readability				|
-	IDENTITY.FOLLOWER_PREFIX = 'F_'; //	better readability				|
-}// 																	|
 if (SIMULATION.USE_TEST_TRANSPORTS) {//									|
 	TRANSPORTS.WS_SERVER = TestWsServer; // default: WebSocketServer	|
 	TRANSPORTS.WS_CLIENT = TestWsConnection; // default: WebSocket		|
@@ -129,7 +124,7 @@ function addPeer(type, i = 0, bootstraps = [], init = false, setPublic = false) 
 	const selectedBootstraps = type === 'STANDARD_NODE' ? pickUpRandomBootstraps() : bootstraps;
 	const domain = setPublic ? 'localhost' : undefined;
 	const port = setPublic ? 8080 + (i * 2) : undefined;
-	const cryptoCodex = IDENTITY.ARE_IDS_HEX ? new CryptoCodex() : new CryptoCodex(`${type === 'STANDARD_NODE' ? IDENTITY.STANDARD_PREFIX : IDENTITY.PUBLIC_PREFIX}${i}`);
+	const cryptoCodex = IDENTITY.ARE_IDS_HEX ? new CryptoCodex() : new CryptoCodex(`${type === 'STANDARD_NODE' ? 'N_' : IDENTITY.PUBLIC_PREFIX}${i}`);
 	const peer = NodeP2P.createNode(selectedBootstraps, cryptoCodex, init, domain, port);
 	peers.all[peer.id] = peer;
 	peers[type === 'STANDARD_NODE' ? 'standard' : 'public'].push(peer);
@@ -278,7 +273,7 @@ class TwitchChatCommandInterpreter {
 		const splitted  = message.split(':');
 		const command = splitted[0].trim().toLowerCase();
 		const args = splitted.slice(1).map(arg => arg.trim());
-		const targetNodeId = args[0] ? CryptoCodex.isPublicNode(args[0]) ? args[0] : `${IDENTITY.FOLLOWER_PREFIX}${args[0]}` : null;
+		const targetNodeId = args[0] ? CryptoCodex.isPublicNode(args[0]) ? args[0] : `F_${args[0]}` : null;
 		if (user === 'bot' && command === '!addfollower' && !SIMULATION.AVOID_FOLLOWERS_NODES) this.#createUserNode(args[0]);
 		if (command === '!connectto' && targetNodeId) this.userNodes[user]?.tryConnectToPeer(targetNodeId);
 	}
@@ -290,7 +285,7 @@ class TwitchChatCommandInterpreter {
 			.replace(/[\u0300-\u036f]/g, '')     // supprimer les accents
 			.replace(/[^\w-]/g, '_')             // remplacer chars spéciaux par _
 
-		const cryptoCodex = IDENTITY.ARE_IDS_HEX ? new CryptoCodex() : new CryptoCodex(`${IDENTITY.FOLLOWER_PREFIX}${cleanUser}`);
+		const cryptoCodex = IDENTITY.ARE_IDS_HEX ? new CryptoCodex() : new CryptoCodex(`F_${cleanUser}`);
 		const peer = NodeP2P.createNode(pickUpRandomBootstraps(), cryptoCodex, true);
 		this.userNodes[user] = peer;
 		peers.all[peer.id] = peer;

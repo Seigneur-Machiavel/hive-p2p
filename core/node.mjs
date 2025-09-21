@@ -4,7 +4,7 @@ import { PeerConnection } from './peer-store-managers.mjs';
 import { UnicastMessager } from './unicast.mjs';
 import { Gossip } from './gossip.mjs';
 import { NetworkEnhancer } from './network-enhancer.mjs';
-import { CryptoCodex } from './crypto-codex.mjs';
+import { CryptoCodex, Converter } from './crypto-codex.mjs';
 const dgram = !NODE.IS_BROWSER ? await import('dgram') : null; // Node.js only
 
 export class NodeP2P {
@@ -125,8 +125,6 @@ export class NodeP2P {
 	#setAsPublic(domain = 'localhost', port = NODE.SERVICE.PORT) {
 		this.publicUrl = `ws://${domain}:${port}`;
 		this.networkEnhancer.isPublicNode = true;
-		
-		// create simple ws server to accept incoming connections (Require to open port)
 		this.wsServer = new TRANSPORTS.WS_SERVER({ port, host: domain });
 		this.wsServer.on('error', (error) => console.error(`WebSocket error on Node #${this.id}:`, error));
 		this.wsServer.on('connection', (ws) => {
@@ -136,10 +134,8 @@ export class NodeP2P {
 			let remoteId;
 			ws.on('message', (data) => { // When peer proves his id, we can handle data normally
 				if (remoteId) for (const cb of this.peerStore.callbacks.data) cb(remoteId, data);
-				else { // First message should be handshake with id
-					// C'EST PAS TERRIBLE !
-					const d = new Uint8Array(data);
-					if (d[0] > 127) return; // not unicast, ignore
+				else { // FIRST MESSAGE SHOULD BE HANDSHAKE WITH ID
+					const d = new Uint8Array(data); if (d[0] > 127) return; // not unicast, ignore
 					const { route, type } = this.cryptoCodex.readUnicastMessage(d) || {};
 					if (type !== 'handshake' || route.length !== 2 || route[1] !== this.id) return;
 
@@ -150,20 +146,14 @@ export class NodeP2P {
 				}
 			});
 		});
-
-		return { id: this.id, publicUrl: this.publicUrl };
 	}
 	#startSTUNServer(host, port) {
 		this.stunServer = dgram.createSocket('udp4');
-		
 		this.stunServer.on('message', (msg, rinfo) => {
 			console.log(`STUN message from ${rinfo.address}:${rinfo.port} - ${msg.toString('hex')}`);
 			if (!this.#isValidSTUNRequest(msg)) return;
-			
-			const response = this.#buildSTUNResponse(msg, rinfo);
-			this.stunServer.send(response, rinfo.port, rinfo.address);
+			this.stunServer.send(this.#buildSTUNResponse(msg, rinfo), rinfo.port, rinfo.address);
 		});
-		
 		this.stunServer.bind(port, host);
 	}
 	#isValidSTUNRequest(msg) {
@@ -173,8 +163,8 @@ export class NodeP2P {
 		return messageType === 0x0001 && magicCookie === 0x2112A442;
 	}
 	#buildSTUNResponse(request, rinfo) {
-		const transactionId = request.subarray(8, 20); // copie les 12 bytes
-		
+		const transactionId = request.subarray(8, 20); // copy the 12 bytes
+
 		// Header : Success Response (0x0101) + length + magic + transaction
 		const response = Buffer.allocUnsafe(32); // 20 header + 12 attribute
 		response.writeUInt16BE(0x0101, 0);     // Binding Success Response
@@ -187,13 +177,10 @@ export class NodeP2P {
 		response.writeUInt16BE(8, 22);         // Length: 8 bytes
 		response.writeUInt16BE(0x0001, 24);    // Family: IPv4
 		response.writeUInt16BE(rinfo.port, 26); // Port
-		response.writeUInt32BE(this.#ipToInt(rinfo.address), 28); // IP
+		response.writeUInt32BE(Converter.ipToInt(rinfo.address), 28); // IP
 		
 		console.log(`STUN Response: client will discover IP ${rinfo.address}:${rinfo.port}`);
 		return response;
-	}
-	#ipToInt(ip) {
-		return ip.split('.').reduce((int, oct) => (int << 8) + parseInt(oct, 10), 0);
 	}
 	destroy() {
 		if (this.enhancerInterval) clearInterval(this.enhancerInterval);
@@ -202,5 +189,6 @@ export class NodeP2P {
 		this.peerStoreInterval = null;
 		this.peerStore.destroy();
 		if (this.wsServer) this.wsServer.close();
+		if (this.stunServer) this.stunServer.close();
 	}
 }

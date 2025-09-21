@@ -1,5 +1,6 @@
 import { NetworkRenderer } from './NetworkRenderer.mjs';
 import { CryptoCodex } from '../core/crypto-codex.mjs';
+window.CryptoCodex = CryptoCodex; // Expose for debugging
 
 class SimulationInterface {
 	#connectingWs = false;

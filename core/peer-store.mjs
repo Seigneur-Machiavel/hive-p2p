@@ -38,20 +38,15 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 		/** @param {string | undefined} remoteId @param {import('simple-peer').Instance} instance */
 		this.sdpOfferManager.onConnect = (remoteId, instance) => {
 			if (this.isDestroy) return instance?.destroy();
-
-			// RACE CONDITION CAN OCCUR IN SIMULATION !!
-			// ref: simulation/race-condition-demonstration.js
-			if (instance.isTestTransport && (!instance.remoteId && !instance.remoteWsId)) throw new Error(`Transport instance is corrupted for peer ${remoteId}.`);
 			if (remoteId === this.id) throw new Error(`Refusing to connect to self (${this.id}).`);
 
 			let peerId = remoteId;
 			instance.on('close', () => { if (peerId) for (const cb of this.callbacks.disconnect) cb(peerId, instance.initiator ? 'out' : 'in'); });
 			instance.on('data', data => {
 				if (peerId) for (const cb of this.callbacks.data) cb(peerId, data);
-				else { // First data should be handshake with id
-					// C'EST PAS TERRIBLE (non plus)
-					if (data[0] > 127) return; // not unicast, ignore
-					const { route, type } = cryptoCodex.readUnicastMessage(data) || {};
+				else { // FIRST MESSAGE SHOULD BE HANDSHAKE WITH ID
+					const d = new Uint8Array(data); if (d[0] > 127) return; // not unicast, ignore
+					const { route, type } = cryptoCodex.readUnicastMessage(d) || {};
 					if (type !== 'handshake' || route.length !== 2 || route[1] !== this.id) return;
 
 					peerId = route[0];
@@ -80,13 +75,7 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 			if (this.verbose > 1) console.warn(`(${this.id}) Connect => Peer with ID ${peerId} is already connected. => close()`);
 			return peerConn.close();
 		}
-		
-		// RACE CONDITION CAN OCCUR IN SIMULATION !!
-		// ref: simulation/race-condition-demonstration.js
-		const tI = peerConn.transportInstance; // If corrupted => close and abort operation
-		if (tI.isTestTransport && (!tI.remoteId && !tI.remoteWsId)) throw new Error(`Transport instance is corrupted for peer ${peerId}.`);
-		
-		// CONTINUE NORMAL FLOW
+	
 		peerConn.setConnected(); // set connStartTime
 		this.connected[peerId] = peerConn;
 		this.neighbours.push(peerId);

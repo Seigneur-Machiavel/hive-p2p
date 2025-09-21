@@ -44,4 +44,5 @@ export class Converter {
 		for (let i = 0; i < hex.length; i++) bitsString += parseInt(hex[i], 16).toString(2).padStart(4, '0');
 		return format === 'string' ? bitsString : bitsString.split('');
 	}
+	static ipToInt(ip = '192.168.0.1') { return ip.split('.').reduce((int, oct) => (int << 8) + parseInt(oct, 10), 0); }
 }
