@@ -9,7 +9,7 @@ const { SANDBOX, ICE_CANDIDATE_EMITTER, TEST_WS_EVENT_MANAGER } = SIMULATION.ENA
  * @property {string} publicUrl
  * 
  * @typedef {Object} SignalData
- * @property {Array<string>} neighbours
+ * @property {Array<string>} neighbors
  * @property {Object} signal
  * @property {'offer' | 'answer'} signal.type
  * @property {string} signal.sdp
@@ -44,13 +44,13 @@ export class NetworkEnhancer {
 
 	// PUBLIC METHODS
 	autoEnhancementTick() {
-		const neighboursCount = this.peerStore.neighbours.length;
-		const isEnough = neighboursCount >= DISCOVERY.TARGET_NEIGHBORS_COUNT;
-		const nonPublicNeighborsCount = this.peerStore.neighbours.filter(id => !CryptoCodex.isPublicNode(id)).length;
+		const neighborsCount = this.peerStore.neighbors.length;
+		const isEnough = neighborsCount >= DISCOVERY.TARGET_NEIGHBORS_COUNT;
+		const nonPublicNeighborsCount = this.peerStore.neighbors.filter(id => !CryptoCodex.isPublicNode(id)).length;
 		const isTooMany = nonPublicNeighborsCount > DISCOVERY.TARGET_NEIGHBORS_COUNT;
 		const offersToCreate = nonPublicNeighborsCount >= DISCOVERY.TARGET_NEIGHBORS_COUNT / 3 ? 1 : TRANSPORTS.MAX_SDP_OFFERS;
 		this.peerStore.sdpOfferManager.offersToCreate = isEnough ? 0 : offersToCreate;
-		if (this.isPublicNode && neighboursCount > NODE.SERVICE.MAX_WS_IN_CONNS) { this.#freePublicNodeByKickingPeers(); return; } // PUBLIC KICKING
+		if (this.isPublicNode && neighborsCount > NODE.SERVICE.MAX_WS_IN_CONNS) { this.#freePublicNodeByKickingPeers(); return; } // PUBLIC KICKING
 		else if (isTooMany) this.#improveTopologyByKickingPeers(); // OVERLAP BASED KICKING
 		
 		// CLEANUP OLD OFFERS IN QUEUE
@@ -68,8 +68,8 @@ export class NetworkEnhancer {
 	
 		this.phase = this.phase ? 0 : 1;
 		if (isEnough) return; // already enough, do nothing
-		if (this.phase) this.tryConnectNextBootstrap(neighboursCount);
-		else if (neighboursCount) this.#tryToSpreadSDP(nonPublicNeighborsCount);
+		if (this.phase) this.tryConnectNextBootstrap(neighborsCount);
+		else if (neighborsCount) this.#tryToSpreadSDP(nonPublicNeighborsCount);
 	}
 	/** @param {string} peerId @param {SignalData} data @param {number} [HOPS] */
 	handleIncomingSignal(senderId, data, HOPS) {
@@ -83,7 +83,7 @@ export class NetworkEnhancer {
 		if (this.isPublicNode || this.peerStore.isKicked(senderId)) return;
 
 		// AVOID CONNECTING TO TOO MANY "NON-PUBLIC PEERS"
-		const nonPublicNeighborsCount = this.peerStore.neighbours.filter(id => !CryptoCodex.isPublicNode(id)).length;
+		const nonPublicNeighborsCount = this.peerStore.neighbors.filter(id => !CryptoCodex.isPublicNode(id)).length;
 		if (nonPublicNeighborsCount > DISCOVERY.TARGET_NEIGHBORS_COUNT) return;
 
 		// AVOID OVERLAP
@@ -114,17 +114,17 @@ export class NetworkEnhancer {
 		// still space in the queue, add it at the end
 		if (this.offersQueue.length < this.maxOffers) this.offersQueue.push({ senderId, data, overlap, timestamp: CLOCK.time });
 	}
-	tryConnectNextBootstrap(neighboursCount = 0) {
+	tryConnectNextBootstrap(neighborsCount = 0) {
 		if (this.bootstraps.length === 0) return;
 		
 		const [connected, connecting] = [this.peerStore.connected, this.peerStore.connecting];
 		const connectingCount = Object.keys(connecting).filter(id => this.bootstrapsIds[id]).length;
-		const connectedCount = this.peerStore.neighbours.filter(id => this.bootstrapsIds[id]).length;
+		const connectedCount = this.peerStore.neighbors.filter(id => this.bootstrapsIds[id]).length;
 		
 		// MINIMIZE BOOTSTRAP CONNECTIONS DEPENDING ON HOW MANY NEIGHBOURS WE HAVE
 		if (connectedCount + connectingCount >= NODE.SERVICE.MAX_WS_OUT_CONNS) return; // already connected to enough bootstraps
-		if (connectedCount && neighboursCount >= DISCOVERY.TARGET_NEIGHBORS_COUNT / 2) return; // no more bootstrap needed (half of target)
-		if (connectingCount && neighboursCount >= DISCOVERY.TARGET_NEIGHBORS_COUNT / 2) return; // no more bootstrap needed (half of target)
+		if (connectedCount && neighborsCount >= DISCOVERY.TARGET_NEIGHBORS_COUNT / 2) return; // no more bootstrap needed (half of target)
+		if (connectingCount && neighborsCount >= DISCOVERY.TARGET_NEIGHBORS_COUNT / 2) return; // no more bootstrap needed (half of target)
 		
 		const { id, publicUrl } = this.bootstraps[this.nextBootstrapIndex];
 		const canMakeATry = id && publicUrl && !connected[id] && !connecting[id];
@@ -134,7 +134,7 @@ export class NetworkEnhancer {
 	
 	// INTERNAL METHODS
 	#tryToSpreadSDP(nonPublicNeighborsCount = 0) { // LOOP TO SELECT ONE UNSEND READY OFFER AND BROADCAST IT
-		if (nonPublicNeighborsCount >= DISCOVERY.TARGET_NEIGHBORS_COUNT) return; // already too many neighbours
+		if (nonPublicNeighborsCount >= DISCOVERY.TARGET_NEIGHBORS_COUNT) return; // already too many neighbors
 		// LIMIT OFFER SPREADING IF WE ARE CONNECTING TO MANY PEERS, LOWER GOSSIP TRAFFIC
 		const connectingCount = Object.keys(this.peerStore.connecting).length;
 		const ingPlusEd = connectingCount + nonPublicNeighborsCount;
@@ -152,11 +152,11 @@ export class NetworkEnhancer {
 		}
 
 		if (!offerHash || !readyOffer) return; // no ready offer to spread
-		//const pond = 1 / Math.max(1, nonPublicNeighborsCount); // spend less offers depending on how many neighbours we have
+		//const pond = 1 / Math.max(1, nonPublicNeighborsCount); // spend less offers depending on how many neighbors we have
 		//if (Math.random() > pond) continue; // skip this time
 		
 		if (nonPublicNeighborsCount <= 1 && ingPlusEd < DISCOVERY.TARGET_NEIGHBORS_COUNT * 2) {
-			this.gossip.broadcastToAll({ signal: readyOffer.signal, neighbours: this.peerStore.neighbours, offerHash }, 'signal_offer');
+			this.gossip.broadcastToAll({ signal: readyOffer.signal, offerHash }, 'signal_offer');
 			readyOffer.sentCounter++; // avoid sending it again
 			return; // limit to one per loop
 		}
@@ -173,7 +173,7 @@ export class NetworkEnhancer {
 			if (this.#getOverlap(peerId, this.id) > DISCOVERY.MAX_OVERLAP * .8) continue; // only to peers with good chances to connect
 			sentTo[peerId] = true;
 			if (sentToCount++ === 0) readyOffer.sentCounter++; // avoid sending it again
-			this.messager.sendUnicast(peerId, { signal: readyOffer.signal, neighbours: this.peerStore.neighbours, offerHash }, 'signal_offer', 1);
+			this.messager.sendUnicast(peerId, { signal: readyOffer.signal, offerHash }, 'signal_offer', 1);
 			if (sentToCount >= 10) break; // limit to 10 unicast
 		}
 	}
@@ -193,17 +193,17 @@ export class NetworkEnhancer {
 	}
 	/** @param {string} peerId1 @param {string} [peerId2] default: this.id @param {boolean} [ignorePublic] default: true */
 	#getOverlap(peerId1, peerId2 = this.id, ignorePublic = true) {
-		const p1n1 = this.peerStore.known[peerId1]?.neighbours || {};
+		const p1n1 = this.peerStore.known[peerId1]?.neighbors || {};
 		let sharedCount = 0;
 		if (peerId2 === this.id) { // Going straight to the point.
-			for (const id of this.peerStore.neighbours)
+			for (const id of this.peerStore.neighbors)
 				if (ignorePublic && CryptoCodex.isPublicNode(id)) continue;
 				else if (p1n1[id]) sharedCount++;
 			return sharedCount;
 		}
 
 		// General case, compare two different peers (not ourself as peerId2)
-		const p2n1 = this.peerStore.known[peerId2]?.neighbours || {};
+		const p2n1 = this.peerStore.known[peerId2]?.neighbors || {};
 		const [shortest, longest] = Object.keys(p1n1).length < Object.keys(p2n1).length ? [p1n1, p2n1] : [p2n1, p1n1];
 		for (const [id, lastSeen] of Object.entries(shortest))
 			if ((ignorePublic && CryptoCodex.isPublicNode(id))) continue;

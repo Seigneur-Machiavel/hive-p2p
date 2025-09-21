@@ -17,8 +17,8 @@ export class NetworkRenderer {
 		background: 0x1a1a1a,
 		currentPeer: 0xFFD700,
 		hoveredPeer: 0xFF4500,
-		connectedPeerNeighbour: 0x4CAF50,
-		connectingPeerNeighbour: 0x03b5fc,
+		connectedPeerNeighbor: 0x4CAF50,
+		connectingPeerNeighbor: 0x03b5fc,
 		knownPeer: 0x7d7d7d,
 		publicNode: 0xffffff,
 		publicNodeBorder: 0xffffff,
@@ -147,10 +147,10 @@ export class NetworkRenderer {
 		//nodeMesh.userData.border = borderMesh;
 		return borderMesh;
 	}
-	addOrUpdateNode(id, status = 'known', isPublic = false, neighbours = []) {
+	addOrUpdateNode(id, status = 'known', isPublic = false, neighbors = []) {
 		const existingNode = this.nodesStore.get(id);
 		if (!existingNode) { // Create new node
-			const newNode = new Node(id, status, isPublic, neighbours);
+			const newNode = new Node(id, status, isPublic, neighbors);
 			this.nodesStore.add(newNode);
 
 			// Get next available index for this node
@@ -183,7 +183,7 @@ export class NetworkRenderer {
 		let needBorderUpdate = existingNode.isPublic !== isPublic;
 		existingNode.status = status;
 		existingNode.isPublic = isPublic;
-		existingNode.neighbours = neighbours;
+		existingNode.neighbors = neighbors;
 		this.instancedMesh.instanceMatrix.needsUpdate = true;
 		if (!needBorderUpdate) return;
 		
@@ -245,25 +245,25 @@ export class NetworkRenderer {
 		}
 		this.nodesStore.remove(id);
 	}
-	digestConnectionsArray(conns = [], displayNeighboursDegree = 1) {
+	digestConnectionsArray(conns = [], displayNeighborsDegree = 1) {
 		const existingConnsKeys = {};
 		const drawLinesKeys = {};
 		const currentPeerNode = this.nodesStore.get(this.currentPeerId);
-		const cNeighbours = currentPeerNode?.neighbours || [];
+		const cNeighbors = currentPeerNode?.neighbors || [];
 		for (const [fromId, toId] of conns) { // add new physicConnections
 			const { success, key } = this.connectionsStore.set(fromId, toId);
 			if (existingConnsKeys[key]) continue; // already processed
 			existingConnsKeys[key] = true; // store for control
 
 			const isOneOfThePeer = fromId === this.currentPeerId || toId === this.currentPeerId;
-			if (displayNeighboursDegree === 0 && !isOneOfThePeer) continue;
+			if (displayNeighborsDegree === 0 && !isOneOfThePeer) continue;
 
 			const [fromNode, toNode] = [this.nodesStore.get(fromId), this.nodesStore.get(toId)];
-			const [fNeighbours, tNeighbours] = [fromNode?.neighbours || [], toNode?.neighbours || []];
-			let isFirstDegree = cNeighbours.includes(fromId) || cNeighbours.includes(toId);
-			isFirstDegree = isFirstDegree || fNeighbours.includes(this.currentPeerId)
-			isFirstDegree = isFirstDegree || tNeighbours.includes(this.currentPeerId);
-			if (displayNeighboursDegree === 1 && !isFirstDegree) continue;
+			const [fNeighbors, tNeighbors] = [fromNode?.neighbors || [], toNode?.neighbors || []];
+			let isFirstDegree = cNeighbors.includes(fromId) || cNeighbors.includes(toId);
+			isFirstDegree = isFirstDegree || fNeighbors.includes(this.currentPeerId)
+			isFirstDegree = isFirstDegree || tNeighbors.includes(this.currentPeerId);
+			if (displayNeighborsDegree === 1 && !isFirstDegree) continue;
 			this.connectionsStore.updateOrAssignLineColor(fromId, toId);
 			drawLinesKeys[key] = true; // store for control
 		}
@@ -546,8 +546,8 @@ export class NetworkRenderer {
 
 		// Set hovered connections flag
 		const hoveredNode = this.nodesStore.get(this.hoveredNodeId);
-		const neighbours = hoveredNode ? hoveredNode.neighbours : [];
-		for (const toId of neighbours) this.connectionsStore.setHovered(toId, this.hoveredNodeId);
+		const neighbors = hoveredNode ? hoveredNode.neighbors : [];
+		for (const toId of neighbors) this.connectionsStore.setHovered(toId, this.hoveredNodeId);
 	}
 	#showTooltip(x, y, nodeId, element = document.getElementById('tooltip')) {
 		const node = this.nodesStore.get(nodeId);
@@ -556,8 +556,8 @@ export class NetworkRenderer {
 		const json = {
 			Peer: nodeId,
 			Type: node.status,
-			NeighboursCount: node.neighbours.length,
-			Neighbours: node.neighbours.length > 0 ? node.neighbours : 'None',
+			NeighborsCount: node.neighbors.length,
+			Neighbors: node.neighbors.length > 0 ? node.neighbors : 'None',
 			IsPublic: node.isPublic
 		};
 
@@ -575,8 +575,8 @@ export class NetworkRenderer {
 		if (status !== 'current' && isTwitchUser) return this.colors.twitchUser;
         switch (status) {
             case 'current': return this.colors.currentPeer;
-            case 'connected': return this.colors.connectedPeerNeighbour;
-            case 'connecting': return this.colors.connectingPeerNeighbour;
+            case 'connected': return this.colors.connectedPeerNeighbor;
+            case 'connecting': return this.colors.connectingPeerNeighbor;
             default: return isPublic ? this.colors.publicNode : this.colors.knownPeer;
         }
     }
@@ -604,7 +604,7 @@ export class NetworkRenderer {
             let fx = 0, fy = 0, fz = 0;
 
             // Repulsion between nodes
-            for (const otherId of [...batchIds, ...node.neighbours]) {
+            for (const otherId of [...batchIds, ...node.neighbors]) {
                 if (id === otherId) continue;
 
                 const otherNode = this.nodesStore.get(otherId);
@@ -624,13 +624,13 @@ export class NetworkRenderer {
             }
 
             // Attraction along physicConnections
-            for (const neighbourId of node.neighbours) {
-				const neighbourPos = this.nodesStore.get(neighbourId)?.position;
-                if (!neighbourPos) continue;
+            for (const neighborId of node.neighbors) {
+				const neighborPos = this.nodesStore.get(neighborId)?.position;
+                if (!neighborPos) continue;
 
-                const dx = neighbourPos.x - pos.x;
-                const dy = neighbourPos.y - pos.y;
-                const dz = neighbourPos.z - pos.z;
+                const dx = neighborPos.x - pos.x;
+                const dy = neighborPos.y - pos.y;
+                const dz = neighborPos.z - pos.z;
                 const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
 				if (distance < this.options.attractionOpts.minDistance) continue;
 

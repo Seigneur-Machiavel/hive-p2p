@@ -2,7 +2,7 @@ export class Node {
 	id;
 	status;
 	isPublic;
-	neighbours;
+	neighbors;
 	velocity = { x: 0, y: 0, z: 0 };
 	position = {
 		x: (Math.random() - 0.5) * 500,
@@ -12,18 +12,18 @@ export class Node {
 
 	/** Constructor for a Node
 	 * @param {string} id @param {'unknown' | 'known' | 'connecting' | 'connected' | 'current'} status
-	 * @param {boolean} isPublic @param {Array<string>} neighbours */
-	constructor(id, status, isPublic, neighbours) {
+	 * @param {boolean} isPublic @param {Array<string>} neighbors */
+	constructor(id, status, isPublic, neighbors) {
 		this.id = id;
 		this.status = status;
 		this.isPublic = isPublic;
-		this.neighbours = neighbours;
+		this.neighbors = neighbors;
 	}
-	addNeighbour(peerId) {
-		if (!this.neighbours.includes(peerId)) this.neighbours.push(peerId);
+	addNeighbor(peerId) {
+		if (!this.neighbors.includes(peerId)) this.neighbors.push(peerId);
 	}
-	removeNeighbour(peerId) {
-		this.neighbours = this.neighbours.filter(id => id !== peerId);
+	removeNeighbor(peerId) {
+		this.neighbors = this.neighbors.filter(id => id !== peerId);
 	}
 }
 export class NodesStore {
@@ -137,9 +137,9 @@ export class ConnectionsStore {
 		delete this.store[validKey];
 		peerConn.disposeLine(this.scene);
 
-		// unlink from nodes <> neighbours
-		this.nodesStore.get(fromId)?.removeNeighbour(toId);
-		this.nodesStore.get(toId)?.removeNeighbour(fromId);
+		// unlink from nodes <> neighbors
+		this.nodesStore.get(fromId)?.removeNeighbor(toId);
+		this.nodesStore.get(toId)?.removeNeighbor(fromId);
 	}
 
 	// VISUAL LINE

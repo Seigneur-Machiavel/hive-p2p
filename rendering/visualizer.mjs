@@ -172,15 +172,15 @@ class NetworkVisualizer {
 		this.lastPeerInfo = peerInfo;
 
 		const newlyUpdated = {};
-		const digestPeerUpdate = (id = 'toto', status = 'unknown', neighbours = []) => {
+		const digestPeerUpdate = (id = 'toto', status = 'unknown', neighbors = []) => {
 			const isPublic = CryptoCodex.isPublicNode(id);
-			this.networkRenderer.addOrUpdateNode(id, status, isPublic, neighbours);
+			this.networkRenderer.addOrUpdateNode(id, status, isPublic, neighbors);
 			newlyUpdated[id] = true;
 		}
 
-		const getNeighbours = (peerId) => {
+		const getNeighbors = (peerId) => {
 			const knownPeer = peerInfo.store.known[peerId];
-			return knownPeer ? Object.keys(knownPeer.neighbours || {}) : [];
+			return knownPeer ? Object.keys(knownPeer.neighbors || {}) : [];
 		}
 		
 		const knownToIgnore = {};
@@ -188,10 +188,10 @@ class NetworkVisualizer {
 		for (const id of peerInfo.store.connecting) knownToIgnore[id] = true;
 		for (const id of peerInfo.store.connected) knownToIgnore[id] = true;
 		for (const [ id, peer ] of Object.entries(peerInfo.store.known))
-			if (!knownToIgnore[id]) digestPeerUpdate(id, 'known', getNeighbours(id));
+			if (!knownToIgnore[id]) digestPeerUpdate(id, 'known', getNeighbors(id));
 		
-		for (const id of peerInfo.store.connecting) digestPeerUpdate(id, 'connecting', getNeighbours(id));
-		for (const id of peerInfo.store.connected) digestPeerUpdate(id, 'connected', getNeighbours(id));
+		for (const id of peerInfo.store.connecting) digestPeerUpdate(id, 'connecting', getNeighbors(id));
+		for (const id of peerInfo.store.connected) digestPeerUpdate(id, 'connected', getNeighbors(id));
 
 	
 		const nodes = this.networkRenderer.nodesStore.store;
@@ -200,12 +200,12 @@ class NetworkVisualizer {
 			if (!newlyUpdated[id] && id !== this.currentPeerId) this.networkRenderer.removeNode(id);
 
 		// ensure current peer is updated
-		if (peerInfo.id === this.currentPeerId) digestPeerUpdate(peerInfo.id, 'current', getNeighbours(peerInfo.id));
+		if (peerInfo.id === this.currentPeerId) digestPeerUpdate(peerInfo.id, 'current', getNeighbors(peerInfo.id));
 
 		// Create connections
 		const connections = [];
 		for (const [id, node] of Object.entries(nodes))
-			for (const neighbourId of node.neighbours) connections.push([id, neighbourId]);
+			for (const neighborId of node.neighbors) connections.push([id, neighborId]);
 
 		//console.log(`Updated network map: ${Object.keys(nodes).length} nodes | ${Object.keys(connections).length} connections`);
 		this.networkRenderer.digestConnectionsArray(connections);

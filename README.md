@@ -80,7 +80,7 @@ Peer A                    Peer B                    Peer C
 knownPeers: {
   "peer123": {
     peerId: "peer123",           // 32 bytes
-    neighbours: ["peer456", ...] // 12 IDs max × 32 bytes
+    neighbors: ["peer456", ...] // 12 IDs max × 32 bytes
   }
 }
 ```
@@ -335,7 +335,7 @@ Peer A                    Peer B                    Peer C
 knownPeers: {
   "peer123": {
     peerId: "peer123",           // 32 octets
-    neighbours: ["peer456", ...] // 12 IDs max × 32 octets
+    neighbors: ["peer456", ...] // 12 IDs max × 32 octets
   }
 }
 ```

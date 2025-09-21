@@ -60,7 +60,7 @@ export const TRANSPORTS = {
 
 export const DISCOVERY = {
 	PEER_LINK_DELAY: 10_000,
-	MAX_OVERLAP: 4, 				// Max of shared neighbours | soft: 5, default: 4, strict: 3
+	MAX_OVERLAP: 4, 				// Max of shared neighbors | soft: 5, default: 4, strict: 3
 	LOOP_DELAY: 2_500, 				// delay between connection attempts | default: 2_500 (2.5 seconds)
 	TARGET_NEIGHBORS_COUNT: 5, 		// default: 8, light: 6, super-light: 4
 	ON_CONNECT_DISPATCH: {		// => on Node.#onConnect() // DEPRECATING

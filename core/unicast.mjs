@@ -74,7 +74,7 @@ export class UnicastMessager {
 	}
 	/** Send unicast message to a target
 	 * @param {string} remoteId @param {string | Uint8Array | Object} data @param {string} type
-	 * @param {number} [spread] Max neighbours used to relay the message, default: 1 */
+	 * @param {number} [spread] Max neighbors used to relay the message, default: 1 */
 	sendUnicast(remoteId, data, type = 'message', spread = 1) {
 		if (remoteId === this.id) return false;
 
@@ -123,7 +123,7 @@ export class UnicastMessager {
 			if (senderId === from) console.log(`(${this.id}) Direct ${message.type} from ${senderId}: ${message.data}`);
 			else console.log(`(${this.id}) Direct ${message.type} from ${senderId} (lastRelay: ${from}): ${message.data}`);
 		
-		this.peerStore.digestPeerNeighbours(senderId, message.neighbors);
+		this.peerStore.digestPeerNeighbors(senderId, message.neighbors);
 		if (DISCOVERY.ON_UNICAST.DIGEST_TRAVELED_ROUTE) this.peerStore.digestValidRoute(traveledRoute);
 		if (this.id === targetId) { for (const cb of this.callbacks[message.type] || []) cb(senderId, message.data); return; } // message for self
 

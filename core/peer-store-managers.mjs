@@ -27,22 +27,22 @@ export class PeerConnection { // WebSocket or WebRTC connection wrapper
 	close() { this.isWebSocket ? this.transportInstance?.close() : this.transportInstance?.destroy(); }
 }
 export class KnownPeer { // known peer, not necessarily connected
-	neighbours;
+	neighbors;
 	connectionsCount;
 
-	/** @param {Record<string, number>} neighbours key: peerId, value: timestamp */
-	constructor(neighbours = {}) {
-		this.neighbours = neighbours;
-		this.connectionsCount = Object.keys(neighbours).length;
+	/** @param {Record<string, number>} neighbors key: peerId, value: timestamp */
+	constructor(neighbors = {}) {
+		this.neighbors = neighbors;
+		this.connectionsCount = Object.keys(neighbors).length;
 	}
 	
-	setNeighbour(peerId, timestamp = CLOCK.time) {
-		if (!this.neighbours[peerId]) this.connectionsCount++;
-		this.neighbours[peerId] = timestamp; // not used for now, we can set Object in value easily
+	setNeighbor(peerId, timestamp = CLOCK.time) {
+		if (!this.neighbors[peerId]) this.connectionsCount++;
+		this.neighbors[peerId] = timestamp; // not used for now, we can set Object in value easily
 	}
-	unsetNeighbour(peerId) {
-		if (this.neighbours[peerId]) this.connectionsCount--;
-		delete this.neighbours[peerId];
+	unsetNeighbor(peerId) {
+		if (this.neighbors[peerId]) this.connectionsCount--;
+		delete this.neighbors[peerId];
 	}
 }
 export class Punisher { // manage kick and ban of peers

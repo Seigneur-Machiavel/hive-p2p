@@ -45,7 +45,7 @@ export class RouteBuilder_V1 {
 			nodesExplored++;
 			if (depth >= maxHops) continue; // Don't explore beyond max depth
 
-			const neighbors = current === this.id ? this.peerStore.neighbours : Object.keys(this.peerStore.known[current]?.neighbours || {});
+			const neighbors = current === this.id ? this.peerStore.neighbors : Object.keys(this.peerStore.known[current]?.neighbors || {});
 			for (const neighbor of neighbors) {
 				if (path.includes(neighbor)) continue; // Skip if this would create a cycle
 				
@@ -104,7 +104,7 @@ export class RouteBuilder_V2 {
 
 	#buildBlindRoutes(remoteId, randomizeOrder = true) {
 		const routes = [];
-		const connected = this.peerStore.neighbours;
+		const connected = this.peerStore.neighbors;
 		const shuffledIndexes = [...Array(connected.length).keys()].sort(() => Math.random() - 0.5);
 		for (const i of shuffledIndexes) routes.push({ path: [this.id, connected[i], remoteId], hops: 0, score: 0 });
 
@@ -173,9 +173,7 @@ export class RouteBuilder_V2 {
 		if (depth >= maxDepth) return [];
 
 		const meetings = [];
-		const neighbors = current === this.id
-		? this.peerStore.neighbours
-		: Object.keys(this.peerStore.known[current]?.neighbours || {});
+		const neighbors = current === this.id ? this.peerStore.neighbors : Object.keys(this.peerStore.known[current]?.neighbors || {});
 		for (const neighbor of neighbors) {
 			if (pathSet.has(neighbor)) continue;
 			

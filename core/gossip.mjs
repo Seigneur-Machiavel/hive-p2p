@@ -140,18 +140,18 @@ export class Gossip {
 			else console.log(`(${this.id}) Gossip ${topic} from ${senderId} (by: ${from}): ${data}`);
 		if (senderId === this.id) throw new Error(`#${this.id}#${from}# Received our own message back from peer ${from}.`);
 
-		this.peerStore.digestPeerNeighbours(senderId, neighbors);
+		this.peerStore.digestPeerNeighbors(senderId, neighbors);
 		for (const cb of this.callbacks[topic] || []) cb(senderId, data, HOPS, message); // specific topic callback
 		if (HOPS < 1) return; // stop forwarding if HOPS is 0
 
-		const myNeighbours = Object.entries(this.peerStore.connected);
-		const nCount = myNeighbours.length;
+		const myNeighbors = Object.entries(this.peerStore.connected);
+		const nCount = myNeighbors.length;
 		const trm = Math.max(1, nCount / GOSSIP.TRANSMISSION_RATE.NEIGHBOURS_PONDERATION);
 		const tRateBase = GOSSIP.TRANSMISSION_RATE[topic] || GOSSIP.TRANSMISSION_RATE.default;
 		const transmissionRate = Math.pow(tRateBase, trm);
 		const avoidTransmissionRate = nCount < GOSSIP.TRANSMISSION_RATE.MIN_NEIGHBOURS_TO_APPLY_PONDERATION;
 		const serializedToTransmit = this.cryptoCodex.decrementGossipHops(serialized);
-		for (const [peerId, conn] of myNeighbours)
+		for (const [peerId, conn] of myNeighbors)
 			if (peerId === from) continue; // avoid sending back to sender
 			else if (!avoidTransmissionRate && Math.random() > transmissionRate) continue; // apply gossip transmission rate
 			else this.#broadcastToPeer(peerId, serializedToTransmit);

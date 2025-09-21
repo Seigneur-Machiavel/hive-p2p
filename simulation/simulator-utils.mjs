@@ -94,7 +94,7 @@ export class TransmissionAnalyzer {
 		for (let i = 0; i < 50; i++) { // try to find a connected peer
 			const randomPeerId = peersIds[Math.floor(Math.random() * peersIds.length)];
 			const peer = this.peers.all[randomPeerId];
-			if (!peer.started || peer.peerStore.neighbours.length === 0) continue;
+			if (!peer.started || peer.peerStore.neighbors.length === 0) continue;
 			this.gossip.nonce = Math.floor(Math.random() * 1000000).toString(16).padStart(6, '0');
 			this.gossip.sendAt = Date.now();
 			peer.gossip.broadcastToAll(this.gossip.nonce, 'diffusion_test', SIMULATION.DIFFUSION_TEST_HOPS);
