@@ -2,38 +2,34 @@ import { CLOCK, SIMULATION, NODE, IDENTITY, GOSSIP, UNICAST } from './global_par
 import { GossipMessage } from './gossip.mjs';
 import { DirectMessage, ReroutedDirectMessage } from './unicast.mjs';
 import { Converter } from '../services/converter.mjs';
-import { sign, verify, keygen, getPublicKey, hash } from '../services/cryptos.mjs';
+import { ed25519 } from '../services/cryptos.mjs';
 
 export class CryptoCodex {
-	verbose = NODE.DEFAULT_VERBOSE;
 	AVOID_CRYPTO = false;
-	ID_LENGTH = IDENTITY.ID_LENGTH;
+	verbose = NODE.DEFAULT_VERBOSE;
+	converter = new Converter();
 	/** @type {string} */ id;
     /** @type {Uint8Array} */ publicKey;
     /** @type {Uint8Array} */ privateKey;
-	converter = new Converter();
 
 	/** @param {string} [nodeId] If provided: used to generate a fake keypair > disable crypto operations */
 	constructor(nodeId) {
 		if (!nodeId) return; // IF NOT PROVIDED: generate() should be called.
 		this.AVOID_CRYPTO = true;
-		this.id = nodeId.padEnd(this.ID_LENGTH, ' ').slice(0, this.ID_LENGTH);
+		this.id = nodeId.padEnd(IDENTITY.ID_LENGTH, ' ').slice(0, IDENTITY.ID_LENGTH);
 		this.privateKey = new Uint8Array(32).fill(0); this.publicKey = new Uint8Array(32).fill(0);
 		const idBytes = new TextEncoder().encode(this.id); // use nodeId to create a fake public key
-		for (let i = 0; i < this.ID_LENGTH; i++) this.publicKey[i] = idBytes[i];
+		for (let i = 0; i < IDENTITY.ID_LENGTH; i++) this.publicKey[i] = idBytes[i];
 	}
 
 	// IDENTITY
-	/** @param {string} id */
-	static isPublicNode(id) {
-		if (!IDENTITY.ARE_IDS_HEX) return id.startsWith(IDENTITY.PUBLIC_PREFIX);
-		return Converter.hexToBits(id[0])[0] === IDENTITY.PUBLIC_PREFIX;
-	}
+	/** @param {string} id Check the first character against the PUBLIC_PREFIX */
+	static isPublicNode(id) { return (IDENTITY.ARE_IDS_HEX ? Converter.hexToBits(id[0]) : id).startsWith(IDENTITY.PUBLIC_PREFIX); }
 	/** @param {string} id */
 	isPublicNode(id) { return CryptoCodex.isPublicNode(id); }
     #idFromPublicKey(publicKey) {
-		if (IDENTITY.ARE_IDS_HEX) return this.converter.bytesToHex(publicKey.slice(0, this.ID_LENGTH / 2), this.ID_LENGTH);
-		return this.converter.bytesToString(publicKey.slice(0, this.ID_LENGTH));
+		if (IDENTITY.ARE_IDS_HEX) return this.converter.bytesToHex(publicKey.slice(0, IDENTITY.ID_LENGTH / 2), IDENTITY.ID_LENGTH);
+		return this.converter.bytesToString(publicKey.slice(0, IDENTITY.ID_LENGTH));
 	}
 	/** @param {Uint8Array} [seed] The privateKey. DON'T USE IN SIMULATION */
 	generate(isPublicNode, seed) { // Generate Ed25519 keypair cross-platform | set id only for simulator
@@ -42,7 +38,7 @@ export class CryptoCodex {
     }
 	#generateAntiSybilIdentity(seed, isPublicNode, difficulty = 0) {
 		for (let i = 0; i < 1000; i++) { // avoid infinite loop
-			const { secretKey, publicKey } = keygen(seed);
+			const { secretKey, publicKey } = ed25519.keygen(seed);
 			const id = this.#idFromPublicKey(publicKey);
 			if (isPublicNode && !this.isPublicNode(id)) continue; // Check prefix
 			if (!isPublicNode && this.isPublicNode(id)) continue; // Check prefix
@@ -54,25 +50,26 @@ export class CryptoCodex {
 	// MESSSAGE CREATION (SERIALIZATION AND SIGNATURE INCLUDED)
 	/** @param {string[]} ids */
 	idsToBytes(ids) {
-		if (IDENTITY.ARE_IDS_HEX) return this.converter.hexToBytes(ids.join(''), this.ID_LENGTH * ids.length);
+		if (IDENTITY.ARE_IDS_HEX) return this.converter.hexToBytes(ids.join(''), IDENTITY.ID_LENGTH * ids.length);
 		return this.converter.stringToBytes(ids.join(''));
 	}
 	/** @param {Uint8Array} serialized */
 	#bytesToIds(serialized) {
 		const ids = [];
-		const idLength = IDENTITY.ARE_IDS_HEX ? this.ID_LENGTH / 2 : this.ID_LENGTH;
+		const idLength = IDENTITY.ARE_IDS_HEX ? IDENTITY.ID_LENGTH / 2 : IDENTITY.ID_LENGTH;
 		if (serialized.length % idLength !== 0) throw new Error('Failed to parse ids: invalid serialized length.');
 
 		for (let i = 0; i < serialized.length / idLength; i++) {
 			const idBytes = serialized.slice(i * idLength, (i + 1) * idLength);
-			if (IDENTITY.ARE_IDS_HEX) ids.push(this.converter.bytesToHex(idBytes, this.ID_LENGTH));
+			if (IDENTITY.ARE_IDS_HEX) ids.push(this.converter.bytesToHex(idBytes, IDENTITY.ID_LENGTH));
 			else ids.push(this.converter.bytesToString(idBytes));
 		}
 		return ids;
 	}
 	signBufferViewAndAppendSignature(bufferView, privateKey, signaturePosition = bufferView.length - IDENTITY.SIGNATURE_LENGTH) {
+		if (this.AVOID_CRYPTO) return;
 		const dataToSign = bufferView.subarray(0, signaturePosition);
-		bufferView.set(sign(dataToSign, privateKey), signaturePosition);
+		bufferView.set(ed25519.sign(dataToSign, privateKey), signaturePosition);
 	}
 	/** @param {string | Uint8Array | Object} data */
 	#dataToBytes(data) { // typeCodes: 1=string, 2=Uint8Array, 3=JSON
@@ -108,7 +105,7 @@ export class CryptoCodex {
 		bufferView.set(neighboursBytes, 47); 					// X bytes for neighbours
 		bufferView.set(dataBytes, 47 + neighboursBytes.length); // X bytes for data
 		bufferView.set([Math.min(255, HOPS)], totalBytes - 1); 	// 1 byte for HOPS (Unsigned)
-		if (!this.AVOID_CRYPTO) this.signBufferViewAndAppendSignature(bufferView, this.privateKey, totalBytes - IDENTITY.SIGNATURE_LENGTH - 1);
+		this.signBufferViewAndAppendSignature(bufferView, this.privateKey, totalBytes - IDENTITY.SIGNATURE_LENGTH - 1);
 		return bufferView;
 	}
 	/** Decrement the HOPS value in a serialized gossip message @param {Uint8Array} serializedMessage */
@@ -140,7 +137,7 @@ export class CryptoCodex {
 		bufferView.set([route.length], 47 + NDBL);				// 1 byte for route length
 		bufferView.set(routeBytes, 47 + 1 + NDBL);				// X bytes for route
 
-		if (!this.AVOID_CRYPTO) this.signBufferViewAndAppendSignature(bufferView, this.privateKey, totalBytes - IDENTITY.SIGNATURE_LENGTH);
+		this.signBufferViewAndAppendSignature(bufferView, this.privateKey, totalBytes - IDENTITY.SIGNATURE_LENGTH);
 		return bufferView;
 	}
 	/** @param {Uint8Array} serialized @param {string[]} newRoute */
@@ -149,14 +146,14 @@ export class CryptoCodex {
 		if (newRoute.length > UNICAST.MAX_HOPS) throw new Error(`Failed to create rerouted unicast message: route exceeds max hops (${UNICAST.MAX_HOPS}).`);
 	
 		const routeBytesArray = newRoute.map(id => this.converter.stringToBytes(id));
-		const totalBytes = serialized.length + 32 + (this.ID_LENGTH * routeBytesArray.length) + IDENTITY.SIGNATURE_LENGTH;
+		const totalBytes = serialized.length + 32 + (IDENTITY.ID_LENGTH * routeBytesArray.length) + IDENTITY.SIGNATURE_LENGTH;
 		const buffer = new ArrayBuffer(totalBytes);
 		const bufferView = new Uint8Array(buffer);
 		bufferView.set(serialized, 0); // original serialized message
 		bufferView.set(this.publicKey, serialized.length); // 32 bytes for new public key
-		for (let i = 0; i < routeBytesArray.length; i++) bufferView.set(routeBytesArray[i], serialized.length + 32 + (i * this.ID_LENGTH)); // new route
+		for (let i = 0; i < routeBytesArray.length; i++) bufferView.set(routeBytesArray[i], serialized.length + 32 + (i * IDENTITY.ID_LENGTH)); // new route
 		
-		if (!this.AVOID_CRYPTO) this.signBufferViewAndAppendSignature(bufferView, this.privateKey, totalBytes - IDENTITY.SIGNATURE_LENGTH);
+		this.signBufferViewAndAppendSignature(bufferView, this.privateKey, totalBytes - IDENTITY.SIGNATURE_LENGTH);
 		return bufferView;
 	}
 
@@ -178,7 +175,7 @@ export class CryptoCodex {
 		const lBytes = bufferView.slice(11, 15);	// 4 bytes for data length
 		const pubkey = bufferView.slice(15, 47);	// 32 bytes for pubkey
 		const associatedId = readAssociatedId ? this.#idFromPublicKey(pubkey) : null;
-		const neighLength = neighboursCount * (IDENTITY.ARE_IDS_HEX ? this.ID_LENGTH / 2 : this.ID_LENGTH);
+		const neighLength = neighboursCount * (IDENTITY.ARE_IDS_HEX ? IDENTITY.ID_LENGTH / 2 : IDENTITY.ID_LENGTH);
 		const timestamp = this.converter.bytes8ToNumber(tBytes);
 		const dataLength = this.converter.bytes4ToNumber(lBytes);
 		return { marker, dataCode, neighLength, timestamp, dataLength, pubkey, associatedId };
@@ -211,7 +208,7 @@ export class CryptoCodex {
 			const neighbors = this.#bytesToIds(serialized.slice(47, 47 + neighLength));
 			const deserializedData = this.#bytesToData(dataCode, serialized.slice(47 + neighLength, 47 + NDBL));
 			const routeLength = serialized[47 + NDBL];
-			const idLength = IDENTITY.ARE_IDS_HEX ? this.ID_LENGTH / 2 : this.ID_LENGTH;
+			const idLength = IDENTITY.ARE_IDS_HEX ? IDENTITY.ID_LENGTH / 2 : IDENTITY.ID_LENGTH;
 			const routeBytesLength = routeLength * idLength;
 			const signatureStart = 47 + NDBL + 1 + routeBytesLength;
 			const routeBytes = serialized.slice(47 + NDBL + 1, signatureStart);

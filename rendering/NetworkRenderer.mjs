@@ -1,11 +1,10 @@
-import { FpsStabilizer } from './renderer-utils.mjs';
 import { NetworkRendererElements, NetworkRendererOptions } from './renderer-options.mjs';
 import { Node, NodesStore, ConnectionsStore } from './renderer-stores.mjs';
 
 export class NetworkRenderer {
 	initCameraZ = 1400;
 	lastAutoZoomMaxDistance = 0;
-	fpsStabilizer = new FpsStabilizer(document.getElementById('fpsCount'));
+	fpsCountElement = document.getElementById('fpsCount');
 	maxVisibleConnections = 500; // to avoid performance issues
 	autoRotateEnabled = true;
 	autoRotateSpeed = .0005; // .001
@@ -51,7 +50,8 @@ export class NetworkRenderer {
 	/** @type {NodesStore} */ nodesStore;
 	/** @type {ConnectionsStore} */ connectionsStore;
 
-	updateBatchMax = 200;
+	updateBatchMax = 1000; // auto-adjusted based on fps
+	initUpdateBatchMax = 1000;
 
 	// State
 	currentPeerId = null;
@@ -342,6 +342,7 @@ export class NetworkRenderer {
 		// reset camera
 		this.camera.position.set(0, 0, this.initCameraZ);
 		this.camera.lookAt(0, 0, 0);
+		this.updateBatchMax = this.initUpdateBatchMax; // reset rendering batch size
 	}
 	destroy() {
         this.isAnimating = false;
@@ -676,26 +677,36 @@ export class NetworkRenderer {
 			border.lookAt(this.camera.position);
         }
 	}
+
+	lastPhysicUpdate = 0;
+	frameCount = 60;
+	lastFpsUpdate = 0;
 	#animate() {
 		if (!this.isAnimating) return;
 		
 		const currentTime = performance.now();
-		this.fpsStabilizer.updateFPS(currentTime);
-		
-		if (!this.fpsStabilizer.shouldRender(currentTime)) {
-			requestAnimationFrame(() => this.#animate());
-			return;
+		this.frameCount++;
+		if (currentTime - this.lastFpsUpdate >= 1000) {
+			if (this.frameCount < 60 * .98) this.updateBatchMax = Math.round(Math.max(100, this.updateBatchMax * .9));
+			this.fpsCountElement.textContent = this.frameCount;
+			this.frameCount = 0;
+			this.lastFpsUpdate = currentTime;
 		}
 		
-		this.#autoRotate();
-		this.#autoZoom();
+		const shouldUpdatePhysic = currentTime - this.lastPhysicUpdate >= 1000 / 60;
+		if (shouldUpdatePhysic && !this.isPhysicPaused) {
+			this.lastPhysicUpdate = currentTime;
+			const nodeIds = this.nodesStore.getNodesIds();
+			this.#updateNodesPositions(nodeIds);
+			this.connectionsStore.updateConnections(this.currentPeerId, this.hoveredNodeId, this.colors, this.options.mode);
+			this.#autoRotate();
+			this.#autoZoom();
+		}
+		
 		this.instancedMesh.instanceMatrix.needsUpdate = true;
 		this.instancedMesh.instanceColor.needsUpdate = true;
-		
-		const nodeIds = this.nodesStore.getNodesIds();
-		if (!this.isPhysicPaused) this.#updateNodesPositions(nodeIds);
-		this.connectionsStore.updateConnections(this.currentPeerId, this.hoveredNodeId, this.colors, this.options.mode);
 		this.renderer.render(this.scene, this.camera);
+		
 		requestAnimationFrame(() => this.#animate());
 	}
 }

@@ -7,8 +7,7 @@ const [ed_, {sha512}] = await Promise.all([
 ]);
 
 /** @type {import('@noble/ed25519')} */
-const ed = ed_;
-ed.hashes.sha512 = sha512;
-
-export const { sign, verify, keygen, getPublicKey, hash } = ed;
+const ed25519 = ed_;
+ed25519.hashes.sha512 = sha512;
+export { ed25519 };
 //-----------------------------------------------------------------------------
