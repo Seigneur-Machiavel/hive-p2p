@@ -51,9 +51,9 @@ export class NodeP2P {
 	// PRIVATE METHODS
 	/** @param {string} peerId @param {'in' | 'out'} direction */
 	#onConnect = (peerId, direction) => {
-		const [selfIsPublic, remoteIsPublic] = [this.publicUrl, this.cryptoCodex.isPublicNode(peerId)];
-		if (selfIsPublic) return; // public node do not need to do anything special on connect
-		if (this.verbose > ((selfIsPublic || remoteIsPublic) ? 3 : 2)) console.log(`(${this.id}) ${direction === 'in' ? 'Incoming' : 'Outgoing'} connection established with peer ${peerId}`);
+		const remoteIsPublic = this.cryptoCodex.isPublicNode(peerId);
+		if (this.publicUrl) return; // public node do not need to do anything special on connect
+		if (this.verbose > ((this.publicUrl || remoteIsPublic) ? 3 : 2)) console.log(`(${this.id}) ${direction === 'in' ? 'Incoming' : 'Outgoing'} connection established with peer ${peerId}`);
 		
 		const dispatchEvents = () => {
 			const isHandshakeInitiator = remoteIsPublic || direction === 'in';
@@ -66,11 +66,11 @@ export class NodeP2P {
 	}
 	/** @param {string} peerId @param {'in' | 'out'} direction */
 	#onDisconnect = (peerId, direction) => {
-		const [selfIsPublic, remoteIsPublic] = [this.publicUrl, this.cryptoCodex.isPublicNode(peerId)];
+		const remoteIsPublic = this.cryptoCodex.isPublicNode(peerId);
 		const connDuration = this.peerStore.connected[peerId]?.getConnectionDuration() || 0;
 		if (connDuration < DISCOVERY.ON_DISCONNECT_DISPATCH.MIN_CONNECTION_TIME) return;
 		if (this.peerStore.connected[peerId]) return; // still connected, ignore disconnection for now ?
-		if (this.verbose > ((selfIsPublic || remoteIsPublic) ? 3 : 2)) console.log(`(${this.id}) ${direction === 'in' ? 'Incoming' : 'Outgoing'} connection closed with peer ${peerId}`);
+		if (this.verbose > ((this.publicUrl || remoteIsPublic) ? 3 : 2)) console.log(`(${this.id}) ${direction === 'in' ? 'Incoming' : 'Outgoing'} connection closed with peer ${peerId}`);
 		
 		const dispatchEvents = () => {
 		};
