@@ -21,7 +21,7 @@ export class NetworkEnhancer {
 	peerStore;
 	bootstraps;
 	get isPublicNode() { return this.nodeServices?.publicUrl ? true : false; }
-	/** @type {import('./public-upgrader.mjs').NodeServices | undefined} */ nodeServices;
+	/** @type {import('./node-services.mjs').NodeServices | undefined} */ nodeServices;
 	/** @type {Record<string, string>} */ bootstrapsIds = {}; // faster ".has()"
 
 	nextBootstrapIndex = 0;

@@ -5,7 +5,7 @@ import { UnicastMessager } from './unicast.mjs';
 import { Gossip } from './gossip.mjs';
 import { NetworkEnhancer } from './network-enhancer.mjs';
 import { CryptoCodex } from './crypto-codex.mjs';
-import { NodeServices } from './public-upgrader.mjs';
+import { NodeServices } from './node-services.mjs';
 
 export class NodeP2P {
 	started = false;
@@ -25,7 +25,8 @@ export class NodeP2P {
 		this.verbose = verbose;
 		this.cryptoCodex = cryptoCodex;
 		this.id = this.cryptoCodex.id;
-		const offerManager = new OfferManager(this.id, bootstraps, verbose);
+		const stunUrls = NodeServices.deriveSTUNServers(bootstraps);
+		const offerManager = new OfferManager(this.id, stunUrls, verbose);
 		this.peerStore = new PeerStore(this.id, this.cryptoCodex, offerManager, verbose);
 		this.messager = new UnicastMessager(this.id, this.cryptoCodex, this.peerStore, verbose);
 		this.gossip = new Gossip(this.id, this.cryptoCodex, this.peerStore, verbose);

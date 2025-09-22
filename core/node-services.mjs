@@ -101,4 +101,22 @@ export class NodeServices {
 		if (this.verbose > 1) console.log(`%cSTUN Response: client will discover IP ${rinfo.address}:${rinfo.port}`, 'color: green;');
 		return response;
 	}
+	/** @param {Array<{id: string, publicUrl: string}>} bootstraps */
+	static deriveSTUNServers(bootstraps, includesCentralized = false) {
+		/** @type {Array<{urls: string}>} */
+		const stunUrls = [];
+		for (const b of bootstraps) {
+			const domain = b.publicUrl.split(':')[1].replace('//', '');
+			const port = parseInt(b.publicUrl.split(':')[2]) + 1;
+			stunUrls.push({ urls: `stun:${domain}:${port}` });
+		}
+		if (!includesCentralized) return stunUrls;
+
+		// CENTRALIZED STUN SERVERS FALLBACK (GOOGLE) - OPTIONAL
+		this.stunUrls.push({ urls: 'stun:stun.l.google.com:5349' });
+		this.stunUrls.push({ urls: 'stun:stun.l.google.com:19302' });
+		this.stunUrls.push({ urls: 'stun:stun1.l.google.com:3478' });
+		this.stunUrls.push({ urls: 'stun:stun1.l.google.com:5349' });
+		return stunUrls;
+	}
 }

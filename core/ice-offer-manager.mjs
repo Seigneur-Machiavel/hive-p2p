@@ -16,13 +16,14 @@ import wrtc from 'wrtc';
 
 export class OfferManager { // Manages the creation of SDP offers and handling of answers
 	id;
-	stunUrls = [];
 	verbose = 0;
-	/** @param {Array<{id: string, publicUrl: string}>} bootstraps */
-	constructor(id = 'toto', bootstraps = [], verbose = 0) {
+	stunUrls = [];
+
+	/** @param {Array<{urls: string}>} stunUrls */
+	constructor(id = 'toto', stunUrls = [], verbose = 0) {
 		this.id = id;
-		this.#deriveSTUNServers(bootstraps);
 		this.verbose = verbose;
+		this.stunUrls = stunUrls;
 	}
 
 	onSignalAnswer = null; // function(remoteId, signalData, offerHash)
@@ -85,19 +86,6 @@ export class OfferManager { // Manages the creation of SDP offers and handling o
 		const instance = this.#createOffererInstance(expiration);
 		this.offerInstanceByExpiration[expiration] = instance;
 	};
-	/** @param {Array<{id: string, publicUrl: string}>} bootstraps */
-	#deriveSTUNServers(bootstraps) {
-		for (const b of bootstraps) {
-			const domain = b.publicUrl.split(':')[1].replace('//', '');
-			const port = parseInt(b.publicUrl.split(':')[2]) + 1;
-			this.stunUrls.push({ urls: `stun:${domain}:${port}` });
-		}
-		// CENTRALIZED STUN SERVERS FALLBACK (GOOGLE) - OPTIONAL
-		/*this.stunUrls.push({ urls: 'stun:stun.l.google.com:19302' });
-		this.stunUrls.push({ urls: 'stun:stun.l.google.com:5349' });
-		this.stunUrls.push({ urls: 'stun:stun1.l.google.com:3478' });
-		this.stunUrls.push({ urls: 'stun:stun1.l.google.com:5349' });*/
-	}
 	#createOffererInstance(expiration) {
 		const instance = new TRANSPORTS.PEER({ initiator: true, trickle: false, wrtc, config: { iceServers: this.stunUrls } });
 		instance.on('error', error => this.#onError(error));
