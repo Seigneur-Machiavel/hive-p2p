@@ -1,5 +1,5 @@
-import { CLOCK, SIMULATION, DISCOVERY } from './global_parameters.mjs';
-import { PeerConnection, KnownPeer, SdpOfferManager, Punisher } from './peer-store-managers.mjs';
+import { CLOCK, SIMULATION } from './global_parameters.mjs';
+import { PeerConnection, KnownPeer, Punisher } from './peer-store-utilities.mjs';
 const { SANDBOX, ICE_CANDIDATE_EMITTER, TEST_WS_EVENT_MANAGER } = SIMULATION.ENABLED ? await import('../simulation/test-transports.mjs') : {};
 /** @typedef {{ in: PeerConnection, out: PeerConnection }} PeerConnecting */
 
@@ -7,7 +7,7 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 	cryptoCodex;
 	verbose;
 	id;
-	sdpOfferManager;
+	offerManager;
 	punisher = new Punisher();
 	/** @type {string[]} The neighbors IDs */ 		neighborsList = []; // faster access
 	/** @type {Record<string, PeerConnecting>} */ 	connecting = {};
@@ -19,19 +19,19 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 		'signal': [],
 		'data': []
 	};
-	
-	/** @param {string} selfId @param {import('./crypto-codex.mjs').CryptoCodex} cryptoCodex @param {SdpOfferManager} sdpOfferManager @param {number} [verbose] default: 0 */
-	constructor(selfId, cryptoCodex, sdpOfferManager, verbose = 0) { // SETUP SDP_OFFER_MANAGER CALLBACKS
+
+	/** @param {string} selfId @param {import('./crypto-codex.mjs').CryptoCodex} cryptoCodex @param {import('./ice-offer-manager.mjs').OfferManager} offerManager @param {number} [verbose] default: 0 */
+	constructor(selfId, cryptoCodex, offerManager, verbose = 0) { // SETUP SDP_OFFER_MANAGER CALLBACKS
 		this.cryptoCodex = cryptoCodex; this.verbose = verbose; this.id = selfId;
-		this.sdpOfferManager = sdpOfferManager;
+		this.offerManager = offerManager;
 
 		/** @param {string} remoteId @param {any} signalData @param {string} [offerHash] answer only */
-		this.sdpOfferManager.onSignalAnswer = (remoteId, signalData, offerHash) => { // answer only
+		this.offerManager.onSignalAnswer = (remoteId, signalData, offerHash) => { // answer only
 			if (this.isDestroy || this.punisher.isSanctioned(remoteId)) return; // not accepted
 			for (const cb of this.callbacks.signal) cb(remoteId, { signal: signalData, offerHash });
 		};
 		/** @param {string | undefined} remoteId @param {import('simple-peer').Instance} instance */
-		this.sdpOfferManager.onConnect = (remoteId, instance) => {
+		this.offerManager.onConnect = (remoteId, instance) => {
 			if (this.isDestroy) return instance?.destroy();
 			if (remoteId === this.id) throw new Error(`Refusing to connect to self (${this.id}).`);
 
@@ -157,7 +157,7 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 	addConnectingPeer(remoteId, signal, offerHash) {
 		if (remoteId === this.id) throw new Error(`Refusing to connect to self (${this.id}).`);
 		
-		const peerConnection = this.sdpOfferManager.getPeerConnexionForSignal(remoteId, signal, offerHash);
+		const peerConnection = this.offerManager.getPeerConnexionForSignal(remoteId, signal, offerHash);
 		if (!peerConnection) return this.verbose > 3 ? console.info(`%cFailed to get/create a peer connection for ID ${remoteId}.`, 'color: orange;') : null;
 
 		const direction = signal.type === 'offer' ? 'in' : 'out';
@@ -170,7 +170,7 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 		const peerConn = this.connecting[remoteId]?.[signal.type === 'offer' ? 'in' : 'out'];
 		try {
 			if (peerConn?.isWebSocket) throw new Error(`Cannot assign signal for ID ${remoteId}. (WebSocket)`);
-			if (signal.type === 'answer') this.sdpOfferManager.addSignalAnswer(remoteId, signal, offerHash, timestamp);
+			if (signal.type === 'answer') this.offerManager.addSignalAnswer(remoteId, signal, offerHash, timestamp);
 			else peerConn.transportInstance.signal(signal);
 		} catch (error) { console.error(`Error signaling ${signal?.type} for ${remoteId}:`, error.stack); }
 	}
@@ -187,7 +187,7 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 		this.isDestroy = true;
 		for (const [peerId, conn] of Object.entries(this.connected)) { this.#removePeer(peerId); conn.close(); }
 		for (const [peerId, connObj] of Object.entries(this.connecting)) { this.#removePeer(peerId); connObj['in']?.close(); connObj['out']?.close(); }
-		this.sdpOfferManager.destroy();
+		this.offerManager.destroy();
 	}
 
 	// PUNISHER API

@@ -67,7 +67,7 @@ async function intervalsLoop(loopDelay = 8) { // OPTIMIZATION, SORRY FOR COMPLEX
 			peer.networkEnhancer.autoEnhancementTick();
 			discoveryTickLastTime[peer.id] = n;
 			peer.peerStore.cleanupExpired();
-			peer.peerStore.sdpOfferManager.tick();
+			peer.peerStore.offerManager.tick();
 		} if (isRestarting) return;
 
 		if (msgQueueCounter-- <= 0) {

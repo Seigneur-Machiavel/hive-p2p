@@ -1,5 +1,5 @@
 import { NODE, SIMULATION, TRANSPORTS, DISCOVERY } from './global_parameters.mjs';
-import { PeerConnection } from './peer-store-managers.mjs';
+import { PeerConnection } from './peer-store-utilities.mjs';
 import { Converter } from './crypto-codex.mjs';
 const dgram = !NODE.IS_BROWSER ? await import('dgram') : null; // Node.js only
 

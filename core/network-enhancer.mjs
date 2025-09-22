@@ -1,5 +1,5 @@
 import { CLOCK, SIMULATION, TRANSPORTS, NODE, DISCOVERY, GOSSIP } from './global_parameters.mjs';
-import { PeerConnection } from './peer-store-managers.mjs';
+import { PeerConnection } from './peer-store-utilities.mjs';
 import { CryptoCodex } from './crypto-codex.mjs';
 const { SANDBOX, ICE_CANDIDATE_EMITTER, TEST_WS_EVENT_MANAGER } = SIMULATION.ENABLED ? await import('../simulation/test-transports.mjs') : {};
 
@@ -40,7 +40,7 @@ export class NetworkEnhancer {
 		const { neighborsCount, nonPublicNeighborsCount, isEnough, isTooMany } = this.#localTopologyInfo;
 		if (isEnough) this.offersQueue = []; // clear offers queue if we have enough neighbors
 		const offersToCreate = nonPublicNeighborsCount >= DISCOVERY.TARGET_NEIGHBORS_COUNT / 3 ? 1 : TRANSPORTS.MAX_SDP_OFFERS;
-		this.peerStore.sdpOfferManager.offersToCreate = isEnough ? 0 : offersToCreate;
+		this.peerStore.offerManager.offersToCreate = isEnough ? 0 : offersToCreate;
 		if (this.isPublicNode) { this.nodeServices.freePublicNodeByKickingPeers(); return; } // public nodes don't need more connections
 		if (isEnough) { this.#improveTopologyByKickingPeers(isTooMany); return; } // only kick if we have too many peers
 		
@@ -141,8 +141,8 @@ export class NetworkEnhancer {
 		
 		// SELECT BEST READY OFFER BASED ON TIMESTAMP
 		let [ offerHash, readyOffer, since ] = [ null, null, null ];
-		for (const hash in this.peerStore.sdpOfferManager.offers) {
-			const offer = this.peerStore.sdpOfferManager.offers[hash];
+		for (const hash in this.peerStore.offerManager.offers) {
+			const offer = this.peerStore.offerManager.offers[hash];
 			const { isUsed, sentCounter, signal, timestamp } = offer;
 			if (isUsed || sentCounter > 0) continue; // already used or already sent at least once
 			const createdSince = CLOCK.time - timestamp;

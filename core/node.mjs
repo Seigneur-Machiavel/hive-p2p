@@ -1,5 +1,5 @@
 import { CLOCK, SIMULATION, NODE, TRANSPORTS, DISCOVERY } from './global_parameters.mjs';
-import { SdpOfferManager } from './peer-store-managers.mjs';
+import { OfferManager } from './ice-offer-manager.mjs';
 import { PeerStore } from './peer-store.mjs';
 import { UnicastMessager } from './unicast.mjs';
 import { Gossip } from './gossip.mjs';
@@ -25,8 +25,8 @@ export class NodeP2P {
 		this.verbose = verbose;
 		this.cryptoCodex = cryptoCodex;
 		this.id = this.cryptoCodex.id;
-		const sdpOfferManager = new SdpOfferManager(this.id, bootstraps, verbose);
-		this.peerStore = new PeerStore(this.id, this.cryptoCodex, sdpOfferManager, verbose);
+		const offerManager = new OfferManager(this.id, bootstraps, verbose);
+		this.peerStore = new PeerStore(this.id, this.cryptoCodex, offerManager, verbose);
 		this.messager = new UnicastMessager(this.id, this.cryptoCodex, this.peerStore, verbose);
 		this.gossip = new Gossip(this.id, this.cryptoCodex, this.peerStore, verbose);
 		this.networkEnhancer = new NetworkEnhancer(this.id, this.gossip, this.messager, this.peerStore, bootstraps);
@@ -106,7 +106,7 @@ export class NodeP2P {
 			if (SIMULATION.AVOID_INTERVALS) return true; // SIMULATOR CASE
 			this.networkEnhancer.tryConnectNextBootstrap(); // first shot ASAP
 			this.enhancerInterval = setInterval(() => this.networkEnhancer.autoEnhancementTick(), DISCOVERY.LOOP_DELAY);
-			this.peerStoreInterval = setInterval(() => { this.peerStore.cleanupExpired(); this.peerStore.sdpOfferManager.tick(); }, 2500);
+			this.peerStoreInterval = setInterval(() => { this.peerStore.cleanupExpired(); this.peerStore.offerManager.tick(); }, 2500);
 		});
 		return true;
 	}
@@ -120,7 +120,7 @@ export class NodeP2P {
 		console.info('FUNCTION DISABLED FOR NOW');
 		/*if (this.peerStore.connected[targetId]) return; // already connected
 		do {
-			if (this.peerStore.sdpOfferManager.readyOffer) break;
+			if (this.peerStore.offerManager.readyOffer) break;
 			else await new Promise(r => setTimeout(r, 1000)); // build in progress...
 		} while (retry-- > 0);*/
 	}
