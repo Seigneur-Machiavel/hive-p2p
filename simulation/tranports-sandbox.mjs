@@ -38,7 +38,7 @@ export class ICECandidateEmitter { // --- ICE SIMULATION ---
 		this.sdpToBuild = [];
 		for (const { transportId, type, time } of sdpToBuild) {
 			if (time > n) { // not yet
-				this.sdpToBuild.push({ transportId, type, time }); 
+				this.sdpToBuild.push({ transportId, type, time });
 				continue;
 			}
 			

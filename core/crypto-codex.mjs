@@ -6,9 +6,9 @@ import { ed25519 } from '../services/cryptos.mjs';
 export { Converter };
 
 export class CryptoCodex {
+	converter = new Converter();
 	AVOID_CRYPTO = false;
 	verbose = NODE.DEFAULT_VERBOSE;
-	converter = new Converter();
 	/** @type {string} */ id;
     /** @type {Uint8Array} */ publicKey;
     /** @type {Uint8Array} */ privateKey;
@@ -27,17 +27,17 @@ export class CryptoCodex {
 	/** @param {string} id Check the first character against the PUBLIC_PREFIX */
 	static isPublicNode(id) { return (IDENTITY.ARE_IDS_HEX ? Converter.hexToBits(id[0]) : id).startsWith(IDENTITY.PUBLIC_PREFIX); }
 	/** @param {string} id */
-	isPublicNode(id) { return CryptoCodex.isPublicNode(id); }
 	get idLength() { return IDENTITY.ARE_IDS_HEX ? IDENTITY.ID_LENGTH / 2 : IDENTITY.ID_LENGTH; }
-    #idFromPublicKey(publicKey) {
-		if (IDENTITY.ARE_IDS_HEX) return this.converter.bytesToHex(publicKey.slice(0, this.idLength), IDENTITY.ID_LENGTH);
-		return this.converter.bytesToString(publicKey.slice(0, IDENTITY.ID_LENGTH));
-	}
-	/** @param {Uint8Array} [seed] The privateKey. DON'T USE IN SIMULATION */
+	isPublicNode(id) { return CryptoCodex.isPublicNode(id); }
+    /** @param {Uint8Array} [seed] The privateKey. DON'T USE IN SIMULATION */
 	generate(isPublicNode, seed) { // Generate Ed25519 keypair cross-platform | set id only for simulator
 		if (this.nodeId) return;
 		this.#generateAntiSybilIdentity(seed, isPublicNode ? true : false, 0);
     }
+	#idFromPublicKey(publicKey) {
+		if (IDENTITY.ARE_IDS_HEX) return this.converter.bytesToHex(publicKey.slice(0, this.idLength), IDENTITY.ID_LENGTH);
+		return this.converter.bytesToString(publicKey.slice(0, IDENTITY.ID_LENGTH));
+	}
 	#generateAntiSybilIdentity(seed, isPublicNode, difficulty = 0) {
 		for (let i = 0; i < 1000; i++) { // avoid infinite loop
 			const { secretKey, publicKey } = ed25519.keygen(seed);
@@ -60,30 +60,11 @@ export class CryptoCodex {
 		const dataToSign = bufferView.subarray(0, signaturePosition);
 		bufferView.set(ed25519.sign(dataToSign, privateKey), signaturePosition);
 	}
-	/** @param {string | Uint8Array | Object} data */
-	#dataToBytes(data) { // typeCodes: 1=string, 2=Uint8Array, 3=JSON
-		if (typeof data === 'string') return { dataCode: 1, dataBytes: this.converter.stringToBytes(data) };
-		if (data instanceof Uint8Array) return { dataCode: 2, dataBytes: data };
-		return { dataCode: 3, dataBytes: this.converter.stringToBytes(JSON.stringify(data)) };
-	}
-	/** @param {Uint8Array} bufferView @param {number} marker @param {number} dataCode @param {number} neighborsCount @param {number} timestamp @param {Uint8Array} dataBytes @param {Uint8Array} publicKey */
-	#setBufferHeader(bufferView, marker, dataCode, neighborsCount, timestamp, dataBytes, publicKey) {
-		const timestampBytes = this.converter.numberTo8Bytes(timestamp);
-		const dataLengthBytes = this.converter.numberTo4Bytes(dataBytes.length);
-		// 1, 1, 1, 8, 4, 32
-		bufferView.set([marker], 0);			// 1 byte for marker
-		bufferView.set([dataCode], 1);			// 1 byte for data type code
-		bufferView.set([neighborsCount], 2);	// 1 byte for neighbors length
-		bufferView.set(timestampBytes, 3);		// 8 bytes for timestamp
-		bufferView.set(dataLengthBytes, 11);	// 4 bytes for data length
-		bufferView.set(publicKey, 15);			// 32 bytes for pubkey
-	}
 	/** @param {string} topic @param {string | Uint8Array | Object} data @param {number} [HOPS] @param {string[]} route @param {string[]} [neighbors] */
 	createGossipMessage(topic, data, HOPS = 3, neighbors = [], timestamp = CLOCK.time) {
 		const MARKER = GOSSIP.MARKERS_BYTES[topic];
 		if (MARKER === undefined) throw new Error(`Failed to create gossip message: unknown topic '${topic}'.`);
 		
-		// 1, 1, 1, 8, 4, 32, X, X, 64, 1
 		const neighborsBytes = this.idsToBytes(neighbors);
 		const { dataCode, dataBytes } = this.#dataToBytes(data);
 		const totalBytes = 1 + 1 + 1 + 8 + 4 + 32 + neighborsBytes.length + dataBytes.length + IDENTITY.SIGNATURE_LENGTH + 1;
@@ -92,12 +73,12 @@ export class CryptoCodex {
 		this.#setBufferHeader(bufferView, MARKER, dataCode, neighbors.length, timestamp, dataBytes, this.publicKey);
 		
 		bufferView.set(neighborsBytes, 47); 					// X bytes for neighbors
-		bufferView.set(dataBytes, 47 + neighborsBytes.length); // X bytes for data
+		bufferView.set(dataBytes, 47 + neighborsBytes.length); 	// X bytes for data
 		bufferView.set([Math.min(255, HOPS)], totalBytes - 1); 	// 1 byte for HOPS (Unsigned)
 		this.signBufferViewAndAppendSignature(bufferView, this.privateKey, totalBytes - IDENTITY.SIGNATURE_LENGTH - 1);
 		return bufferView;
 	}
-	/** Decrement the HOPS value in a serialized gossip message @param {Uint8Array} serializedMessage */
+	/** @param {Uint8Array} serializedMessage */
 	decrementGossipHops(serializedMessage) { // Here we just need to decrement the HOPS value => last byte of the message
 		const clone = new Uint8Array(serializedMessage); // avoid modifying the original message
 		const hops = serializedMessage[serializedMessage.length - 1];
@@ -111,7 +92,6 @@ export class CryptoCodex {
 		if (route.length < 2) throw new Error('Failed to create unicast message: route must have at least 2 nodes (next hop and target).');
 		if (route.length > UNICAST.MAX_HOPS) throw new Error(`Failed to create unicast message: route exceeds max hops (${UNICAST.MAX_HOPS}).`);
 		
-		// 1, 1, 1, 8, 4, 32, X, X, 1, X, 64
 		const neighborsBytes = this.idsToBytes(neighbors);
 		const { dataCode, dataBytes } = this.#dataToBytes(data);
 		const routeBytes = this.idsToBytes(route);
@@ -122,7 +102,7 @@ export class CryptoCodex {
 		
 		const NDBL = neighborsBytes.length + dataBytes.length;
 		bufferView.set(neighborsBytes, 47); 					// X bytes for neighbors
-		bufferView.set(dataBytes, 47 + neighborsBytes.length); // X bytes for data
+		bufferView.set(dataBytes, 47 + neighborsBytes.length); 	// X bytes for data
 		bufferView.set([route.length], 47 + NDBL);				// 1 byte for route length
 		bufferView.set(routeBytes, 47 + 1 + NDBL);				// X bytes for route
 
@@ -145,31 +125,27 @@ export class CryptoCodex {
 		this.signBufferViewAndAppendSignature(bufferView, this.privateKey, totalBytes - IDENTITY.SIGNATURE_LENGTH);
 		return bufferView;
 	}
+	/** @param {string | Uint8Array | Object} data */
+	#dataToBytes(data) { // typeCodes: 1=string, 2=Uint8Array, 3=JSON
+		if (typeof data === 'string') return { dataCode: 1, dataBytes: this.converter.stringToBytes(data) };
+		if (data instanceof Uint8Array) return { dataCode: 2, dataBytes: data };
+		return { dataCode: 3, dataBytes: this.converter.stringToBytes(JSON.stringify(data)) };
+	}
+	/** @param {Uint8Array} bufferView @param {number} marker @param {number} dataCode @param {number} neighborsCount @param {number} timestamp @param {Uint8Array} dataBytes @param {Uint8Array} publicKey */
+	#setBufferHeader(bufferView, marker, dataCode, neighborsCount, timestamp, dataBytes, publicKey) {
+		const timestampBytes = this.converter.numberTo8Bytes(timestamp);
+		const dataLengthBytes = this.converter.numberTo4Bytes(dataBytes.length);
+		bufferView.set([marker], 0);			// 1 byte for marker
+		bufferView.set([dataCode], 1);			// 1 byte for data type code
+		bufferView.set([neighborsCount], 2);	// 1 byte for neighbors length
+		bufferView.set(timestampBytes, 3);		// 8 bytes for timestamp
+		bufferView.set(dataLengthBytes, 11);	// 4 bytes for data length
+		bufferView.set(publicKey, 15);			// 32 bytes for pubkey
+	}
 
 	// MESSSAGE READING (DESERIALIZATION AND SIGNATURE VERIFICATION INCLUDED)
-	/** @param {Uint8Array} serialized */
-	#bytesToIds(serialized) {
-		const ids = [];
-		const idLength = this.idLength;
-		if (serialized.length % idLength !== 0) throw new Error('Failed to parse ids: invalid serialized length.');
-
-		for (let i = 0; i < serialized.length / idLength; i++) {
-			const idBytes = serialized.slice(i * idLength, (i + 1) * idLength);
-			if (IDENTITY.ARE_IDS_HEX) ids.push(this.converter.bytesToHex(idBytes, IDENTITY.ID_LENGTH));
-			else ids.push(this.converter.bytesToString(idBytes));
-		}
-		return ids;
-	}
-	/** @param {1 | 2 | 3} dataCode @param {Uint8Array} dataBytes @return {string | Uint8Array | Object} */
-	#bytesToData(dataCode, dataBytes) {
-		if (dataCode === 1) return this.converter.bytesToString(dataBytes);
-		if (dataCode === 2) return dataBytes;
-		if (dataCode === 3) return JSON.parse(this.converter.bytesToString(dataBytes));
-		throw new Error(`Failed to parse data: unknown data code '${dataCode}'.`);
-	}
 	/** @param {Uint8Array} bufferView */
 	readBufferHeader(bufferView, readAssociatedId = true) {
-		// 1, 1, 1, 8, 4, 32, X
 		const marker = bufferView[0]; 				// 1 byte for marker
 		const dataCode = bufferView[1];				// 1 byte for data type code
 		const neighborsCount = bufferView[2];		// 1 byte for neighbors length
@@ -225,5 +201,25 @@ export class CryptoCodex {
 			return new ReroutedDirectMessage(type, timestamp, neighbors, route, pubkey, deserializedData, signature, rerouterPubkey, newRoute, rerouterSignature);
 		} catch (error) { if (this.verbose > 1) console.warn(`Error deserializing ${type || 'unknown'} unicast message:`, error.stack); }
 		return null;
+	}
+	/** @param {Uint8Array} serialized */
+	#bytesToIds(serialized) {
+		const ids = [];
+		const idLength = this.idLength;
+		if (serialized.length % idLength !== 0) throw new Error('Failed to parse ids: invalid serialized length.');
+
+		for (let i = 0; i < serialized.length / idLength; i++) {
+			const idBytes = serialized.slice(i * idLength, (i + 1) * idLength);
+			if (IDENTITY.ARE_IDS_HEX) ids.push(this.converter.bytesToHex(idBytes, IDENTITY.ID_LENGTH));
+			else ids.push(this.converter.bytesToString(idBytes));
+		}
+		return ids;
+	}
+	/** @param {1 | 2 | 3} dataCode @param {Uint8Array} dataBytes @return {string | Uint8Array | Object} */
+	#bytesToData(dataCode, dataBytes) {
+		if (dataCode === 1) return this.converter.bytesToString(dataBytes);
+		if (dataCode === 2) return dataBytes;
+		if (dataCode === 3) return JSON.parse(this.converter.bytesToString(dataBytes));
+		throw new Error(`Failed to parse data: unknown data code '${dataCode}'.`);
 	}
 }

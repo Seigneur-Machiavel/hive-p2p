@@ -216,14 +216,14 @@ export class NetworkEnhancer {
 	}
 	#freePublicNodeByKickingPeers(maxKick = 1) { // PUBLIC NODES ONLY
 		let kicked = 0;
-		const { min, max } = NODE.SERVICE.AUTO_KICK_DELAY;
+		const delay = NODE.SERVICE.AUTO_KICK_DELAY;
 		for (const peerId  in this.peerStore.connected) {
 			const conn = this.peerStore.connected[peerId];
 			const peerNeighborsCount = this.peerStore.known[peerId]?.connectionsCount || 1000;
 			let bonusDelay = 0;
-			if (peerNeighborsCount < 2) bonusDelay = max / 2;
-			if (peerNeighborsCount >= DISCOVERY.TARGET_NEIGHBORS_COUNT) bonusDelay = 0 - (max / 2);
-			if (conn.getConnectionDuration() < max + bonusDelay) continue;
+			if (peerNeighborsCount < 2) bonusDelay = delay / 2;
+			if (peerNeighborsCount >= DISCOVERY.TARGET_NEIGHBORS_COUNT) bonusDelay = 0 - (delay / 2);
+			if (conn.getConnectionDuration() < delay + bonusDelay) continue;
 			this.peerStore.kickPeer(peerId, NODE.SERVICE.AUTO_KICK_DURATION, 'freePublicNode');
 			if (++kicked >= maxKick) break;
 		}

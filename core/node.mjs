@@ -27,6 +27,7 @@ export class NodeP2P {
 		this.id = this.cryptoCodex.id;
 		const sdpOfferManager = new SdpOfferManager(this.id, bootstraps, verbose);
 		this.peerStore = new PeerStore(this.id, this.cryptoCodex, sdpOfferManager, verbose);
+		
 		this.messager = new UnicastMessager(this.id, this.cryptoCodex, this.peerStore, verbose);
 		this.gossip = new Gossip(this.id, this.cryptoCodex, this.peerStore, verbose);
 		this.networkEnhancer = new NetworkEnhancer(this.id, this.gossip, this.messager, this.peerStore, bootstraps);
@@ -98,7 +99,7 @@ export class NodeP2P {
 	start() {
 		CLOCK.sync(this.verbose).then(() => {
 			this.started = true;
-			if (SIMULATION.AVOID_INTERVALS) return true;
+			if (SIMULATION.AVOID_INTERVALS) return true; // SIMULATOR CASE
 			this.networkEnhancer.tryConnectNextBootstrap(); // first shot ASAP
 			this.enhancerInterval = setInterval(() => this.networkEnhancer.autoEnhancementTick(), DISCOVERY.LOOP_DELAY);
 			this.peerStoreInterval = setInterval(() => { this.peerStore.cleanupExpired(); this.peerStore.sdpOfferManager.tick(); }, 2500);

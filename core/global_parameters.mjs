@@ -20,8 +20,8 @@ export const SIMULATION = {
 	PEERS_COUNT: 1860,				// stable: 25, medium: 800, strong: 4900 | default: 12
 	BOOTSTRAPS_PER_PEER: 10,		// will not be exact, more like a limit. null = all of them | default: 10
 	DELAY_BETWEEN_INIT: 60,			// 0 = faster for simulating big networks but > 0 = should be more realistic | default: 60 (60sec to start 1000 peers)
-	RANDOM_UNICAST_PER_SEC: 0,		// default: .1, capped at a total of 500msg/sec | default: 1
-	RANDOM_GOSSIP_PER_SEC: 0,		// default: 0, capped at a total of 200msg/sec | default: 1
+	RANDOM_UNICAST_PER_SEC: 0,		// default: 0, max: 1 (per peer)
+	RANDOM_GOSSIP_PER_SEC: 0,		// default: 0, max: 1 (per peer)
 	DIFFUSION_TEST_DELAY: 10_000,	// frequency of diffusion test | default: 20_000 (20 seconds)
 	DIFFUSION_TEST_HOPS: 10,		// HOPS for diffusion test | default: 10
 }
@@ -32,8 +32,8 @@ export const NODE = {
 	CONNECTION_UPGRADE_TIMEOUT: 15_000, // time to close connection of connecting peer | default: 15_000 (15 seconds), to make signal throw: 4_000 (4 seconds)
 	SERVICE: {
 		PORT: 8080,
-		AUTO_KICK_DELAY: { min: 30_000, max: 60_000 }, // default: { min: 30_000, max: 60_000 }
-		AUTO_KICK_DURATION: 30_000, // default: 60_000 (1 minute)
+		AUTO_KICK_DELAY: 60_000, 	// default: 60_000 (1 minute)
+		AUTO_KICK_DURATION: 30_000, // default: 30_000 (1 minute)
 		MAX_WS_IN_CONNS: 20, 		// Limit of WebSocketServer incoming connections | default: 20
 		MAX_WS_OUT_CONNS: 2, 		// Max outgoing WebSocket connections to public nodes | default: 2
 	},
