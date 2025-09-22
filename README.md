@@ -1,3 +1,6 @@
+GNU GENERAL PUBLIC LICENSE
+Version 3, 29 June 2007
+
 [EN] (Scroll down to read [FR] version)
 
 # P2P Network with Dynamic Global Mapping
