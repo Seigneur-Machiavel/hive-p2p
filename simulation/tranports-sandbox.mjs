@@ -193,7 +193,7 @@ export class Sandbox {
 		tA.remoteId = answererId;
 		tB.remoteId = offererId;
 
-		if (this.verbose > 1) console.log(`[SANDBOX] Linked transports: ${offererId} <-> ${answererId}`);
+		if (this.verbose > 2) console.log(`[SANDBOX] Linked transports: ${offererId} <-> ${answererId}`);
 
 		// EMIT CONNECT EVENT ON BOTH SIDES
 		tA.callbacks.connect.forEach(cb => cb()); // emit connect event for offerer Instance

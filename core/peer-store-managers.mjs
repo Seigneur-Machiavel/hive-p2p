@@ -22,7 +22,7 @@ export class PeerConnection { // WebSocket or WebRTC connection wrapper
 		this.peerId = peerId;
 		this.pendingUntil = CLOCK.time + NODE.CONNECTION_UPGRADE_TIMEOUT;
 	}
-	setConnected() { this.connStartTime = CLOCK.time; }
+	setConnected() { this.connStartTime = CLOCK.time; this.pendingUntil = 0; }
 	getConnectionDuration() { return this.connStartTime ? CLOCK.time - this.connStartTime : 0; }
 	close() { this.isWebSocket ? this.transportInstance?.close() : this.transportInstance?.destroy(); }
 }
@@ -60,17 +60,14 @@ export class Punisher { // manage kick and ban of peers
 	}
 }
 
-/** - 'bootstrapInfo' Definition & 'OfferObj' Definition
- * @typedef {Object} bootstrapInfo
- * @property {string} id
- * @property {string} publicUrl
- * 
+/** - 'OfferObj' Definition
  * @typedef {Object} OfferObj
  * @property {number} timestamp
  * @property {boolean} isUsed // => if true => should be deleted
  * @property {number} sentCounter
  * @property {Object} signal
  * @property {import('simple-peer').Instance} offererInstance
+ * @property {boolean} isDigestingOneAnswer flag to avoid multiple answers handling at the same time (DISCOVERY.LOOP_DELAY (2.5s) will be doubled (5s) between two answers handling)
  * @property {Array<{peerId: string, signal: any, timestamp: number, used: boolean}>} answers
  * @property {Record<string, boolean>} answerers key: peerId, value: true */
 
@@ -78,7 +75,7 @@ export class SdpOfferManager { // Manages the creation of SDP offers and handlin
 	id;
 	stunUrls = [];
 	verbose = 0;
-	/** @param {Array<bootstrapInfo>} bootstraps */
+	/** @param {Array<{id: string, publicUrl: string}>} bootstraps */
 	constructor(id = 'toto', bootstraps = [], verbose = 0) {
 		this.id = id;
 		this.#deriveSTUNServers(bootstraps);
@@ -119,8 +116,9 @@ export class SdpOfferManager { // Manages the creation of SDP offers and handlin
 		// TRY TO USE AVAILABLE ANSWERS
 		let offerCount = 0;
 		for (const hash in this.offers) {
+			offerCount++; // [live at the first line of the loop] used just below -> avoid Object.keys() call
 			const offer = this.offers[hash];
-			offerCount++; // used just behind -> avoid Object.keys() call
+			if (offer.isDigestingOneAnswer) { offer.isDigestingOneAnswer = false; continue; } // already digesting an answer
 			if (offer.offererInstance.destroyed) continue; // offerer destroyed
 			const unusedAnswers = offer.answers.filter(a => !a.used);
 			if (!unusedAnswers.length) continue; // no answers available
@@ -130,6 +128,7 @@ export class SdpOfferManager { // Manages the creation of SDP offers and handlin
 			const receivedSince = now - newestAnswer.timestamp;
 			if (receivedSince > NODE.CONNECTION_UPGRADE_TIMEOUT / 2) continue; // remote peer will break the connection soon, don't use this answer
 			offer.offererInstance.signal(newestAnswer.signal);
+			offer.isDigestingOneAnswer = true;
 			//console.log(`(${this.id}) Using answer from ${newestAnswer.peerId} for offer ${hash} (received since ${receivedSince} ms)`);
 			if (this.verbose > 2) console.log(`(SdpOfferManager) Using answer from ${newestAnswer.peerId} for offer ${hash} (received since ${receivedSince} ms)`);
 		}
@@ -143,7 +142,7 @@ export class SdpOfferManager { // Manages the creation of SDP offers and handlin
 		const instance = this.#createOffererInstance(expiration);
 		this.offerInstanceByExpiration[expiration] = instance;
 	};
-	/** @param {Array<bootstrapInfo>} bootstraps */
+	/** @param {Array<{id: string, publicUrl: string}>} bootstraps */
 	#deriveSTUNServers(bootstraps) {
 		for (const b of bootstraps) {
 			const domain = b.publicUrl.split(':')[1].replace('//', '');

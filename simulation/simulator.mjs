@@ -55,18 +55,19 @@ async function intervalsLoop(loopDelay = 8) { // OPTIMIZATION, SORRY FOR COMPLEX
 	const beforeIceCandidateEmitterTick = Math.round(520 / loopDelay); // 520 ms / 8ms = 65
 	const discoveryTickLastTime = {}; // key: peerId, value: lastTime
 
-	const tick = async (n) => {
+	async function tick(n) {
 		if (isRestarting) return;
 		if (!SIMULATION.AVOID_INTERVALS) return; // not enabled
 		
-		for (const peer of Object.values(peers.all)) {
+		for (const id in peers.all) {
+			const peer = peers.all[id];
 			if (!peer.started) continue; // not started yet
-			if ((discoveryTickLastTime[peer.id] || 0) + DISCOVERY.LOOP_DELAY < n) {
-				peer.networkEnhancer.autoEnhancementTick();
-				discoveryTickLastTime[peer.id] = n;
-				peer.peerStore.cleanupExpired();
-				peer.peerStore.sdpOfferManager.tick();
-			}
+			if (n - (discoveryTickLastTime[peer.id] || 0) < DISCOVERY.LOOP_DELAY) continue; // not time yet
+			//console.log(`%c[${peer.id}] Discovery tick`, 'color: lightblue;');
+			peer.networkEnhancer.autoEnhancementTick();
+			discoveryTickLastTime[peer.id] = n;
+			peer.peerStore.cleanupExpired();
+			peer.peerStore.sdpOfferManager.tick();
 		} if (isRestarting) return;
 
 		if (msgQueueCounter-- <= 0) {
@@ -92,7 +93,7 @@ async function intervalsLoop(loopDelay = 8) { // OPTIMIZATION, SORRY FOR COMPLEX
 		const n = Date.now();
 		await tick(n);
 		const elapsed = Date.now() - n;
-		await new Promise(resolve => setTimeout(resolve, Math.max(loopDelay - elapsed, 0)));
+		await new Promise(resolve => setTimeout(resolve, Math.max(loopDelay - elapsed, 5)));
 	}
 }
 async function destroyAllExistingPeers(pauseDuration = 2000) {
@@ -176,12 +177,10 @@ async function randomMessagesLoop(type = 'U', mgPerPeerPerSecond = SIMULATION.RA
 		try { for (let i = 0; i < numberOfSender; i++) {
 			const senderId = peerIds[Math.floor(Math.random() * peersCount)];
 			const sender = peers.all[senderId];
-			const senderKnowsPeers = sender ? Object.keys(sender.peerStore.known) : [];
-			if (!sender || senderKnowsPeers.length === 0) continue;
+			if (type === 'G') { sender.broadcast(`Hello to all from ${sender.id}`); continue; }
 
-			const recipientId = senderKnowsPeers[Math.floor(Math.random() * senderKnowsPeers.length)];
-			if (type === 'U') sender.sendMessage(recipientId, `Hello from ${sender.id}`);
-			else if (type === 'G') sender.broadcast(`Hello to all from ${sender.id}`);
+			const recipientId = peerIds[Math.floor(Math.random() * peersCount)];
+			sender.sendMessage(recipientId, `Hello from ${sender.id}`);
 		} } catch (error) { console.error('Error selecting random sender:', error); }
 
 		await new Promise(resolve => setTimeout(resolve, 1000));

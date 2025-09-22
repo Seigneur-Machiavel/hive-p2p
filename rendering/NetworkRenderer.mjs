@@ -1,5 +1,6 @@
 import { NetworkRendererElements, NetworkRendererOptions } from './renderer-options.mjs';
 import { Node, NodesStore, ConnectionsStore } from './renderer-stores.mjs';
+import { NODE, DISCOVERY } from '../core/global_parameters.mjs';
 
 export class NetworkRenderer {
 	initCameraZ = 1400;
@@ -309,7 +310,8 @@ export class NetworkRenderer {
 		this.elements.linesCountElement.textContent = linesCount;
 		this.elements.connectingCountElement.textContent = info.connecting;
 		const nonPublicNeighbors = info.connected - info.connectedPublic;
-		this.elements.neighborCountElement.textContent = `${nonPublicNeighbors} ( +${info.connectedPublic} Public )`;
+		const isTargetReached = nonPublicNeighbors >= DISCOVERY.TARGET_NEIGHBORS_COUNT;
+		this.elements.neighborCountElement.textContent = `${nonPublicNeighbors} | +${info.connectedPublic} Public ${isTargetReached ? '🟢' : ''}`;
 		this.elements.publicNeighborCountElement.textContent = info.connectedPublic;
     }
 	switchMode() {

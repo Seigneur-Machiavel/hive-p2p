@@ -105,11 +105,10 @@ export class Gossip {
 	 * @param {string | Uint8Array | Object} data @param {string} topic @param {number} [HOPS] */
 	broadcastToAll(data, topic = 'gossip', HOPS) {
 		const hops = HOPS || GOSSIP.HOPS[topic] || GOSSIP.HOPS.default;
-		const neighbors = Object.keys(this.peerStore.connected);
-		const serializedMessage = this.cryptoCodex.createGossipMessage(topic, data, hops, neighbors);
+		const serializedMessage = this.cryptoCodex.createGossipMessage(topic, data, hops, this.peerStore.neighborsList);
 		if (!this.bloomFilter.addMessage(serializedMessage)) return; // avoid sending duplicate messages
-		if (this.verbose > 3) console.log(`(${this.id}) Gossip ${topic}, to ${JSON.stringify(neighbors)}: ${data}`);
-		for (const peerId of neighbors) this.#broadcastToPeer(peerId, serializedMessage);
+		if (this.verbose > 3) console.log(`(${this.id}) Gossip ${topic}, to ${JSON.stringify(this.peerStore.neighborsList)}: ${data}`);
+		for (const peerId of this.peerStore.neighborsList) this.#broadcastToPeer(peerId, serializedMessage);
 	}
 	/** @param {string} targetId @param {any} serializedMessage */
 	#broadcastToPeer(targetId, serializedMessage) {
@@ -134,11 +133,11 @@ export class Gossip {
 		if (!message) throw new Error(`Failed to deserialize gossip message from ${from}.`);
 		
 		const { topic, timestamp, neighborsList, HOPS, senderId, data } = message;
+		if (senderId === this.id) throw new Error(`#${this.id}#${from}# Received our own message back from peer ${from}.`);
 		
-		if (this.verbose > 3)
+		if (this.verbose > 3) // LOGGING
 			if (senderId === from) console.log(`(${this.id}) Gossip ${topic} from ${senderId}: ${data}`);
 			else console.log(`(${this.id}) Gossip ${topic} from ${senderId} (by: ${from}): ${data}`);
-		if (senderId === this.id) throw new Error(`#${this.id}#${from}# Received our own message back from peer ${from}.`);
 
 		this.peerStore.digestPeerNeighbors(senderId, neighborsList);
 		for (const cb of this.callbacks[topic] || []) cb(senderId, data, HOPS, message); // specific topic callback

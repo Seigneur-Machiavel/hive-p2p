@@ -12,18 +12,18 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 	/** @type {string[]} The neighbors IDs */ 		neighborsList = []; // faster access
 	/** @type {Record<string, PeerConnecting>} */ 	connecting = {};
 	/** @type {Record<string, PeerConnection>} */ 	connected = {};
-	/** @type {Record<string, KnownPeer>} */ 	  	known = {};
+	/** @type {Record<string, KnownPeer>} */ 	  	known = {}; // known peers store
 	/** @type {Record<string, Function[]>} */ 		callbacks = {
 		'connect': [(peerId, direction) => this.#handleConnect(peerId, direction)],
 		'disconnect': [(peerId, direction) => this.#handleDisconnect(peerId, direction)],
 		'signal': [],
 		'data': []
 	};
-
-	/** @param {string} selfId @param {import('./crypto-codex.mjs').CryptoCodex} cryptoCodex @param {Array<bootstrapInfo>} bootstraps @param {number} [verbose] default: 0 */
-	constructor(selfId, cryptoCodex, bootstraps, verbose = 0) { // SETUP SDP_OFFER_MANAGER CALLBACKS
+	
+	/** @param {string} selfId @param {import('./crypto-codex.mjs').CryptoCodex} cryptoCodex @param {SdpOfferManager} sdpOfferManager @param {number} [verbose] default: 0 */
+	constructor(selfId, cryptoCodex, sdpOfferManager, verbose = 0) { // SETUP SDP_OFFER_MANAGER CALLBACKS
 		this.cryptoCodex = cryptoCodex; this.verbose = verbose; this.id = selfId;
-		this.sdpOfferManager = new SdpOfferManager(selfId, bootstraps, verbose);
+		this.sdpOfferManager = sdpOfferManager;
 
 		/** @param {string} remoteId @param {any} signalData @param {string} [offerHash] answer only */
 		this.sdpOfferManager.onSignalAnswer = (remoteId, signalData, offerHash) => { // answer only
@@ -57,7 +57,6 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 	// GETTERS
 	get publicNeighborsList() { return this.neighborsList.filter(id => this.cryptoCodex.isPublicNode(id)); }
 	get standardNeighborsList() { return this.neighborsList.filter(id => !this.cryptoCodex.isPublicNode(id)); }
-	//get neighborsList() { return Object.keys(this.connected); }
 
 	// PRIVATE METHODS
 	/** @param {string} peerId @param {'in' | 'out'} direction */
@@ -84,12 +83,13 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 	}
 	#handleDisconnect(peerId, direction) { // First callback assigned in constructor
 		this.#removePeer(peerId, 'connected', direction);
-		this.unlinkPeers(this.id, peerId); // Remove link in self known store
+		this.#unlinkPeers(this.id, peerId); // Remove link in self known store
 	}
-	/** @param {string} remoteId @param {'connected' | 'connecting' | 'both'} [status] default: both @param {'in' | 'out' | 'both'} [direction] default: both */
+	/** Remove a peer from our connections, and unlink from known store
+	 * @param {string} remoteId @param {'connected' | 'connecting' | 'both'} [status] default: both @param {'in' | 'out' | 'both'} [direction] default: both */
 	#removePeer(remoteId, status = 'both', direction = 'both') {
 		if (!remoteId && remoteId === this.id) return;
-		this.unlinkPeers(this.id, remoteId); // Remove link in self known store
+		this.#unlinkPeers(this.id, remoteId); // Remove link in self known store
 
 		const [ connectingConns, connectedConn ] = [ this.connecting[remoteId], this.connected[remoteId] ];
 		if (connectingConns && connectedConn) throw new Error(`Peer ${remoteId} is both connecting and connected.`);
@@ -97,6 +97,7 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 		
 		// use negation to apply to 'both' too
 		if (status !== 'connecting' && (connectedConn?.direction === direction || direction === 'both')) {
+			this.#closePeerConnections(remoteId);
 			delete this.connected[remoteId];
 			this.neighborsList = Object.keys(this.connected);
 		}
@@ -108,23 +109,31 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 		if (this.connecting[remoteId]?.['in'] || this.connecting[remoteId]?.['out']) return;
 		delete this.connecting[remoteId]; // no more connection direction => remove entirely
 	}
+	/** Associate two peers as neighbors in known store */
 	#linkPeers(peerId1 = 'toto', peerId2 = 'tutu') {
-		if (!this.known[peerId1]) this.known[peerId1] = new KnownPeer();
-		if (!this.known[peerId2]) this.known[peerId2] = new KnownPeer();
-		this.known[peerId1].setNeighbor(peerId2);
-		this.known[peerId2].setNeighbor(peerId1);
+		for (const pid of [peerId1, peerId2]) {
+			if (!this.known[pid]) this.known[pid] = new KnownPeer();
+			this.known[pid].setNeighbor(pid === peerId1 ? peerId2 : peerId1);
+		}
+	}
+	/** Unassociate two peers and remove them from known store if they have no more connections */
+	#unlinkPeers(peerId1 = 'toto', peerId2 = 'tutu') {
+		for (const pid of [peerId1, peerId2]) {
+			this.known[pid]?.unsetNeighbor(pid === peerId1 ? peerId2 : peerId1);
+			if (!this.known[pid] || this.known[pid].connectionsCount) continue;
+			delete this.known[pid];
+		}
 	}
 	cleanupExpired(andUpdateKnownBasedOnNeighbors = true) { // Clean up expired pending connections and pending links
 		const now = CLOCK.time;
-		for (const peerId in this.connecting) {
-			const peerConns = this.connecting[peerId];
-			for (const dir of ['in', 'out']) {
-				if (peerConns[dir]?.pendingUntil > now) continue;
+		for (const dir of ['in', 'out'])
+			for (const peerId in this.connecting) {
+				if (!this.connecting[peerId][dir]) continue;
+				if (this.connecting[peerId][dir].pendingUntil > now) continue;
 				if (this.verbose > 3) console.info(`%cPending ${dir} connection to peer ${peerId} expired.`, 'color: orange;');
-				peerConns[dir]?.close();
+				this.connecting[peerId][dir]?.close();
 				this.#removePeer(peerId, 'connecting', dir);
 			}
-		}
 
 		if (!andUpdateKnownBasedOnNeighbors) return;
 		this.neighborsList = Object.keys(this.connected);
@@ -171,15 +180,8 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 	digestPeerNeighbors(peerId, neighbors = []) { // Update known neighbors
 		if (!peerId || !Array.isArray(neighbors)) return;
 		for (const id in this.known[peerId]?.neighbors || {}) // remove old links
-			if (!neighbors.includes(id)) this.unlinkPeers(peerId, id);
+			if (!neighbors.includes(id)) this.#unlinkPeers(peerId, id);
 		for (const p of neighbors) this.#linkPeers(peerId, p);
-	}
-	/** called on 'peer_disconnected' gossip message */
-	unlinkPeers(peerId1 = 'toto', peerId2 = 'tutu') {
-		if (this.known[peerId1]) this.known[peerId1]?.unsetNeighbor(peerId2);
-		if (this.known[peerId2]) this.known[peerId2]?.unsetNeighbor(peerId1);
-		if (this.known[peerId1]?.connectionsCount === 0) delete this.known[peerId1];
-		if (this.known[peerId2]?.connectionsCount === 0) delete this.known[peerId2];
 	}
 	destroy() {
 		this.isDestroy = true;
@@ -192,15 +194,14 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 	/** Avoid peer connection and messages @param {string} peerId @param {number} duration default: 60_000ms */
 	banPeer(peerId, duration = 60_000) {
 		this.punisher.sanctionPeer(peerId, 'ban', duration);
-		this.#closePeerConnections(peerId);
 		this.#removePeer(peerId, 'both');
 	}
 	isBanned(peerId) { return this.punisher.isSanctioned(peerId, 'ban'); }
-	/** Avoid peer connection @param {string} peerId @param {number} duration default: 60_000ms */
-	kickPeer(peerId, duration = 60_000) {
-		if (duration) this.punisher.sanctionPeer(peerId, 'kick', duration);
-		this.connected[peerId]?.close();
-		if (this.verbose > 1) console.log(`(${this.id}) Kicked peer ${peerId} for ${duration / 1000}s.`);
+	/** Avoid peer connection @param {string} peerId @param {number} duration default: 60_000ms @param {string} [reason] */
+	kickPeer(peerId, duration = 60_000, reason) {
+		this.punisher.sanctionPeer(peerId, 'kick', duration);
+		this.#removePeer(peerId, 'both');
+		if (this.verbose > 1) console.log(`(${this.id}) Kicked peer ${peerId} for ${duration / 1000}s. ${reason ? '| Reason: ' + reason : ''}`);
 	}
 	isKicked(peerId) { return this.punisher.isSanctioned(peerId, 'kick'); }
 }

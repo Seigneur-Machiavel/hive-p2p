@@ -1,6 +1,6 @@
 import { CLOCK, SIMULATION, NODE, TRANSPORTS, DISCOVERY } from './global_parameters.mjs';
+import { PeerConnection, SdpOfferManager } from './peer-store-managers.mjs';
 import { PeerStore } from './peer-store.mjs';
-import { PeerConnection } from './peer-store-managers.mjs';
 import { UnicastMessager } from './unicast.mjs';
 import { Gossip } from './gossip.mjs';
 import { NetworkEnhancer } from './network-enhancer.mjs';
@@ -25,9 +25,10 @@ export class NodeP2P {
 		this.verbose = verbose;
 		this.cryptoCodex = cryptoCodex;
 		this.id = this.cryptoCodex.id;
-		this.peerStore = new PeerStore(this.id, this.cryptoCodex, bootstraps, this.verbose);
-		this.messager = new UnicastMessager(this.id, this.cryptoCodex, this.peerStore, this.verbose);
-		this.gossip = new Gossip(this.id, this.cryptoCodex, this.peerStore, this.verbose);
+		const sdpOfferManager = new SdpOfferManager(this.id, bootstraps, verbose);
+		this.peerStore = new PeerStore(this.id, this.cryptoCodex, sdpOfferManager, verbose);
+		this.messager = new UnicastMessager(this.id, this.cryptoCodex, this.peerStore, verbose);
+		this.gossip = new Gossip(this.id, this.cryptoCodex, this.peerStore, verbose);
 		this.networkEnhancer = new NetworkEnhancer(this.id, this.gossip, this.messager, this.peerStore, bootstraps);
 		const { peerStore, messager, gossip, networkEnhancer } = this;
 
@@ -43,9 +44,6 @@ export class NodeP2P {
 
 		// GOSSIP LISTENERS
 		gossip.on('signal_offer', (senderId, data, HOPS) => networkEnhancer.handleIncomingSignal(senderId, data, HOPS));
-		// DEPRECIATING =>
-		//gossip.on('peer_connected', (senderId, data) => peerStore.handlePeerConnectedGossipEvent(senderId, data));
-		//gossip.on('peer_disconnected', (senderId, data) => peerStore.unlinkPeers(data, senderId));
 
 		if (verbose > 2) console.log(`NodeP2P initialized: ${this.id}`);
 	}
@@ -60,7 +58,6 @@ export class NodeP2P {
 		const dispatchEvents = () => {
 			const isHandshakeInitiator = remoteIsPublic || direction === 'in';
 			if (isHandshakeInitiator) this.sendMessage(peerId, this.id, 'handshake');
-			if (DISCOVERY.ON_CONNECT_DISPATCH.BROADCAST_EVENT && !remoteIsPublic) this.broadcast(peerId, 'peer_connected');
 			if (DISCOVERY.ON_CONNECT_DISPATCH.SHARE_HISTORY) 
 				if (this.peerStore.known[peerId]?.connectionsCount <= 1) this.gossip.sendGossipHistoryToPeer(peerId);
 		};
@@ -76,7 +73,6 @@ export class NodeP2P {
 		if (this.verbose > ((selfIsPublic || remoteIsPublic) ? 3 : 2)) console.log(`(${this.id}) ${direction === 'in' ? 'Incoming' : 'Outgoing'} connection closed with peer ${peerId}`);
 		
 		const dispatchEvents = () => {
-			if (DISCOVERY.ON_DISCONNECT_DISPATCH.BROADCAST_EVENT && !remoteIsPublic) this.broadcast(peerId, 'peer_disconnected');
 		};
 		if (!DISCOVERY.ON_DISCONNECT_DISPATCH.DELAY) dispatchEvents();
 		else setTimeout(dispatchEvents, DISCOVERY.ON_DISCONNECT_DISPATCH.DELAY);
@@ -99,11 +95,11 @@ export class NodeP2P {
 		if (start) node.start();
 		return node;
 	}
-	start(initIntervals = !SIMULATION.AVOID_INTERVALS) {
+	start() {
 		CLOCK.sync(this.verbose).then(() => {
-			this.networkEnhancer.tryConnectNextBootstrap(); // first shot ASAP
 			this.started = true;
-			if (!initIntervals) return true;
+			if (SIMULATION.AVOID_INTERVALS) return true;
+			this.networkEnhancer.tryConnectNextBootstrap(); // first shot ASAP
 			this.enhancerInterval = setInterval(() => this.networkEnhancer.autoEnhancementTick(), DISCOVERY.LOOP_DELAY);
 			this.peerStoreInterval = setInterval(() => { this.peerStore.cleanupExpired(); this.peerStore.sdpOfferManager.tick(); }, 2500);
 		});

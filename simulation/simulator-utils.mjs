@@ -29,17 +29,22 @@ export class Statician { // DO NOT ADD VARIABLES, JUST COUNTERS !!
 	constructor(sVARS, peers, delay = 10_000) {
 		const verbose = NODE.DEFAULT_VERBOSE;
 		setInterval(() => {
+			const peersConnectionsCount = [];
 			let establishedWrtcConnCount = 0;
 			let wrtcToEstablishCount = 0;
 			for (const peerId in peers.all) {
 				if (CryptoCodex.isPublicNode(peerId)) continue;
-				if (peers.all[peerId].started) wrtcToEstablishCount++;
-				for (const id in peers.all[peerId].peerStore.connected)
-					if (CryptoCodex.isPublicNode(id)) continue;
-					else { establishedWrtcConnCount++; break; }
+				if (!peers.all[peerId].started) continue;
+				wrtcToEstablishCount++;
+				const standardNeighborsCount = peers.all[peerId].peerStore.standardNeighborsList.length;
+				if (standardNeighborsCount === 0) continue;
+				establishedWrtcConnCount++;
+				peersConnectionsCount.push(standardNeighborsCount);
 			}
+			const averagePeersConnections = peersConnectionsCount.length === 0 ? 0 : (peersConnectionsCount.reduce((a, b) => a + b, 0) / peersConnectionsCount.length).toFixed(1);
 
-			if (verbose) console.info(`%c${Math.floor((Date.now() - sVARS.startTime) / 1000)}sec elapsed | Active: ${sVARS.publicInit + (sVARS.nextPeerToInit - 1)}/${Object.keys(peers.all).length} (${establishedWrtcConnCount}/${wrtcToEstablishCount} established WebRTC) | STATS/sec: ${this.#getSimulationStatsPerSecond(delay)}`, 'color: yellow;');
+			if (verbose) console.info(`%c${Math.floor((Date.now() - sVARS.startTime) / 1000)}sec elapsed | Active: ${sVARS.publicInit + (sVARS.nextPeerToInit - 1)}/${Object.keys(peers.all).length} (${establishedWrtcConnCount}/${wrtcToEstablishCount} established WebRTC | ${averagePeersConnections} avg conns)`, 'color: yellow;');
+			if (verbose) console.info(`%c--STATS/sec: ${this.#getSimulationStatsPerSecond(delay)}`, 'color: yellow;');
 			for (const key in this) this[key] = 0;
 		}, delay);
 	}
@@ -69,7 +74,7 @@ export class TransmissionAnalyzer {
 		this.verbose = verbose;
 		setInterval(() => {
 			const stats = this.#getTransmissionStats();
-			if (stats && this.verbose) console.info(`%c[ Diffusion Test ]>> Stats: ${JSON.stringify(stats).replaceAll('"','').replaceAll(':',': ').replaceAll('{', '{ ').replaceAll('}', ' }').replaceAll(',', ', ')}`, 'color: purple;');
+			if (stats && this.verbose) console.info(`%c[ Diffusion Test ]>> Stats: ${JSON.stringify(stats).replaceAll('"','').replaceAll(':',': ').replaceAll('{', '{ ').replaceAll('}', ' }').replaceAll(',', ', ')}`, 'color: hotpink;');
 			// SEND A GOSSIP MESSAGE FROM A RANDOM PEER -> ALL PEERS SHOULD RECEIVE IT
 			this.gossip.nonce = 'ffffff';
 			this.gossip.receivedBy = {};
@@ -109,7 +114,6 @@ export class TransmissionAnalyzer {
 		if (!this.gossip.receivedBy[receiverId]) this.gossip.receivedBy[receiverId] = Date.now();
 	}
 }
-
 export class SubscriptionsManager {
 	verbose;
 	cryptoCodex;
@@ -219,11 +223,13 @@ export class SubscriptionsManager {
 			try {
 				if (GOSSIP.MARKERS_BYTES[markerByte]) { // gossip message
 					const d = this.cryptoCodex.readGossipMessage(data);
+					if (!d) throw new Error('Failed to decode gossip message');
 					this.#countMessage(d.topic, true);
 					this.#countBandwidth(d.topic, data.length, true);
 					this.sendFnc({ type: 'peerMessage', remoteId, data: d }); // without identifier
 				} else if (UNICAST.MARKERS_BYTES[markerByte]) { // unicast message
 					const d = this.cryptoCodex.readUnicastMessage(data);
+					if (!d) throw new Error('Failed to decode unicast message');
 					this.#countMessage(d.type, false);
 					this.#countBandwidth(d.type, data.length, false);
 					this.sendFnc({ type: 'peerMessage', remoteId, data: d }); // without identifier

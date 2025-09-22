@@ -82,7 +82,6 @@ export class UnicastMessager {
 		if (!builtResult.success) return false;
 
 		// Caution: re-routing usage who can involve insane results
-		const neighbors = Object.keys(this.peerStore.connected);
 		const finalSpread = builtResult.success === 'blind' ? 1 : spread; // Spread only if re-routing is false
 		for (let i = 0; i < Math.min(finalSpread, builtResult.routes.length); i++) {
 			const route = builtResult.routes[i].path;
@@ -90,7 +89,7 @@ export class UnicastMessager {
 				if (this.verbose > 1) console.warn(`Cannot send unicast message to ${remoteId} as route exceeds maxHops (${UNICAST.MAX_HOPS}). BFS incurred.`);
 				continue; // too long route
 			}
-			const message = this.cryptoCodex.createUnicastMessage(type, data, route, neighbors);
+			const message = this.cryptoCodex.createUnicastMessage(type, data, route, this.peerStore.neighborsList);
 			this.#sendMessageToPeer(route[1], message); // send to next peer
 		}
 		return true;
@@ -117,7 +116,7 @@ export class UnicastMessager {
 		if (prevId && from !== prevId) throw new Error(`DirectMessage previous hop id (${prevId}) does not match the actual from id (${from}).`);
 		if (from === senderId && from === this.id) throw new Error('DirectMessage senderId and from are both self id !!');
 		if (senderId === this.id) // !!Attacker can modify the route to kick a peer a by building a loop
-			return this.peerStore.kickPeer(from, 0); // from self is not allowed.
+			return this.peerStore.kickPeer(from, 0, 'self-connection'); // from self is not allowed.
 		
 		if (this.verbose > 3)
 			if (senderId === from) console.log(`(${this.id}) Direct ${message.type} from ${senderId}: ${message.data}`);
