@@ -1,9 +1,104 @@
+import { NODE, SIMULATION, TRANSPORTS, DISCOVERY } from './global_parameters.mjs';
+import { PeerConnection } from './peer-store-managers.mjs';
+import { Converter } from './crypto-codex.mjs';
+const dgram = !NODE.IS_BROWSER ? await import('dgram') : null; // Node.js only
 
-class PublicUpgrader {
+export class NodeServices {
+	id;
 	verbose;
-	cryptoCodex;
+	maxKick;
 	peerStore;
+	cryptoCodex;
+	/** @type {string | undefined} WebSocket URL (public node only) */ publicUrl;
 
-	constructor(cryptoCodex, peerStore, verbose = false) {
+	/** @param {import('./crypto-codex.mjs').CryptoCodex} cryptoCodex @param {import('./peer-store.mjs').PeerStore} peerStore */
+	constructor(cryptoCodex, peerStore, maxKick = 3, verbose = 1) {
+		this.id = cryptoCodex.id;
+		this.verbose = verbose;
+		this.maxKick = maxKick;
+		this.peerStore = peerStore;
+		this.cryptoCodex = cryptoCodex;
+	}
+	
+	start(domain = 'localhost', port = NODE.SERVICE.PORT) {
+		this.publicUrl = `ws://${domain}:${port}`;
+		this.#startWebSocketServer(domain, port);
+		if (!SIMULATION.USE_TEST_TRANSPORTS) this.#startSTUNServer(domain, port + 1);
+	}
+	freePublicNodeByKickingPeers() {
+		const neighborsSurplus = this.peerStore.neighborsList.length - DISCOVERY.TARGET_NEIGHBORS_COUNT;
+		if (neighborsSurplus <= 0) return; // nothing to do
+
+		const maxKick = Math.min(this.maxKick, neighborsSurplus);
+		let kicked = 0;
+		const delay = NODE.SERVICE.AUTO_KICK_DELAY;
+		for (const peerId  in this.peerStore.connected) {
+			const conn = this.peerStore.connected[peerId];
+			const peerNeighborsCount = this.peerStore.known[peerId]?.connectionsCount || 1000;
+			let bonusDelay = 0;
+			if (peerNeighborsCount < 2) bonusDelay = delay / 2;
+			if (peerNeighborsCount >= DISCOVERY.TARGET_NEIGHBORS_COUNT) bonusDelay = 0 - (delay / 2);
+			if (conn.getConnectionDuration() < delay + bonusDelay) continue;
+			this.peerStore.kickPeer(peerId, NODE.SERVICE.AUTO_KICK_DURATION, 'freePublicNode');
+			if (++kicked >= maxKick) break;
+		}
+	}
+	#startWebSocketServer(domain = 'localhost', port = NODE.SERVICE.PORT) {
+		this.wsServer = new TRANSPORTS.WS_SERVER({ port, host: domain });
+		this.wsServer.on('error', (error) => console.error(`WebSocket error on Node #${this.id}:`, error));
+		this.wsServer.on('connection', (ws) => {
+			ws.on('close', () => { if (remoteId) for (const cb of this.peerStore.callbacks.disconnect) cb(remoteId, 'in'); });
+			ws.on('error', (error) => console.error(`WebSocket error on Node #${this.id} with peer ${remoteId}:`, error.stack));
+
+			let remoteId;
+			ws.on('message', (data) => { // When peer proves his id, we can handle data normally
+				if (remoteId) for (const cb of this.peerStore.callbacks.data) cb(remoteId, data);
+				else { // FIRST MESSAGE SHOULD BE HANDSHAKE WITH ID
+					const d = new Uint8Array(data); if (d[0] > 127) return; // not unicast, ignore
+					const { route, type } = this.cryptoCodex.readUnicastMessage(d) || {};
+					if (type !== 'handshake' || route.length !== 2 || route[1] !== this.id) return;
+
+					remoteId = route[0];
+					this.peerStore.connecting[remoteId]?.out?.close(); // close outgoing connection if any
+					this.peerStore.connecting[remoteId] = { in: new PeerConnection(remoteId, ws, 'in', true) };
+					for (const cb of this.peerStore.callbacks.connect) cb(remoteId, 'in');
+				}
+			});
+		});
+	}
+	#startSTUNServer(host = 'localhost', port = NODE.SERVICE.PORT + 1) {
+		this.stunServer = dgram.createSocket('udp4');
+		this.stunServer.on('message', (msg, rinfo) => {
+			if (this.verbose > 1) console.log(`%cSTUN message from ${rinfo.address}:${rinfo.port} - ${msg.toString('hex')}`, 'color: blue;');
+			if (!this.#isValidSTUNRequest(msg)) return;
+			this.stunServer.send(this.#buildSTUNResponse(msg, rinfo), rinfo.port, rinfo.address);
+		});
+		this.stunServer.bind(port, host);
+	}
+	#isValidSTUNRequest(msg) {
+		if (msg.length < 20) return false;
+		const messageType = msg.readUInt16BE(0);
+		const magicCookie = msg.readUInt32BE(4);
+		return messageType === 0x0001 && magicCookie === 0x2112A442;
+	}
+	#buildSTUNResponse(request, rinfo) {
+		const transactionId = request.subarray(8, 20); // copy the 12 bytes
+
+		// Header : Success Response (0x0101) + length + magic + transaction
+		const response = Buffer.allocUnsafe(32); // 20 header + 12 attribute
+		response.writeUInt16BE(0x0101, 0);     // Binding Success Response
+		response.writeUInt16BE(12, 2);         // Message Length (12 bytes d'attributs)
+		response.writeUInt32BE(0x2112A442, 4); // Magic Cookie
+		transactionId.copy(response, 8);       // Transaction ID
+		
+		// Attribut MAPPED-ADDRESS (8 bytes)
+		response.writeUInt16BE(0x0001, 20);    // Type: MAPPED-ADDRESS
+		response.writeUInt16BE(8, 22);         // Length: 8 bytes
+		response.writeUInt16BE(0x0001, 24);    // Family: IPv4
+		response.writeUInt16BE(rinfo.port, 26); // Port
+		response.writeUInt32BE(Converter.ipToInt(rinfo.address), 28); // IP
+		
+		if (this.verbose > 1) console.log(`%cSTUN Response: client will discover IP ${rinfo.address}:${rinfo.port}`, 'color: green;');
+		return response;
 	}
 }

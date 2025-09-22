@@ -20,7 +20,8 @@ export class NetworkEnhancer {
 	messager;
 	peerStore;
 	bootstraps;
-	isPublicNode;
+	get isPublicNode() { return this.nodeServices?.publicUrl ? true : false; }
+	/** @type {import('./public-upgrader.mjs').NodeServices | undefined} */ nodeServices;
 	/** @type {Record<string, string>} */ bootstrapsIds = {}; // faster ".has()"
 
 	nextBootstrapIndex = 0;
@@ -37,20 +38,16 @@ export class NetworkEnhancer {
 	// PUBLIC METHODS
 	autoEnhancementTick() {
 		const { neighborsCount, nonPublicNeighborsCount, isEnough, isTooMany } = this.#localTopologyInfo;
+		if (isEnough) this.offersQueue = []; // clear offers queue if we have enough neighbors
 		const offersToCreate = nonPublicNeighborsCount >= DISCOVERY.TARGET_NEIGHBORS_COUNT / 3 ? 1 : TRANSPORTS.MAX_SDP_OFFERS;
 		this.peerStore.sdpOfferManager.offersToCreate = isEnough ? 0 : offersToCreate;
-		if (this.isPublicNode && isTooMany) this.#freePublicNodeByKickingPeers(neighborsCount - DISCOVERY.TARGET_NEIGHBORS_COUNT);
-		if (this.isPublicNode) return; // public nodes don't need more connections
-
-		if (isEnough) this.#improveTopologyByKickingPeers(isTooMany);
-		if (isEnough) return this.offersQueue = []; // clear offers queue if we have enough neighbors
+		if (this.isPublicNode) { this.nodeServices.freePublicNodeByKickingPeers(); return; } // public nodes don't need more connections
+		if (isEnough) { this.#improveTopologyByKickingPeers(isTooMany); return; } // only kick if we have too many peers
 		
 		const now = CLOCK.time; // CLEANUP OLD OFFERS IN QUEUE
-		this.offersQueue = this.offersQueue.filter(item => item.timestamp + (TRANSPORTS.SDP_OFFER_EXPIRATION / 2) >= now);
-
 		let bestOverlap = null; // PROCESS SIGNAL_OFFER QUEUE
-		const iterations = Math.min(this.offersQueue.length, 3);
-		for (let i = 0; i < iterations; i++) {
+		this.offersQueue = this.offersQueue.filter(item => item.timestamp + (TRANSPORTS.SDP_OFFER_EXPIRATION / 2) >= now);
+		for (let i = 0; i < Math.min(this.offersQueue.length, 3); i++) {
 			const signalItem = this.offersQueue.shift(); // SELECT BEST
 			if (bestOverlap !== null && signalItem.overlap > bestOverlap) break;
 			this.#assignSignalIfConditionsMet(signalItem.senderId, signalItem.data);
@@ -63,7 +60,7 @@ export class NetworkEnhancer {
 	}
 	/** @param {string} peerId @param {SignalData} data @param {number} [HOPS] */
 	handleIncomingSignal(senderId, data, HOPS) {
-		if (!senderId) return;
+		if (this.isPublicNode || !senderId || this.peerStore.isKicked(senderId)) return;
 		if (HOPS !== undefined && HOPS >= GOSSIP.HOPS.signal_offer - 1) return; // easy topology improvement
 		const { signal, offerHash } = data || {}; // remoteInfo
 		if (signal.type !== 'offer' && signal.type !== 'answer') return;
@@ -72,7 +69,6 @@ export class NetworkEnhancer {
 		if (isTooMany) return; // AVOID CONNECTING TO TOO MANY "NON-PUBLIC PEERS"
 		if (connected[senderId]) return; // already connected
 		if (signal.type === 'answer' && this.peerStore.connecting[senderId]?.['out']) return; // already connecting out
-		if (this.isPublicNode || this.peerStore.isKicked(senderId)) return;
 		const overlap = this.#getOverlap(senderId).sharedCount;
 		if (overlap > DISCOVERY.MAX_OVERLAP - (isTooMany / 2 ? 1 : 0)) return;
 		if (signal.type === 'answer') { // ANSWER SHORT CIRCUIT
@@ -213,19 +209,5 @@ export class NetworkEnhancer {
 		if (!isTooMany) return; // only kick if we have too many peers
 		const sortedPeers = peersWithOverlapInfo.sort((a, b) => b[sortingIndex] - a[sortingIndex]);
 		this.peerStore.kickPeer(sortedPeers[0][0], 60_000, 'improveTopology');
-	}
-	#freePublicNodeByKickingPeers(maxKick = 1) { // PUBLIC NODES ONLY
-		let kicked = 0;
-		const delay = NODE.SERVICE.AUTO_KICK_DELAY;
-		for (const peerId  in this.peerStore.connected) {
-			const conn = this.peerStore.connected[peerId];
-			const peerNeighborsCount = this.peerStore.known[peerId]?.connectionsCount || 1000;
-			let bonusDelay = 0;
-			if (peerNeighborsCount < 2) bonusDelay = delay / 2;
-			if (peerNeighborsCount >= DISCOVERY.TARGET_NEIGHBORS_COUNT) bonusDelay = 0 - (delay / 2);
-			if (conn.getConnectionDuration() < delay + bonusDelay) continue;
-			this.peerStore.kickPeer(peerId, NODE.SERVICE.AUTO_KICK_DURATION, 'freePublicNode');
-			if (++kicked >= maxKick) break;
-		}
 	}
 }

@@ -1,11 +1,11 @@
 import { CLOCK, SIMULATION, NODE, TRANSPORTS, DISCOVERY } from './global_parameters.mjs';
-import { PeerConnection, SdpOfferManager } from './peer-store-managers.mjs';
+import { SdpOfferManager } from './peer-store-managers.mjs';
 import { PeerStore } from './peer-store.mjs';
 import { UnicastMessager } from './unicast.mjs';
 import { Gossip } from './gossip.mjs';
 import { NetworkEnhancer } from './network-enhancer.mjs';
-import { CryptoCodex, Converter } from './crypto-codex.mjs';
-const dgram = !NODE.IS_BROWSER ? await import('dgram') : null; // Node.js only
+import { CryptoCodex } from './crypto-codex.mjs';
+import { NodeServices } from './public-upgrader.mjs';
 
 export class NodeP2P {
 	started = false;
@@ -16,7 +16,7 @@ export class NodeP2P {
 	/** class who manage direct messages */ messager;
 	/** class who manage gossip messages */ gossip;
 	/** class managing network */ networkEnhancer;
-	/** @type {string | undefined} WebSocket URL (public node only) */ publicUrl;
+	/** @type {NodeServices | undefined} */ nodeServices;
 
 	/** Initialize a new P2P node instance, use .start() to init networkEnhancer
 	 * @param {CryptoCodex} cryptoCodex - Identity of the node.
@@ -27,7 +27,6 @@ export class NodeP2P {
 		this.id = this.cryptoCodex.id;
 		const sdpOfferManager = new SdpOfferManager(this.id, bootstraps, verbose);
 		this.peerStore = new PeerStore(this.id, this.cryptoCodex, sdpOfferManager, verbose);
-		
 		this.messager = new UnicastMessager(this.id, this.cryptoCodex, this.peerStore, verbose);
 		this.gossip = new Gossip(this.id, this.cryptoCodex, this.peerStore, verbose);
 		this.networkEnhancer = new NetworkEnhancer(this.id, this.gossip, this.messager, this.peerStore, bootstraps);
@@ -85,14 +84,19 @@ export class NodeP2P {
 	}
 
 	// PUBLIC API
+	get publicUrl() { return this.nodeServices?.publicUrl; }
+
 	/** @param {Array<string>} bootstraps @param {CryptoCodex} [cryptoCodex] - Identity of the node; if not provided, a new one will be generated @param {boolean} [start] default: false @param {string} [domain] public node only, ex: 'localhost' @param {number} [port] public node only, ex: 8080 */
-	static createNode(bootstraps, cryptoCodex, start = true, domain, port = NODE.SERVICE.PORT) {
-		const codex = cryptoCodex || CryptoCodex.create();
+	static createNode(bootstraps, cryptoCodex, start = true, domain, port = NODE.SERVICE.PORT, verbose = NODE.DEFAULT_VERBOSE) {
+		const codex = cryptoCodex || new CryptoCodex();
 		if (!codex.publicKey) codex.generate(domain ? true : false);
 
-		const node = new NodeP2P(codex, bootstraps);
-		if (domain) node.#setAsPublic(domain, port);
-		if (domain && !SIMULATION.USE_TEST_TRANSPORTS) node.#startSTUNServer(domain, port + 1);
+		const node = new NodeP2P(codex, bootstraps, verbose);
+		if (domain) {
+			node.nodeServices = new NodeServices(codex, node.peerStore, undefined, verbose);
+			node.nodeServices.start(domain, port);
+			node.networkEnhancer.nodeServices = node.nodeServices;
+		}
 		if (start) node.start();
 		return node;
 	}
@@ -119,66 +123,6 @@ export class NodeP2P {
 			if (this.peerStore.sdpOfferManager.readyOffer) break;
 			else await new Promise(r => setTimeout(r, 1000)); // build in progress...
 		} while (retry-- > 0);*/
-	}
-	#setAsPublic(domain = 'localhost', port = NODE.SERVICE.PORT) {
-		this.publicUrl = `ws://${domain}:${port}`;
-		this.networkEnhancer.isPublicNode = true;
-		this.wsServer = new TRANSPORTS.WS_SERVER({ port, host: domain });
-		this.wsServer.on('error', (error) => console.error(`WebSocket error on Node #${this.id}:`, error));
-		this.wsServer.on('connection', (ws) => {
-			ws.on('close', () => { if (remoteId) for (const cb of this.peerStore.callbacks.disconnect) cb(remoteId, 'in'); });
-			ws.on('error', (error) => console.error(`WebSocket error on Node #${this.id} with peer ${remoteId}:`, error.stack));
-
-			let remoteId;
-			ws.on('message', (data) => { // When peer proves his id, we can handle data normally
-				if (remoteId) for (const cb of this.peerStore.callbacks.data) cb(remoteId, data);
-				else { // FIRST MESSAGE SHOULD BE HANDSHAKE WITH ID
-					const d = new Uint8Array(data); if (d[0] > 127) return; // not unicast, ignore
-					const { route, type } = this.cryptoCodex.readUnicastMessage(d) || {};
-					if (type !== 'handshake' || route.length !== 2 || route[1] !== this.id) return;
-
-					remoteId = route[0];
-					this.peerStore.connecting[remoteId]?.out?.close(); // close outgoing connection if any
-					this.peerStore.connecting[remoteId] = { in: new PeerConnection(remoteId, ws, 'in', true) };
-					for (const cb of this.peerStore.callbacks.connect) cb(remoteId, 'in');
-				}
-			});
-		});
-	}
-	#startSTUNServer(host, port) {
-		this.stunServer = dgram.createSocket('udp4');
-		this.stunServer.on('message', (msg, rinfo) => {
-			console.log(`STUN message from ${rinfo.address}:${rinfo.port} - ${msg.toString('hex')}`);
-			if (!this.#isValidSTUNRequest(msg)) return;
-			this.stunServer.send(this.#buildSTUNResponse(msg, rinfo), rinfo.port, rinfo.address);
-		});
-		this.stunServer.bind(port, host);
-	}
-	#isValidSTUNRequest(msg) {
-		if (msg.length < 20) return false;
-		const messageType = msg.readUInt16BE(0);
-		const magicCookie = msg.readUInt32BE(4);
-		return messageType === 0x0001 && magicCookie === 0x2112A442;
-	}
-	#buildSTUNResponse(request, rinfo) {
-		const transactionId = request.subarray(8, 20); // copy the 12 bytes
-
-		// Header : Success Response (0x0101) + length + magic + transaction
-		const response = Buffer.allocUnsafe(32); // 20 header + 12 attribute
-		response.writeUInt16BE(0x0101, 0);     // Binding Success Response
-		response.writeUInt16BE(12, 2);         // Message Length (12 bytes d'attributs)
-		response.writeUInt32BE(0x2112A442, 4); // Magic Cookie
-		transactionId.copy(response, 8);       // Transaction ID
-		
-		// Attribut MAPPED-ADDRESS (8 bytes)
-		response.writeUInt16BE(0x0001, 20);    // Type: MAPPED-ADDRESS
-		response.writeUInt16BE(8, 22);         // Length: 8 bytes
-		response.writeUInt16BE(0x0001, 24);    // Family: IPv4
-		response.writeUInt16BE(rinfo.port, 26); // Port
-		response.writeUInt32BE(Converter.ipToInt(rinfo.address), 28); // IP
-		
-		console.log(`STUN Response: client will discover IP ${rinfo.address}:${rinfo.port}`);
-		return response;
 	}
 	destroy() {
 		if (this.enhancerInterval) clearInterval(this.enhancerInterval);
