@@ -25,15 +25,26 @@ export class PeerConnection { // WebSocket or WebRTC connection wrapper
 	close() { this.isWebSocket ? this.transportInstance?.close() : this.transportInstance?.destroy(); }
 }
 export class KnownPeer { // known peer, not necessarily connected
+	/** CAUTION: Call this one only in PeerStore.unlinkPeers() */
+	connectionsCount;
 	neighbors;
 
 	/** @param {Record<string, number>} neighbors key: peerId, value: timestamp */
-	constructor(neighbors = {}) { this.neighbors = neighbors; }
+	constructor(neighbors = {}) {
+		this.neighbors = neighbors;
+		this.connectionsCount = Object.keys(neighbors).length;
+	}
 
 	/** Set or update neighbor @param {string} peerId @param {number} [timestamp] */
-	setNeighbor(peerId, timestamp = CLOCK.time) { this.neighbors[peerId] = timestamp; }
+	setNeighbor(peerId, timestamp = CLOCK.time) {
+		if (!this.neighbors[peerId]) this.connectionsCount++;
+		this.neighbors[peerId] = timestamp;
+	}
 	/** Unset neighbor @param {string} peerId */
-	unsetNeighbor(peerId) { delete this.neighbors[peerId]; }
+	unsetNeighbor(peerId) {
+		if (this.neighbors[peerId]) this.connectionsCount--;
+		delete this.neighbors[peerId];
+	}
 }
 export class Punisher { // manage kick and ban of peers
 	/** @type {Record<string, number>} */ ban = {};

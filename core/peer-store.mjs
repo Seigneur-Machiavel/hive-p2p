@@ -83,13 +83,13 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 	}
 	#handleDisconnect(peerId, direction) { // First callback assigned in constructor
 		this.#removePeer(peerId, 'connected', direction);
-		this.unlinkPeers(this.id, peerId); // Remove link in self known store
+		this.#unlinkPeers(this.id, peerId); // Remove link in self known store
 	}
 	/** Remove a peer from our connections, and unlink from known store
 	 * @param {string} remoteId @param {'connected' | 'connecting' | 'both'} [status] default: both @param {'in' | 'out' | 'both'} [direction] default: both */
 	#removePeer(remoteId, status = 'both', direction = 'both') {
 		if (!remoteId && remoteId === this.id) return;
-		this.unlinkPeers(this.id, remoteId); // Remove link in self known store
+		this.#unlinkPeers(this.id, remoteId); // Remove link in self known store
 
 		const [ connectingConns, connectedConn ] = [ this.connecting[remoteId], this.connected[remoteId] ];
 		if (connectingConns && connectedConn) throw new Error(`Peer ${remoteId} is both connecting and connected.`);
@@ -114,6 +114,14 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 		for (const pid of [peerId1, peerId2]) {
 			if (!this.known[pid]) this.known[pid] = new KnownPeer();
 			this.known[pid].setNeighbor(pid === peerId1 ? peerId2 : peerId1); // set/update neighbor
+		}
+	}
+	/** Unassociate two peers and remove them from known store if they have no more connections */
+	#unlinkPeers(peerId1 = 'toto', peerId2 = 'tutu') {
+		for (const pid of [peerId1, peerId2]) {
+			if (!this.known[pid]) continue;
+			this.known[pid].unsetNeighbor(pid === peerId1 ? peerId2 : peerId1);
+			if (this.known[pid].connectionsCount === 0) delete this.known[pid];
 		}
 	}
 	cleanupExpired(andUpdateKnownBasedOnNeighbors = true) { // Clean up expired pending connections and pending links
@@ -161,20 +169,10 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 	getUpdatedPeerConnectionsCount(peerId) {
 		const time = CLOCK.time; let count = 0;
 		const peerNeighbors = this.known[peerId]?.neighbors || {};
-		for (const id in peerNeighbors) {
-			if (time - peerNeighbors[id] < DISCOVERY.PEER_LINK_EXPIRATION) { count++; continue; }
-			this.known[id]?.unsetNeighbor(peerId);
-			this.known[peerId]?.unsetNeighbor(id);
-			if (Object.keys(this.known[id]?.neighbors || {}).length === 0) delete this.known[id];
-			if (Object.keys(this.known[peerId]?.neighbors || {}).length === 0) delete this.known[peerId];
-		}
+		for (const id in peerNeighbors) // clean expired links (except self and non-expired)
+			if (id === this.id || time - peerNeighbors[id] < DISCOVERY.PEER_LINK_EXPIRATION) count++;
+			else this.#unlinkPeers(peerId, id);
 		return count;
-	}
-	/** Unassociate two peers and remove them from known store if they have no more connections */
-	unlinkPeers(peerId1 = 'toto', peerId2 = 'tutu') {
-		for (const pid of [peerId1, peerId2])
-			if (this.getUpdatedPeerConnectionsCount(pid) === 1) continue;
-			else this.known[pid]?.unsetNeighbor(pid === peerId1 ? peerId2 : peerId1);
 	}
 	/** @param {string} remoteId @param {{type: 'offer' | 'answer', sdp: Record<string, string>}} signal @param {string} [offerHash] answer only @param {number} timestamp Answer reception timestamp */
 	assignSignal(remoteId, signal, offerHash, timestamp) {
@@ -191,7 +189,7 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 	digestPeerNeighbors(peerId, neighbors = []) { // Update known neighbors
 		if (!peerId || !Array.isArray(neighbors)) return;
 		for (const id in this.known[peerId]?.neighbors || {}) // remove old links
-			if (!neighbors.includes(id)) this.unlinkPeers(peerId, id);
+			if (!neighbors.includes(id)) this.#unlinkPeers(peerId, id);
 		for (const p of neighbors) this.#linkPeers(peerId, p);
 	}
 	destroy() {

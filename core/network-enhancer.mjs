@@ -117,14 +117,14 @@ export class NetworkEnhancer {
 		}
 	}
 	#getOverlap(peerId1 = 'toto') {
-		const time = CLOCK.time;
 		const p1n = this.peerStore.known[peerId1]?.neighbors || {};
-		const result = { sharedCount: 0, p1nCount: 0, p2nCount: this.peerStore.standardNeighborsList.length };
+		const result = {
+			sharedCount: 0,
+			p1nCount: this.peerStore.getUpdatedPeerConnectionsCount(peerId1),
+			p2nCount: this.peerStore.standardNeighborsList.length
+		};
 		for (const id in p1n) if (!CryptoCodex.isPublicNode(id)) result.p1nCount++;
-		for (const id of this.peerStore.standardNeighborsList)
-			if (!p1n[id]) continue;
-			else if (time - p1n[id] > DISCOVERY.PEER_LINK_EXPIRATION) this.peerStore.unlinkPeers(peerId1, id);
-			else result.sharedCount++;
+		for (const id of this.peerStore.standardNeighborsList) if (p1n[id]) result.sharedCount++;
 		return result;
 	}
 	#connectToPublicNode(remoteId = 'toto', publicUrl = 'localhost:8080') {
