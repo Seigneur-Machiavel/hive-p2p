@@ -60,7 +60,7 @@ export class NodeP2P {
 			const isHandshakeInitiator = remoteIsPublic || direction === 'in';
 			if (isHandshakeInitiator) this.sendMessage(peerId, this.id, 'handshake');
 			if (DISCOVERY.ON_CONNECT_DISPATCH.SHARE_HISTORY) 
-				if (this.peerStore.known[peerId]?.connectionsCount <= 1) this.gossip.sendGossipHistoryToPeer(peerId);
+				if (this.peerStore.getUpdatedPeerConnectionsCount(peerId) <= 1) this.gossip.sendGossipHistoryToPeer(peerId);
 		};
 		if (!DISCOVERY.ON_CONNECT_DISPATCH.DELAY) dispatchEvents();
 		else setTimeout(dispatchEvents, DISCOVERY.ON_CONNECT_DISPATCH.DELAY);

@@ -61,16 +61,17 @@ export class NetworkEnhancer {
 	/** @param {string} peerId @param {SignalData} data @param {number} [HOPS] */
 	handleIncomingSignal(senderId, data, HOPS) {
 		if (this.isPublicNode || !senderId || this.peerStore.isKicked(senderId)) return;
-		if (HOPS !== undefined && HOPS >= GOSSIP.HOPS.signal_offer - 1) return; // easy topology improvement
+		const emissionHops = GOSSIP.HOPS.signal_offer || GOSSIP.HOPS.default;
+		if (HOPS !== undefined && HOPS >= emissionHops - 1) return; // easy topology improvement
 		const { signal, offerHash } = data || {}; // remoteInfo
 		if (signal.type !== 'offer' && signal.type !== 'answer') return;
 
-		const { connected, isTooMany } = this.#localTopologyInfo;
+		const { connected, isEnough, isTooMany } = this.#localTopologyInfo;
 		if (isTooMany) return; // AVOID CONNECTING TO TOO MANY "NON-PUBLIC PEERS"
 		if (connected[senderId]) return; // already connected
 		if (signal.type === 'answer' && this.peerStore.connecting[senderId]?.['out']) return; // already connecting out
 		const overlap = this.#getOverlap(senderId).sharedCount;
-		if (overlap > DISCOVERY.MAX_OVERLAP - (isTooMany / 2 ? 1 : 0)) return;
+		if (overlap > DISCOVERY.MAX_OVERLAP - (isEnough ? 1 : 0)) return;
 		if (signal.type === 'answer') { // ANSWER SHORT CIRCUIT
 			if (this.peerStore.addConnectingPeer(senderId, signal, offerHash) !== true) return;
 			this.peerStore.assignSignal(senderId, signal, offerHash, CLOCK.time);
@@ -116,10 +117,14 @@ export class NetworkEnhancer {
 		}
 	}
 	#getOverlap(peerId1 = 'toto') {
+		const time = CLOCK.time;
 		const p1n = this.peerStore.known[peerId1]?.neighbors || {};
 		const result = { sharedCount: 0, p1nCount: 0, p2nCount: this.peerStore.standardNeighborsList.length };
 		for (const id in p1n) if (!CryptoCodex.isPublicNode(id)) result.p1nCount++;
-		for (const id of this.peerStore.standardNeighborsList) if (p1n[id]) result.sharedCount++;
+		for (const id of this.peerStore.standardNeighborsList)
+			if (!p1n[id]) continue;
+			else if (time - p1n[id] > DISCOVERY.PEER_LINK_EXPIRATION) this.peerStore.unlinkPeers(peerId1, id);
+			else result.sharedCount++;
 		return result;
 	}
 	#connectToPublicNode(remoteId = 'toto', publicUrl = 'localhost:8080') {

@@ -26,31 +26,24 @@ export class PeerConnection { // WebSocket or WebRTC connection wrapper
 }
 export class KnownPeer { // known peer, not necessarily connected
 	neighbors;
-	connectionsCount;
 
 	/** @param {Record<string, number>} neighbors key: peerId, value: timestamp */
-	constructor(neighbors = {}) {
-		this.neighbors = neighbors;
-		this.connectionsCount = Object.keys(neighbors).length;
-	}
-	
-	setNeighbor(peerId, timestamp = CLOCK.time) {
-		if (!this.neighbors[peerId]) this.connectionsCount++;
-		this.neighbors[peerId] = timestamp; // not used for now, we can set Object in value easily
-	}
-	unsetNeighbor(peerId) {
-		if (this.neighbors[peerId]) this.connectionsCount--;
-		delete this.neighbors[peerId];
-	}
+	constructor(neighbors = {}) { this.neighbors = neighbors; }
+
+	/** Set or update neighbor @param {string} peerId @param {number} [timestamp] */
+	setNeighbor(peerId, timestamp = CLOCK.time) { this.neighbors[peerId] = timestamp; }
+	/** Unset neighbor @param {string} peerId */
+	unsetNeighbor(peerId) { delete this.neighbors[peerId]; }
 }
 export class Punisher { // manage kick and ban of peers
 	/** @type {Record<string, number>} */ ban = {};
 	/** @type {Record<string, number>} */ kick = {};
 
-	/** @param {string} peerId */
+	/** @param {string} peerId @param {'kick' | 'ban'} [type] default: kick @param {number} [duration] default: 60_000 */
 	sanctionPeer(peerId, type = 'kick', duration = 60_000) {
 		this[type][peerId] = CLOCK.time + duration;
 	}
+	/** @param {string} peerId @param {'kick' | 'ban'} [type] default: kick */
 	isSanctioned(peerId, type = 'kick') {
 		if (!this[type][peerId]) return false;
 		if (this[type][peerId] < CLOCK.time) delete this[type][peerId];

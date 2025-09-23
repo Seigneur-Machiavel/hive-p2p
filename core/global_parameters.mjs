@@ -59,7 +59,8 @@ export const TRANSPORTS = {
 }
 
 export const DISCOVERY = {
-	PEER_LINK_DELAY: 10_000,
+	PEER_LINK_DELAY: 10_000,		// delay between two peer declaring their connection to each other | default: 10_000 (10 seconds)
+	PEER_LINK_EXPIRATION: 120_000,	// time to consider a peer connection as valid | default: 120_000 (120 seconds)
 	MAX_OVERLAP: 4, 				// Max of shared neighbors | soft: 5, default: 4, strict: 3
 	LOOP_DELAY: 2_500, 				// delay between connection attempts | default: 2_500 (2.5 seconds)
 	TARGET_NEIGHBORS_COUNT: 5, 		// default: 8, light: 6, super-light: 4
