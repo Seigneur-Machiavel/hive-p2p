@@ -97,7 +97,6 @@ export class OfferManager { // Manages the creation of SDP offers and handling o
 			const offerHash = xxHash32(JSON.stringify(data)); // UN PEU BLOQUE ICI (connect on voudrait identifer le peer)
 			instance.on('connect', () => { // cb > peerStore > Node > Node.#onConnect()
 				if (this.offers[offerHash]) this.offers[offerHash].isUsed = true;
-				//const potentialRemoteId = this.offers[offerHash]?.digestingOneAnswerOf;
 				this.onConnect(undefined, instance);
 			});
 			this.offers[offerHash] = { timestamp: CLOCK.time, sentCounter: 0, signal: data, offererInstance: instance, answers: [], answerers: {}, isUsed: false };

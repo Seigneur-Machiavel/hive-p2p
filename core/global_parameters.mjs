@@ -23,7 +23,6 @@ export const SIMULATION = {
 	RANDOM_UNICAST_PER_SEC: 0,		// default: 0, max: 1 (per peer)
 	RANDOM_GOSSIP_PER_SEC: 0,		// default: 0, max: 1 (per peer)
 	DIFFUSION_TEST_DELAY: 10_000,	// frequency of diffusion test | default: 20_000 (20 seconds)
-	DIFFUSION_TEST_HOPS: 10,		// HOPS for diffusion test | default: 10
 }
 
 export const NODE = {

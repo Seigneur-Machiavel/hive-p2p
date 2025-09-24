@@ -95,9 +95,9 @@ export class TransmissionAnalyzer {
 		}
 		const receptionsCount = this.gossip.receptions.size;
 		const stats = {
-			received: `${receptionsCount}/${initializedPeersCount - 1}(T: ${totalReceptions})`,
+			received: `${receptionsCount}/${initializedPeersCount - 1} (T:${totalReceptions})`,
 			avgLatency: `${receptionsCount === 0 ? 0 : Math.round(cumulatedLatencies / receptionsCount)}ms`,
-			hops: `${receptionsCount === 0 ? 0 : (cumulatedHops / receptionsCount).toFixed(1)} avg, ${maxHops} max`,
+			hops: `${receptionsCount === 0 ? 0 : (cumulatedHops / receptionsCount).toFixed(1)} avg,${maxHops} max`,
 		};
 		if (formating) return statsFormating(stats);
 		return stats;
@@ -111,7 +111,7 @@ export class TransmissionAnalyzer {
 			if (!peer.started || peer.peerStore.neighborsList.length === 0) continue;
 			this.gossip.nonce = Math.floor(Math.random() * 1000000).toString(16).padStart(6, '0');
 			this.gossip.sendAt = Date.now();
-			peer.gossip.broadcastToAll(this.gossip.nonce, 'diffusion_test', SIMULATION.DIFFUSION_TEST_HOPS);
+			peer.gossip.broadcastToAll(this.gossip.nonce, 'diffusion_test');
 			break;
 		}
 	}
@@ -120,7 +120,7 @@ export class TransmissionAnalyzer {
 		if (this.gossip.sendAt === 0) return; // we have not sent yet
 		if (nonce !== this.gossip.nonce) return; // not our test message
 		if (!this.gossip.sendAt) return; // we are not the sender
-		const hops = GOSSIP.HOPS.diffusion_test - HOPS;
+		const hops = GOSSIP.HOPS.diffusion_test - ( HOPS - 1 ) ; // not decremented yet, so -1
 		if (!this.gossip.receptions.has(receiverId)) this.gossip.receptions.set(receiverId, { time: Date.now(), count: 1, hops });
 		else this.gossip.receptions.get(receiverId).count++;
 	}
