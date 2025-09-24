@@ -26,18 +26,20 @@ export class NodeServices {
 		if (!SIMULATION.USE_TEST_TRANSPORTS) this.#startSTUNServer(domain, port + 1);
 	}
 	freePublicNodeByKickingPeers() {
-		const neighborsSurplus = this.peerStore.neighborsList.length - DISCOVERY.TARGET_NEIGHBORS_COUNT;
-		if (neighborsSurplus <= 0) return; // nothing to do
-
-		const maxKick = Math.min(this.maxKick, neighborsSurplus);
+		const maxKick = Math.min(this.maxKick, this.peerStore.neighborsList.length - DISCOVERY.TARGET_NEIGHBORS_COUNT);
+		if (maxKick <= 0) return; // nothing to do
+		
 		let kicked = 0;
 		const delay = NODE.SERVICE.AUTO_KICK_DELAY;
 		for (const peerId  in this.peerStore.connected) {
 			const conn = this.peerStore.connected[peerId];
-			const peerNeighborsCount = this.peerStore.getUpdatedPeerConnectionsCount(peerId) || 1000;
-			let bonusDelay = 0;
-			if (peerNeighborsCount < 2) bonusDelay = delay / 2;
-			if (peerNeighborsCount >= DISCOVERY.TARGET_NEIGHBORS_COUNT) bonusDelay = 0 - (delay / 2);
+			const nonPublicNeighborsCount = this.peerStore.getUpdatedPeerConnectionsCount(peerId, false);
+			if (nonPublicNeighborsCount > DISCOVERY.TARGET_NEIGHBORS_COUNT) {
+				this.peerStore.kickPeer(peerId, NODE.SERVICE.AUTO_KICK_DURATION, 'freePublicNode');
+				if (++kicked >= maxKick) break;
+			}
+
+			const bonusDelay = Math.round(nonPublicNeighborsCount < 2 ? delay / 2 : 0);
 			if (conn.getConnectionDuration() < delay + bonusDelay) continue;
 			this.peerStore.kickPeer(peerId, NODE.SERVICE.AUTO_KICK_DURATION, 'freePublicNode');
 			if (++kicked >= maxKick) break;
@@ -55,12 +57,14 @@ export class NodeServices {
 				if (remoteId) for (const cb of this.peerStore.callbacks.data) cb(remoteId, data);
 				else { // FIRST MESSAGE SHOULD BE HANDSHAKE WITH ID
 					const d = new Uint8Array(data); if (d[0] > 127) return; // not unicast, ignore
-					const { route, type } = this.cryptoCodex.readUnicastMessage(d) || {};
+					const { route, type, neighborsList } = this.cryptoCodex.readUnicastMessage(d) || {};
 					if (type !== 'handshake' || route.length !== 2 || route[1] !== this.id) return;
 
 					remoteId = route[0];
+					this.peerStore.digestPeerNeighbors(remoteId, neighborsList); // Update known store
 					this.peerStore.connecting[remoteId]?.out?.close(); // close outgoing connection if any
-					this.peerStore.connecting[remoteId] = { in: new PeerConnection(remoteId, ws, 'in', true) };
+					if (!this.peerStore.connecting[remoteId]) this.peerStore.connecting[remoteId] = {};
+					this.peerStore.connecting[remoteId].in = new PeerConnection(remoteId, ws, 'in', true);
 					for (const cb of this.peerStore.callbacks.connect) cb(remoteId, 'in');
 				}
 			});

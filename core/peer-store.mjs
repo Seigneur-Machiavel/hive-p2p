@@ -39,13 +39,13 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 			instance.on('close', () => { if (peerId) for (const cb of this.callbacks.disconnect) cb(peerId, instance.initiator ? 'out' : 'in'); });
 			instance.on('data', data => {
 				if (peerId) for (const cb of this.callbacks.data) cb(peerId, data);
-				else { // FIRST MESSAGE SHOULD BE HANDSHAKE WITH ID
+				else { // FIRST MESSAGE SHOULD BE HANDSHAKE WITH ID // USELESS ?
 					const d = new Uint8Array(data); if (d[0] > 127) return; // not unicast, ignore
-					const { route, type, neighbors } = cryptoCodex.readUnicastMessage(d) || {};
+					const { route, type, neighborsList } = cryptoCodex.readUnicastMessage(d) || {};
 					if (type !== 'handshake' || route.length !== 2 || route[1] !== this.id) return;
+					
 					peerId = route[0];
-					this.digestPeerNeighbors(peerId, neighbors || []); // Update known store
-					this.connecting[peerId]?.in?.close(); // close outgoing connection if any
+					this.digestPeerNeighbors(peerId, neighborsList); // Update known store
 					for (const cb of this.callbacks.connect) cb(peerId, 'out');
 				}
 			});
@@ -61,17 +61,17 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 	// PRIVATE METHODS
 	/** @param {string} peerId @param {'in' | 'out'} direction */
 	#handleConnect(peerId, direction) { // First callback assigned in constructor
-		if (!this.connecting[peerId]?.[direction]) return this.verbose > 3 ? console.info(`%cPeer with ID ${peerId} is not connecting.`, 'color: orange;') : null;
+		if (!this.connecting[peerId]?.[direction]) return this.verbose >= 3 ? console.info(`%cPeer with ID ${peerId} is not connecting.`, 'color: orange;') : null;
 		
 		const peerConn = this.connecting[peerId][direction];
-		this.#removePeer(peerId, 'connecting', 'both');
+		this.#removePeer(peerId, 'connecting', direction); // remove from connecting now, we are connected or will fail
 		if (this.isKicked(peerId)) {
-			if (this.verbose > 3) console.info(`(${this.id}) Connect => Peer with ID ${peerId} is kicked. => close()`, 'color: orange;');
+			if (this.verbose >= 3) console.info(`%c(${this.id}) Connect => Peer with ID ${peerId} is kicked. => close()`, 'color: orange;');
 			return peerConn.close();
 		}
 
 		if (this.connected[peerId]) {
-			if (this.verbose > 1) console.warn(`(${this.id}) Connect => Peer with ID ${peerId} is already connected. => close()`);
+			if (this.verbose > 1) console.warn(`%c(${this.id}) Connect => Peer with ID ${peerId} is already connected. => close()`, 'color: orange;');
 			return peerConn.close();
 		}
 	
@@ -79,7 +79,7 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 		this.connected[peerId] = peerConn;
 		this.neighborsList.push(peerId);
 		this.#linkPeers(this.id, peerId); // Add link in self store
-		if (this.verbose > (this.cryptoCodex.isPublicNode(peerId) ? 3 : 2)) console.log(`(${this.id}) ${direction === 'in' ? 'Incoming' : 'Outgoing'} ${peerConn.isWebSocket ? 'WebSocket' : 'WRTC'} connection established with peer ${peerId}`);
+		//if (this.verbose > (this.cryptoCodex.isPublicNode(peerId) ? 3 : 2)) console.log(`(${this.id}) ${direction === 'in' ? 'Incoming' : 'Outgoing'} ${peerConn.isWebSocket ? 'WebSocket' : 'WRTC'} connection established with peer ${peerId}`);
 	}
 	#handleDisconnect(peerId, direction) { // First callback assigned in constructor
 		this.#removePeer(peerId, 'connected', direction);
@@ -89,17 +89,17 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 	 * @param {string} remoteId @param {'connected' | 'connecting' | 'both'} [status] default: both @param {'in' | 'out' | 'both'} [direction] default: both */
 	#removePeer(remoteId, status = 'both', direction = 'both') {
 		if (!remoteId && remoteId === this.id) return;
-		this.#unlinkPeers(this.id, remoteId); // Remove link in self known store
 
 		const [ connectingConns, connectedConn ] = [ this.connecting[remoteId], this.connected[remoteId] ];
-		if (connectingConns && connectedConn) throw new Error(`Peer ${remoteId} is both connecting and connected.`);
+		//if (connectingConns && connectedConn) throw new Error(`Peer ${remoteId} is both connecting and connected.`);
 		if (!connectingConns && !connectedConn) return;
 		
 		// use negation to apply to 'both' too
 		if (status !== 'connecting' && (connectedConn?.direction === direction || direction === 'both')) {
-			this.#closePeerConnections(remoteId);
+			connectedConn?.close();
 			delete this.connected[remoteId];
 			this.neighborsList = Object.keys(this.connected);
+			this.#unlinkPeers(this.id, remoteId); // Remove link in self known store
 		}
 		if (status === 'connected') return; // only remove connected
 		
@@ -129,20 +129,20 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 		for (const dir of ['in', 'out'])
 			for (const peerId in this.connecting) {
 				if (!this.connecting[peerId][dir]) continue;
-				if (this.connecting[peerId][dir].pendingUntil > now) continue;
-				if (this.verbose > 3) console.info(`%cPending ${dir} connection to peer ${peerId} expired.`, 'color: orange;');
-				this.connecting[peerId][dir]?.close();
+				const bonusTime = this.connected[peerId] ? 10000 : 0; // give some extra time if we are already connected to this peer
+				if (this.connecting[peerId][dir].pendingUntil + bonusTime > now) continue;
+				if (this.verbose >= 3 && !this.connected[peerId]) console.info(`%c(${this.id}) Pending ${dir} connection to peer ${peerId} expired.`, 'color: orange;');
+				if (this.verbose > 0 && this.connected[peerId]?.direction === dir) console.info(`%c(${this.id}) Pending ${dir} connection to peer ${peerId} expired (already connected WARNING!).`, 'color: white;');
+				//if (!this.connecting[peerId]?.in?.isWebSocket) this.connecting[peerId]?.in?.close(); // close only in connection => out conn can be used by others answers
+				//else this.connecting[peerId]?.close();
+				if (this.connecting[peerId]?.out?.isWebSocket) this.connecting[peerId].out.close();
+				this.connecting[peerId]?.in?.close();
 				this.#removePeer(peerId, 'connecting', dir);
 			}
 
 		if (!andUpdateKnownBasedOnNeighbors) return;
 		this.neighborsList = Object.keys(this.connected);
 		this.digestPeerNeighbors(this.id, this.neighborsList); // Update self known store
-	}
-	#closePeerConnections(peerId) {
-		this.connected[peerId]?.close();
-		this.connecting[peerId]?.['in']?.close();
-		this.connecting[peerId]?.['out']?.close();
 	}
 
 	// API
@@ -161,17 +161,22 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 		if (!peerConnection) return this.verbose > 3 ? console.info(`%cFailed to get/create a peer connection for ID ${remoteId}.`, 'color: orange;') : null;
 
 		const direction = signal.type === 'offer' ? 'in' : 'out';
+		if (!this.connecting[remoteId]) this.connecting[remoteId] = {};
 		if (this.connecting[remoteId]) this.connecting[remoteId][direction] = peerConnection;
-		else this.connecting[remoteId] = { [direction]: peerConnection };
 		return true;
 	}
 	/** Cleanup expired neighbors and return the updated connections count @param {string} peerId */
-	getUpdatedPeerConnectionsCount(peerId) {
+	getUpdatedPeerConnectionsCount(peerId, includesPublic = true) {
 		const time = CLOCK.time; let count = 0;
 		const peerNeighbors = this.known[peerId]?.neighbors || {};
-		for (const id in peerNeighbors) // clean expired links (except self and non-expired)
-			if (id === this.id || time - peerNeighbors[id] < DISCOVERY.PEER_LINK_EXPIRATION) count++;
-			else this.#unlinkPeers(peerId, id);
+		for (const id in peerNeighbors) {// clean expired links (except self and non-expired)
+			if (id !== this.id && time - peerNeighbors[id] > DISCOVERY.PEER_LINK_EXPIRATION) {
+				this.#unlinkPeers(peerId, id);
+				continue;
+			}
+			if (includesPublic) count++;
+			else if (!this.cryptoCodex.isPublicNode(id)) count++;
+		}
 		return count;
 	}
 	/** @param {string} remoteId @param {{type: 'offer' | 'answer', sdp: Record<string, string>}} signal @param {string} [offerHash] answer only @param {number} timestamp Answer reception timestamp */
@@ -202,15 +207,16 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 	// PUNISHER API
 	/** Avoid peer connection and messages @param {string} peerId @param {number} duration default: 60_000ms */
 	banPeer(peerId, duration = 60_000) {
-		this.punisher.sanctionPeer(peerId, 'ban', duration);
+		if (duration) this.punisher.sanctionPeer(peerId, 'ban', duration);
 		this.#removePeer(peerId, 'both');
+		if (this.verbose > 1) console.log(`%c(${this.id}) Banned peer ${peerId} for ${duration / 1000}s.`, 'color: red;');
 	}
 	isBanned(peerId) { return this.punisher.isSanctioned(peerId, 'ban'); }
 	/** Avoid peer connection @param {string} peerId @param {number} duration default: 60_000ms @param {string} [reason] */
 	kickPeer(peerId, duration = 60_000, reason) {
-		this.punisher.sanctionPeer(peerId, 'kick', duration);
+		if (duration) this.punisher.sanctionPeer(peerId, 'kick', duration);
 		this.#removePeer(peerId, 'both');
-		if (this.verbose > 1) console.log(`(${this.id}) Kicked peer ${peerId} for ${duration / 1000}s. ${reason ? '| Reason: ' + reason : ''}`);
+		if (this.verbose > 1) console.log(`%c(${this.id}) Kicked peer ${peerId} for ${duration / 1000}s. ${reason ? '| Reason: ' + reason : ''}`, 'color: green;');
 	}
 	isKicked(peerId) { return this.punisher.isSanctioned(peerId, 'kick'); }
 }

@@ -9,12 +9,13 @@ const { SANDBOX, ICE_CANDIDATE_EMITTER, TEST_WS_EVENT_MANAGER } = SIMULATION.ENA
  * @property {Object} signal
  * @property {'offer' | 'answer'} signal.type
  * @property {string} signal.sdp
+ * @property {string} [offerHash]
  * */
 
 export class NetworkEnhancer {
-	/** @type {Array<{senderId: string, data: SignalData, overlap: number, timestamp: number}>} */
+	/** @type {Array<{senderId: string, data: SignalData, overlap: number, neighborsCount: number, timestamp: number}>} */
 	offersQueue = []; // OFFERS QUEUE
-	maxOffers = 20; // max offers in the queue
+	maxOffers = 30; // max offers in the queue
 	id;
 	gossip;
 	messager;
@@ -38,68 +39,71 @@ export class NetworkEnhancer {
 	// PUBLIC METHODS
 	autoEnhancementTick() {
 		const { neighborsCount, nonPublicNeighborsCount, isEnough, isTooMany } = this.#localTopologyInfo;
-		if (isEnough) this.offersQueue = []; // clear offers queue if we have enough neighbors
 		const offersToCreate = nonPublicNeighborsCount >= DISCOVERY.TARGET_NEIGHBORS_COUNT / 3 ? 1 : TRANSPORTS.MAX_SDP_OFFERS;
 		this.peerStore.offerManager.offersToCreate = isEnough ? 0 : offersToCreate;
 		if (this.isPublicNode) { this.nodeServices.freePublicNodeByKickingPeers(); return; } // public nodes don't need more connections
-		if (isEnough) { this.#improveTopologyByKickingPeers(isTooMany); return; } // only kick if we have too many peers
+		if (isTooMany) { this.#improveTopologyByKickingPeers(); return; } // only kick if we have too many peers
 		
-		const now = CLOCK.time; // CLEANUP OLD OFFERS IN QUEUE
-		let bestOverlap = null; // PROCESS SIGNAL_OFFER QUEUE
-		this.offersQueue = this.offersQueue.filter(item => item.timestamp + (TRANSPORTS.SDP_OFFER_EXPIRATION / 2) >= now);
-		for (let i = 0; i < Math.min(this.offersQueue.length, 3); i++) {
-			const signalItem = this.offersQueue.shift(); // SELECT BEST
-			if (bestOverlap !== null && signalItem.overlap > bestOverlap) break;
-			this.#assignSignalIfConditionsMet(signalItem.senderId, signalItem.data);
-			bestOverlap = signalItem.overlap;
-		}
+		this.#digestBestOffers();
 	
 		this.phase = this.phase ? 0 : 1;
-		if (this.phase === 0) this.tryConnectNextBootstrap(neighborsCount);
-		if (this.phase === 1) this.#tryToSpreadSDP(nonPublicNeighborsCount);
+		if (this.phase === 0) this.tryConnectNextBootstrap(neighborsCount, nonPublicNeighborsCount);
+		if (this.phase === 1 && !isTooMany) this.#tryToSpreadSDP(nonPublicNeighborsCount, isEnough);
 	}
 	/** @param {string} peerId @param {SignalData} data @param {number} [HOPS] */
 	handleIncomingSignal(senderId, data, HOPS) {
 		if (this.isPublicNode || !senderId || this.peerStore.isKicked(senderId)) return;
-		const emissionHops = GOSSIP.HOPS.signal_offer || GOSSIP.HOPS.default;
-		if (HOPS !== undefined && HOPS >= emissionHops - 1) return; // easy topology improvement
 		const { signal, offerHash } = data || {}; // remoteInfo
 		if (signal.type !== 'offer' && signal.type !== 'answer') return;
 
-		const { connected, isEnough, isTooMany } = this.#localTopologyInfo;
+		const { connected, nonPublicNeighborsCount, isEnough, isTooMany } = this.#localTopologyInfo;
 		if (isTooMany) return; // AVOID CONNECTING TO TOO MANY "NON-PUBLIC PEERS"
 		if (connected[senderId]) return; // already connected
 		if (signal.type === 'answer' && this.peerStore.connecting[senderId]?.['out']) return; // already connecting out
-		const overlap = this.#getOverlap(senderId).sharedCount;
-		if (overlap > DISCOVERY.MAX_OVERLAP - (isEnough ? 1 : 0)) return;
+		const { sharedCount, p1NonPublicCount }  = this.#getOverlap(senderId);
+		if (sharedCount > DISCOVERY.MAX_OVERLAP - (isEnough ? 1 : 0)) return;
 		if (signal.type === 'answer') { // ANSWER SHORT CIRCUIT
 			if (this.peerStore.addConnectingPeer(senderId, signal, offerHash) !== true) return;
-			this.peerStore.assignSignal(senderId, signal, offerHash, CLOCK.time);
+
+			const target = DISCOVERY.TARGET_NEIGHBORS_COUNT;
+			const maxBonus = NODE.CONNECTION_UPGRADE_TIMEOUT * .2; // 20% of 15sec: 3sec max
+			const bonusPerDeltaPoint = maxBonus / target; // from 0 to maxBonus
+			const delta = Math.abs(nonPublicNeighborsCount - p1NonPublicCount);
+			const bonus = Math.round(Math.min(maxBonus, delta * bonusPerDeltaPoint));
+			this.peerStore.assignSignal(senderId, signal, offerHash, CLOCK.time + bonus);
 			return;
 		}
 		
-		// Set the OFFER signal at the right position > lower overlap first || or if still space in the queue, add it at the end
+		// Set the OFFER signal at the right position:
+		// > lower overlap first, if we have neighbors.
+		// > higher non-public neighbors count first if we don't have neighbors
+		// or if still space in the queue, add it at the end...
 		// AVOID SIMULATOR FLOODING, AND AVOID ALL PEERS TO PROCESS SAME OFFERS
 		if (Math.random() < Math.min(0.2, this.offersQueue.length / this.maxOffers * 0.8)) return; // => 20%-80% to ignore the offer depending on the queue length
 		for (let i = 0; i < this.offersQueue.length; i++) { // place new best => before
-			if (this.offersQueue[i].overlap <= overlap) continue;
-			this.offersQueue.splice(i, 0, { senderId, data, overlap, timestamp: CLOCK.time });
+			const valToCompare = this.offersQueue[i][nonPublicNeighborsCount ? 'overlap' : 'neighborsCount'];
+			if (nonPublicNeighborsCount && valToCompare <= sharedCount) continue;
+			if (!nonPublicNeighborsCount && valToCompare >= p1NonPublicCount) continue;
+			this.offersQueue.splice(i, 0, { senderId, data, overlap: sharedCount, neighborsCount: p1NonPublicCount, timestamp: CLOCK.time });
 			return this.offersQueue.length <= this.maxOffers ? null : this.offersQueue.pop();
 		}
-		if (this.offersQueue.length < this.maxOffers) this.offersQueue.push({ senderId, data, overlap, timestamp: CLOCK.time });
+		if (this.offersQueue.length < this.maxOffers) this.offersQueue.push({ senderId, data, overlap: sharedCount, neighborsCount: p1NonPublicCount, timestamp: CLOCK.time });
 	}
-	tryConnectNextBootstrap(neighborsCount = 0) {
+	tryConnectNextBootstrap(neighborsCount = 0, nonPublicNeighborsCount = 0) {
 		if (this.bootstraps.length === 0) return;
 		const [connected, connecting] = [this.peerStore.connected, this.peerStore.connecting];
-		const connectedCount = this.peerStore.neighborsList.filter(id => this.bootstrapsIds[id]).length;
-		const connectingCount = [];
-		for (const id in connecting) if (this.bootstrapsIds[id]) connectingCount.push(id);
+		const publicConnectedCount = this.peerStore.neighborsList.filter(id => this.bootstrapsIds[id]).length;
+
+		let [connectingCount, publicConnectingCount] = [0, 0];
+		for (const id in connecting)
+			if (this.bootstrapsIds[id]) publicConnectingCount++;
+			else connectingCount++;
 
 		// MINIMIZE BOOTSTRAP CONNECTIONS DEPENDING ON HOW MANY NEIGHBOURS WE HAVE
-		if (connectedCount + connectingCount >= NODE.SERVICE.MAX_WS_OUT_CONNS) return; // already connected to enough bootstraps
-		if (connectedCount && neighborsCount >= DISCOVERY.TARGET_NEIGHBORS_COUNT / 2) return; // no more bootstrap needed (half of target)
-		if (connectingCount && neighborsCount >= DISCOVERY.TARGET_NEIGHBORS_COUNT / 2) return; // no more bootstrap needed (half of target)
-		
+		if (publicConnectedCount + publicConnectingCount >= this.#halfTarget) return; // already connected to enough bootstraps
+		if (neighborsCount > this.#halfTarget) return; // no more bootstrap needed
+		if (connectingCount + nonPublicNeighborsCount > DISCOVERY.TARGET_NEIGHBORS_COUNT * 2) return; // no more bootstrap needed
+
 		const { id, publicUrl } = this.bootstraps[this.nextBootstrapIndex];
 		const canMakeATry = id && publicUrl && !connected[id] && !connecting[id];
 		if (canMakeATry) this.#connectToPublicNode(id, publicUrl);
@@ -107,6 +111,7 @@ export class NetworkEnhancer {
 	}
 	
 	// INTERNAL METHODS
+	get #halfTarget() { return Math.max(3, DISCOVERY.TARGET_NEIGHBORS_COUNT / 2); }
 	get #localTopologyInfo() {
 		return {
 			connected: this.peerStore.connected,
@@ -118,19 +123,16 @@ export class NetworkEnhancer {
 	}
 	#getOverlap(peerId1 = 'toto') {
 		const p1n = this.peerStore.known[peerId1]?.neighbors || {};
-		const result = {
-			sharedCount: 0,
-			p1nCount: this.peerStore.getUpdatedPeerConnectionsCount(peerId1),
-			p2nCount: this.peerStore.standardNeighborsList.length
-		};
-		for (const id in p1n) if (!CryptoCodex.isPublicNode(id)) result.p1nCount++;
+		const result = { sharedCount: 0, p1NonPublicCount: 0, p1nCount: this.peerStore.getUpdatedPeerConnectionsCount(peerId1) };
+		for (const id in p1n) if (!CryptoCodex.isPublicNode(id)) result.p1NonPublicCount++;
 		for (const id of this.peerStore.standardNeighborsList) if (p1n[id]) result.sharedCount++;
 		return result;
 	}
 	#connectToPublicNode(remoteId = 'toto', publicUrl = 'localhost:8080') {
 		if (!CryptoCodex.isPublicNode(remoteId)) return this.verbose < 1 ? null : console.warn(`NetworkEnhancer: trying to connect to a non-public node (${remoteId})`);
 		const ws = new TRANSPORTS.WS_CLIENT(publicUrl); ws.binaryType = 'arraybuffer';
-		this.peerStore.connecting[remoteId] = { out: new PeerConnection(remoteId, ws, 'out', true) };
+		if (!this.peerStore.connecting[remoteId]) this.peerStore.connecting[remoteId] = {};
+		this.peerStore.connecting[remoteId].out = new PeerConnection(remoteId, ws, 'out', true);
 		ws.onerror = (error) => console.error(`WebSocket error:`, error.stack);
 		ws.onopen = () => {
 			ws.onclose = () => { for (const cb of this.peerStore.callbacks.disconnect) cb(remoteId, 'out'); }
@@ -138,8 +140,7 @@ export class NetworkEnhancer {
 			for (const cb of this.peerStore.callbacks.connect) cb(remoteId, 'out');
 		};
 	}
-	#tryToSpreadSDP(nonPublicNeighborsCount = 0) { // LOOP TO SELECT ONE UNSEND READY OFFER AND BROADCAST IT
-		if (nonPublicNeighborsCount >= DISCOVERY.TARGET_NEIGHBORS_COUNT) return; // already too many neighbors
+	#tryToSpreadSDP(nonPublicNeighborsCount = 0, isEnough = false) { // LOOP TO SELECT ONE UNSEND READY OFFER AND BROADCAST IT
 		// LIMIT OFFER SPREADING IF WE ARE CONNECTING TO MANY PEERS, LOWER GOSSIP TRAFFIC
 		const connectingCount = Object.keys(this.peerStore.connecting).length;
 		const ingPlusEd = connectingCount + nonPublicNeighborsCount;
@@ -158,46 +159,71 @@ export class NetworkEnhancer {
 		}
 		if (!offerHash || !readyOffer) return; // no ready offer to spread
 
-		// IF WE ARE CONNECTED TO LESS 1 (WRTC) AND NOT TO MUCH CONNECTING, WE CAN BROADCAST IT TO ALL
-		if (nonPublicNeighborsCount <= 1 && ingPlusEd < DISCOVERY.TARGET_NEIGHBORS_COUNT * 2) {
+		// IF WE ARE CONNECTED TO LESS 2 (WRTC) AND NOT TO MUCH CONNECTING, WE CAN BROADCAST IT TO ALL
+		if (nonPublicNeighborsCount < this.#halfTarget && ingPlusEd <= DISCOVERY.TARGET_NEIGHBORS_COUNT * 2) {
 			this.gossip.broadcastToAll({ signal: readyOffer.signal, offerHash }, 'signal_offer');
 			readyOffer.sentCounter++; // avoid sending it again
 			return; // limit to one per loop
 		}
 		
-		const knownPeerIds = []; // ELSE, SEND USING UNICAST TO THE BEST 10 CANDIDATES
-		for (const id in this.peerStore.known)
+		let ourMinOverlaped = 0;
+		for (const id of this.peerStore.standardNeighborsList) {
+			const overlapInfo = this.#getOverlap(id);
+			if (overlapInfo.sharedCount >= ourMinOverlaped) continue;
+			ourMinOverlaped = overlapInfo.sharedCount;
+		}
+
+		let maxIds = 100; let maxSearch = 1000;
+		const selectedIds = []; // ELSE, SEND USING UNICAST TO THE BEST 10 CANDIDATES
+		for (const id in this.peerStore.known) {
+			if (--maxSearch <= 0) break;
 			if (id === this.id || CryptoCodex.isPublicNode(id) || this.peerStore.isKicked(id)) continue;
 			else if (this.peerStore.connected[id] || this.peerStore.connecting[id]) continue;
-			else knownPeerIds.push(id);
-		if (!knownPeerIds.length) return;
+			
+			const overlap = this.#getOverlap(id).sharedCount;
+			if (overlap > DISCOVERY.MAX_OVERLAP * .8) continue;
+			if (isEnough && overlap > ourMinOverlaped) continue; // we are fully connected, only target lower overlap
+			selectedIds.push(id);
+			if (--maxIds <= 0) break;
+		}
+		if (!selectedIds.length) return;
 		
 		const sentTo = new Map();
-		for (let i = 0; i < Math.min(knownPeerIds.length, 100); i++) {
-			const peerId = knownPeerIds[Math.floor(Math.random() * knownPeerIds.length)];
-			if (sentTo.has(peerId) || this.#getOverlap(peerId).sharedCount > DISCOVERY.MAX_OVERLAP * .8) continue;
+		for (let i = 0; i < Math.min(selectedIds.length, 100); i++) {
+			const peerId = selectedIds[Math.floor(Math.random() * selectedIds.length)];
+			if (sentTo.has(peerId)) continue;
 			if (sentTo.size === 0) readyOffer.sentCounter++;
 			sentTo.set(peerId, true);
 			this.messager.sendUnicast(peerId, { signal: readyOffer.signal, offerHash }, 'signal_offer', 1);
 			if (sentTo.size >= 10) break; // limit to 10 unicast
 		}
 	}
-	/** @param {string} senderId @param {SignalData} data */
-	#assignSignalIfConditionsMet(senderId, data) { // OFFER ONLY
-		const { signal, offerHash, timestamp } = data || {}; // remoteInfo
-		if (this.peerStore.connected[senderId]) return; // already connected
-		if (signal.type !== 'offer') return;
-		if (this.peerStore.connecting[senderId]?.['in']) return; // already connecting in
-		if (this.isPublicNode || this.peerStore.isKicked(senderId)) return;
-		
-		const tooManyConnectingPeers = Object.keys(this.peerStore.connecting).length >= DISCOVERY.TARGET_NEIGHBORS_COUNT * 4;
-		if (tooManyConnectingPeers) return; // avoid processing too many offers when we are already trying to connect to many peers
+	/** Process signal_offer queue by filtering fresh offers and answering these with best:
+	 * - Lowest overlap if we already have neighbors 
+	 * - Highest neighbors count if we don't */
+	#digestBestOffers() {
+		let bestValue = null;
+		const now = CLOCK.time;
+		const nonPublicNeighborsCount = this.peerStore.standardNeighborsList.length;
+		let connectingCount = Object.keys(this.peerStore.connecting).length;
+		this.offersQueue = this.offersQueue.filter(item => item.timestamp + (TRANSPORTS.SDP_OFFER_EXPIRATION / 2) >= now);
+		for (let i = 0; i < Math.min(this.offersQueue.length, 10); i++) { // SELECT BEST
+			if (connectingCount >= DISCOVERY.TARGET_NEIGHBORS_COUNT * 4) break; // avoid processing too many offers when we are already trying to connect to many peers
+			const { senderId, overlap, neighborsCount, data, timestamp } = this.offersQueue.shift() || {};
+			if (!senderId || this.peerStore.isKicked(senderId)) continue; // wrong offer or kicked
+			if (this.peerStore.connected[senderId]) continue;
+			if (nonPublicNeighborsCount && (bestValue !== null && overlap > bestValue)) break;
+			if (!nonPublicNeighborsCount && (bestValue !== null && neighborsCount < bestValue)) break;
+			if (this.peerStore.connecting[senderId]?.['in']) continue;
 
-		if (this.peerStore.addConnectingPeer(senderId, signal, offerHash) !== true) return;
-		this.peerStore.assignSignal(senderId, signal, offerHash, timestamp);
+			if (this.peerStore.addConnectingPeer(senderId, data.signal, data.offerHash) !== true) continue;
+			this.peerStore.assignSignal(senderId, data.signal, data.offerHash, timestamp);
+			connectingCount++;
+			bestValue = nonPublicNeighborsCount ? overlap : neighborsCount;
+		}
 	}
-	#improveTopologyByKickingPeers(isTooMany = false) { // KICK THE PEER WITH THE BIGGEST OVERLAP
-		if (Math.random() > .027) return; // avoid kicking too often
+	#improveTopologyByKickingPeers() { // KICK THE PEER WITH THE BIGGEST OVERLAP
+		if (Math.random() > .127) return; // avoid kicking too often
 		const peersWithOverlapInfo = [];
 		let lastOverlap = null; // If all overlap are identical, we will sort by connections count
 		let sortingIndex = 2; // 1: by overlap, 2: by connections count
@@ -207,11 +233,10 @@ export class NetworkEnhancer {
 				this.peerStore.kickPeer(id, 60_000, 'improveTopology');
 				break; // only one at a time
 			}
-			peersWithOverlapInfo.push([id, overlapInfo.sharedCount, overlapInfo.p1nCount]);
+			peersWithOverlapInfo.push([id, overlapInfo.sharedCount, overlapInfo.p1NonPublicCount]);
 			if (lastOverlap === null) lastOverlap = overlapInfo.sharedCount;
 			else if (lastOverlap !== overlapInfo.sharedCount) sortingIndex = 1;
 		}
-		if (!isTooMany) return; // only kick if we have too many peers
 		const sortedPeers = peersWithOverlapInfo.sort((a, b) => b[sortingIndex] - a[sortingIndex]);
 		this.peerStore.kickPeer(sortedPeers[0][0], 60_000, 'improveTopology');
 	}

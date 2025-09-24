@@ -64,8 +64,8 @@ async function intervalsLoop(loopDelay = 8) { // OPTIMIZATION, SORRY FOR COMPLEX
 			if (!peer.started) continue; // not started yet
 			if (n - (discoveryTickLastTime[peer.id] || 0) < DISCOVERY.LOOP_DELAY) continue; // not time yet
 			//console.log(`%c[${peer.id}] Discovery tick`, 'color: lightblue;');
-			peer.networkEnhancer.autoEnhancementTick();
 			discoveryTickLastTime[peer.id] = n;
+			peer.networkEnhancer.autoEnhancementTick();
 			peer.peerStore.cleanupExpired();
 			peer.peerStore.offerManager.tick();
 		} if (isRestarting) return;
@@ -177,6 +177,7 @@ async function randomMessagesLoop(type = 'U', mgPerPeerPerSecond = SIMULATION.RA
 		try { for (let i = 0; i < numberOfSender; i++) {
 			const senderId = peerIds[Math.floor(Math.random() * peersCount)];
 			const sender = peers.all[senderId];
+			if (!sender || !sender.started) continue;
 			if (type === 'G') { sender.broadcast(`Hello to all from ${sender.id}`); continue; }
 
 			const recipientId = peerIds[Math.floor(Math.random() * peersCount)];

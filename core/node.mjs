@@ -12,6 +12,7 @@ export class NodeP2P {
 	verbose;
 	cryptoCodex;
 	/** should be based on crypto */ id;
+	/** class managing ICE offers */ offerManager;
 	/** class managing network connections */ peerStore;
 	/** class who manage direct messages */ messager;
 	/** class who manage gossip messages */ gossip;
@@ -26,8 +27,8 @@ export class NodeP2P {
 		this.cryptoCodex = cryptoCodex;
 		this.id = this.cryptoCodex.id;
 		const stunUrls = NodeServices.deriveSTUNServers(bootstraps);
-		const offerManager = new OfferManager(this.id, stunUrls, verbose);
-		this.peerStore = new PeerStore(this.id, this.cryptoCodex, offerManager, verbose);
+		this.offerManager = new OfferManager(this.id, stunUrls, verbose);
+		this.peerStore = new PeerStore(this.id, this.cryptoCodex, this.offerManager, verbose);
 		this.messager = new UnicastMessager(this.id, this.cryptoCodex, this.peerStore, verbose);
 		this.gossip = new Gossip(this.id, this.cryptoCodex, this.peerStore, verbose);
 		this.networkEnhancer = new NetworkEnhancer(this.id, this.gossip, this.messager, this.peerStore, bootstraps);
@@ -55,10 +56,11 @@ export class NodeP2P {
 		const remoteIsPublic = this.cryptoCodex.isPublicNode(peerId);
 		if (this.publicUrl) return; // public node do not need to do anything special on connect
 		if (this.verbose > ((this.publicUrl || remoteIsPublic) ? 3 : 2)) console.log(`(${this.id}) ${direction === 'in' ? 'Incoming' : 'Outgoing'} connection established with peer ${peerId}`);
+		const isHandshakeInitiator = remoteIsPublic || direction === 'in';
+		if (isHandshakeInitiator) this.sendMessage(peerId, this.id, 'handshake'); // send it in both case, no doubt...
 		
 		const dispatchEvents = () => {
-			const isHandshakeInitiator = remoteIsPublic || direction === 'in';
-			if (isHandshakeInitiator) this.sendMessage(peerId, this.id, 'handshake');
+			//this.sendMessage(peerId, this.id, 'handshake'); // send it in both case, no doubt...
 			if (DISCOVERY.ON_CONNECT_DISPATCH.SHARE_HISTORY) 
 				if (this.peerStore.getUpdatedPeerConnectionsCount(peerId) <= 1) this.gossip.sendGossipHistoryToPeer(peerId);
 		};
@@ -67,12 +69,16 @@ export class NodeP2P {
 	}
 	/** @param {string} peerId @param {'in' | 'out'} direction */
 	#onDisconnect = (peerId, direction) => {
+		if (!this.peerStore.neighborsList.length) { // If we are totally alone => kick all connecting peers and invalidate all offers
+			for (const offerId in this.offerManager.offers) this.offerManager.offers[offerId].timestamp = 0; // reset offers to retry
+			for (const id in this.peerStore.connecting) this.peerStore.kickPeer(id, 0, 'no_neighbors_left');
+		}
+
 		const remoteIsPublic = this.cryptoCodex.isPublicNode(peerId);
-		const connDuration = this.peerStore.connected[peerId]?.getConnectionDuration() || 0;
-		if (connDuration < DISCOVERY.ON_DISCONNECT_DISPATCH.MIN_CONNECTION_TIME) return;
 		if (this.peerStore.connected[peerId]) return; // still connected, ignore disconnection for now ?
 		if (this.verbose > ((this.publicUrl || remoteIsPublic) ? 3 : 2)) console.log(`(${this.id}) ${direction === 'in' ? 'Incoming' : 'Outgoing'} connection closed with peer ${peerId}`);
 		
+		return; // no event dispatching for now
 		const dispatchEvents = () => {
 		};
 		if (!DISCOVERY.ON_DISCONNECT_DISPATCH.DELAY) dispatchEvents();

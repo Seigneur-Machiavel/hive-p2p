@@ -57,7 +57,7 @@ export class Punisher { // manage kick and ban of peers
 	/** @param {string} peerId @param {'kick' | 'ban'} [type] default: kick */
 	isSanctioned(peerId, type = 'kick') {
 		if (!this[type][peerId]) return false;
-		if (this[type][peerId] < CLOCK.time) delete this[type][peerId];
+		else if (this[type][peerId] < CLOCK.time) delete this[type][peerId];
 		else return true;
 	}
 }

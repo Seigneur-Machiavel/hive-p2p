@@ -100,19 +100,23 @@ export class UnicastMessager {
 		const transportInstance = this.peerStore.connected[targetId]?.transportInstance;
 		if (!transportInstance) return { success: false, reason: `Transport instance is not available for peer ${targetId}.` };
 		try { transportInstance.send(serialized); return { success: true }; }
-		catch (error) { console.error(`Error sending message to ${targetId}:`, error.stack); }
+		catch (error) {
+			this.peerStore.kickPeer(targetId, 0, 'send-error');
+			if (this.verbose > 0) console.error(`Error sending message to ${targetId}:`, error.message);
+		}
 		return { success: false, reason: `Error sending message to ${targetId}.` };
 	}
 	/** @param {string} from @param {Uint8Array} serialized */
 	handleDirectMessage(from, serialized) {
-		if (this.peerStore.isBanned(from)) return;
+		if (this.peerStore.isBanned(from)) return this.verbose >= 3 ? console.info(`%cReceived direct message from banned peer ${from}, ignoring.`, 'color: red;') : null;
 
 		const message = this.cryptoCodex.readUnicastMessage(serialized);
 		if (!message || !message.route?.length) return this.verbose > 1 ? console.warn(`Received invalid unicast message from ${from}.`) : null;
 
 		const { traveledRoute, selfPosition, senderId, targetId, prevId, nextId } = message.extractRouteInfo(this.id);
 		for (const cb of this.callbacks.message_handle || []) cb(); // Simulator counter
-		if (selfPosition === -1) throw new Error(`DirectMessage selfPosition is -1 for peer ${from}.`);
+		//if (selfPosition === -1) throw new Error(`DirectMessage selfPosition is -1 for peer ${from}.`);
+		if (selfPosition === -1) return this.peerStore.kickPeer(from, 0, 'invalid-route'); // self not in route
 		if (prevId && from !== prevId) throw new Error(`DirectMessage previous hop id (${prevId}) does not match the actual from id (${from}).`);
 		if (from === senderId && from === this.id) throw new Error('DirectMessage senderId and from are both self id !!');
 		if (senderId === this.id) // !!Attacker can modify the route to kick a peer a by building a loop

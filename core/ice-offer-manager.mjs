@@ -10,7 +10,8 @@ import wrtc from 'wrtc';
  * @property {number} sentCounter
  * @property {Object} signal
  * @property {import('simple-peer').Instance} offererInstance
- * @property {boolean} isDigestingOneAnswer flag to avoid multiple answers handling at the same time (DISCOVERY.LOOP_DELAY (2.5s) will be doubled (5s) between two answers handling)
+ * @property {boolean} isDigestingOneAnswer Flag to avoid multiple answers handling at the same time (DISCOVERY.LOOP_DELAY (2.5s) will be doubled (5s) between two answers handling)
+ * @property {string | null} digestingOneAnswerOf Id related to the answer being digested
  * @property {Array<{peerId: string, signal: any, timestamp: number, used: boolean}>} answers
  * @property {Record<string, boolean>} answerers key: peerId, value: true */
 
@@ -33,8 +34,9 @@ export class OfferManager { // Manages the creation of SDP offers and handling o
 	offersToCreate = TRANSPORTS.MAX_SDP_OFFERS;
 	/** @type {Record<string, OfferObj>} key: offerHash **/ offers = {};
 
-	offerCreationTimeout = null;
+	/** @type {Record<number, import('simple-peer').Instance>} key: expiration timestamp */
 	offerInstanceByExpiration = {};
+	offerCreationTimeout = null;
 
 	tick() { // called in peerStore to avoid multiple intervals
 		const now = CLOCK.time;
@@ -62,7 +64,8 @@ export class OfferManager { // Manages the creation of SDP offers and handling o
 		for (const hash in this.offers) {
 			offerCount++; // [live at the first line of the loop] used just below -> avoid Object.keys() call
 			const offer = this.offers[hash];
-			if (offer.isDigestingOneAnswer) { offer.isDigestingOneAnswer = false; continue; } // already digesting an answer
+			if (offer.isDigestingOneAnswer) { offer.isDigestingOneAnswer = false; continue; }
+			if (offer.digestingOneAnswerOf) offer.digestingOneAnswerOf = null; // reset it, should be done at the beginning of the next loop
 			if (offer.offererInstance.destroyed) continue; // offerer destroyed
 			const unusedAnswers = offer.answers.filter(a => !a.used);
 			if (!unusedAnswers.length) continue; // no answers available
@@ -73,8 +76,8 @@ export class OfferManager { // Manages the creation of SDP offers and handling o
 			if (receivedSince > NODE.CONNECTION_UPGRADE_TIMEOUT / 2) continue; // remote peer will break the connection soon, don't use this answer
 			offer.offererInstance.signal(newestAnswer.signal);
 			offer.isDigestingOneAnswer = true;
-			//console.log(`(${this.id}) Using answer from ${newestAnswer.peerId} for offer ${hash} (received since ${receivedSince} ms)`);
-			if (this.verbose > 2) console.log(`(OfferManager) Using answer from ${newestAnswer.peerId} for offer ${hash} (received since ${receivedSince} ms)`);
+			offer.digestingOneAnswerOf = newestAnswer.peerId;
+			if (this.verbose > 2) console.log(`(${this.id}) Using answer from ${newestAnswer.peerId} for offer ${hash} (received since ${receivedSince} ms)`);
 		}
 
 		if (this.creatingOffer) return; // already creating one or unable to send
@@ -99,6 +102,7 @@ export class OfferManager { // Manages the creation of SDP offers and handling o
 			const offerHash = xxHash32(JSON.stringify(data)); // UN PEU BLOQUE ICI (connect on voudrait identifer le peer)
 			instance.on('connect', () => { // cb > peerStore > Node > Node.#onConnect()
 				if (this.offers[offerHash]) this.offers[offerHash].isUsed = true;
+				//const potentialRemoteId = this.offers[offerHash]?.digestingOneAnswerOf;
 				this.onConnect(undefined, instance);
 			});
 			this.offers[offerHash] = { timestamp: CLOCK.time, sentCounter: 0, signal: data, offererInstance: instance, answers: [], answerers: {}, isUsed: false };
@@ -135,6 +139,9 @@ export class OfferManager { // Manages the creation of SDP offers and handling o
 		if (this.verbose < 3 && error.message.includes('closed the connection')) return; // avoid logging
 		if (this.verbose > 2 && error.message.includes('closed the connection')) return console.info(`%c${error.message}`, 'color: orange;');
 		
+		if (this.verbose < 3 && error.message.includes('No transport instance found for id:')) return; // avoid logging
+		if (this.verbose > 2 && error.message.includes('No transport instance found for id:')) return console.info(`%c${error.message}`, 'color: orange;');
+
 		if (this.verbose > 0) console.error(`transportInstance ERROR => `, error.stack);
 	};
 	/** @param {string} remoteId @param {{type: 'answer', sdp: Record<string, string>}} signal @param {string} offerHash @param {number} timestamp receptionTimestamp */
@@ -167,7 +174,11 @@ export class OfferManager { // Manages the creation of SDP offers and handling o
 			instance.on('signal', (data) => this.onSignalAnswer(remoteId, data, offerHash));
 			instance.on('connect', () => this.onConnect(remoteId, instance));
 			return new PeerConnection(remoteId, instance, 'in');
-		} catch (error) { if (this.verbose > 3) console.error(error.message); }
+		} catch (error) {
+			if (error.message.startsWith('No pending offer found') && this.verbose < 2) return null; // avoid logging
+			if (this.verbose > 1 && error.message.startsWith('No pending offer found')) return console.info(`%c${error.message}`, 'color: orange;');
+			if (this.verbose > 0) console.error(error.stack);
+		}
 	}
 	destroy() {
 		for (const offerHash in this.offers) this.offers[offerHash].offererInstance?.destroy();
