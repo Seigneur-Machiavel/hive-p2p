@@ -43,7 +43,7 @@ export class Statician { // DO NOT ADD VARIABLES, JUST COUNTERS !!
 			}
 			const averagePeersConnections = peersConnectionsCount.length === 0 ? 0 : (peersConnectionsCount.reduce((a, b) => a + b, 0) / peersConnectionsCount.length).toFixed(1);
 
-			if (verbose) console.info(`%c${Math.floor((Date.now() - sVARS.startTime) / 1000)}sec elapsed | Active: ${sVARS.publicInit + (sVARS.nextPeerToInit - 1)}/${Object.keys(peers.all).length} (${establishedWrtcConnCount}/${wrtcToEstablishCount} established WebRTC | ${averagePeersConnections} avg conns)`, 'color: yellow;');
+			if (verbose) console.info(`%c${Math.floor((Date.now() - sVARS.startTime) / 1000)}sec elapsed | Active: ${sVARS.publicInit + (sVARS.nextPeerToInit - 1)}/${Object.keys(peers.all).length} (${establishedWrtcConnCount}/${wrtcToEstablishCount} est. WebRTC | ${averagePeersConnections} avg conns on the ${establishedWrtcConnCount})`, 'color: yellow;');
 			if (verbose) console.info(`%c--STATS/sec: ${this.#getSimulationStatsPerSecond(delay)}`, 'color: yellow;');
 			for (const key in this) this[key] = 0;
 		}, delay);
@@ -60,11 +60,10 @@ export class TransmissionAnalyzer {
 	sVARS;
 	peers;
 	gossip = {
-		/** @type {Record<string, number>} key: peerId, value: timestamp */
-		receivedBy: {},
+		/** @type {Map<string, { time: number, count: number, hops: number} }>} */
+		receptions: new Map(),
 		nonce: 'ffffff',
 		sendAt: 0,
-		
 	}
 
 	/** @param {Record<string, Record<string, import('../core/node.mjs').NodeP2P>>} peers @param {number} verbose @param {number} [delay] default: 10 seconds */
@@ -74,21 +73,31 @@ export class TransmissionAnalyzer {
 		this.verbose = verbose;
 		setInterval(() => {
 			const stats = this.#getTransmissionStats();
-			if (stats && this.verbose) console.info(`%c[ Diffusion Test ]>> Stats: ${JSON.stringify(stats).replaceAll('"','').replaceAll(':',': ').replaceAll('{', '{ ').replaceAll('}', ' }').replaceAll(',', ', ')}`, 'color: hotpink;');
+			if (stats && this.verbose) console.info(`%c[DIFFUSION]>> ${stats}`, 'color: hotpink;');
 			// SEND A GOSSIP MESSAGE FROM A RANDOM PEER -> ALL PEERS SHOULD RECEIVE IT
 			this.gossip.nonce = 'ffffff';
-			this.gossip.receivedBy = {};
+			this.gossip.receptions = new Map(); // key: peerId, value: { time: number, count: number }
 			this.#sendDiffusionTestMessage();
 		}, delay);
 	}
 	#getTransmissionStats(formating = true) {
 		if (!this.gossip.sendAt) return null;
-		const timestamps = Object.values(this.gossip.receivedBy);
-		const latencies = timestamps.map(t => t - this.gossip.sendAt);
 		const initializedPeersCount = this.sVARS.publicInit + this.sVARS.nextPeerToInit - 1;
+		let cumulatedLatencies = 0;
+		let cumulatedHops = 0;
+		let maxHops = 0;
+		let totalReceptions = 0;
+		for (const [peerId, { time, count, hops }] of this.gossip.receptions) {
+			cumulatedLatencies += time - this.gossip.sendAt;
+			totalReceptions += count;
+			cumulatedHops += hops;
+			if (hops > maxHops) maxHops = hops;
+		}
+		const receptionsCount = this.gossip.receptions.size;
 		const stats = {
-			received: `${Object.keys(this.gossip.receivedBy).length}/${initializedPeersCount - 1}`,
-			averageLatency: latencies.length === 0 ? 0 : Math.round(latencies.reduce((a, b) => a + b, 0) / latencies.length)
+			received: `${receptionsCount}/${initializedPeersCount - 1}(T: ${totalReceptions})`,
+			avgLatency: `${receptionsCount === 0 ? 0 : Math.round(cumulatedLatencies / receptionsCount)}ms`,
+			hops: `${receptionsCount === 0 ? 0 : (cumulatedHops / receptionsCount).toFixed(1)} avg, ${maxHops} max`,
 		};
 		if (formating) return statsFormating(stats);
 		return stats;
@@ -106,12 +115,14 @@ export class TransmissionAnalyzer {
 			break;
 		}
 	}
-	/** @param {string} receiverId @param {Uint8Array} serialized @param {number} HOPS @param {import('../core/gossip.mjs').GossipMessage} message @param {string} fromId */
-	analyze(receiverId, serialized, HOPS, message, fromId) {
+	/** @param {string} receiverId @param {string} nonce @param {number} HOPS  */
+	analyze(receiverId, nonce, HOPS) {
 		if (this.gossip.sendAt === 0) return; // we have not sent yet
-		if (message.data !== this.gossip.nonce) return; // not our test message
+		if (nonce !== this.gossip.nonce) return; // not our test message
 		if (!this.gossip.sendAt) return; // we are not the sender
-		if (!this.gossip.receivedBy[receiverId]) this.gossip.receivedBy[receiverId] = Date.now();
+		const hops = GOSSIP.HOPS.diffusion_test - HOPS;
+		if (!this.gossip.receptions.has(receiverId)) this.gossip.receptions.set(receiverId, { time: Date.now(), count: 1, hops });
+		else this.gossip.receptions.get(receiverId).count++;
 	}
 }
 export class SubscriptionsManager {

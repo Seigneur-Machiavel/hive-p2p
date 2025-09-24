@@ -11,32 +11,26 @@ import wrtc from 'wrtc';
  * @property {Object} signal
  * @property {import('simple-peer').Instance} offererInstance
  * @property {boolean} isDigestingOneAnswer Flag to avoid multiple answers handling at the same time (DISCOVERY.LOOP_DELAY (2.5s) will be doubled (5s) between two answers handling)
- * @property {string | null} digestingOneAnswerOf Id related to the answer being digested
  * @property {Array<{peerId: string, signal: any, timestamp: number, used: boolean}>} answers
  * @property {Record<string, boolean>} answerers key: peerId, value: true */
 
 export class OfferManager { // Manages the creation of SDP offers and handling of answers
 	id;
-	verbose = 0;
-	stunUrls = [];
+	verbose;
+	stunUrls;
 
-	/** @param {Array<{urls: string}>} stunUrls */
-	constructor(id = 'toto', stunUrls = [], verbose = 0) {
-		this.id = id;
-		this.verbose = verbose;
-		this.stunUrls = stunUrls;
-	}
+	/** @param {string} id @param {Array<{urls: string}>} stunUrls */
+	constructor(id, stunUrls, verbose = 0) { this.id = id; this.verbose = verbose; this.stunUrls = stunUrls; }
 
-	onSignalAnswer = null; // function(remoteId, signalData, offerHash)
-	onConnect = null; // function(remoteId, transportInstance)
+	onSignalAnswer = null; 		// function(remoteId, signalData, offerHash)
+	onConnect = null; 			// function(remoteId, transportInstance)
 	
-	creatingOffer = false; // flag
-	offersToCreate = TRANSPORTS.MAX_SDP_OFFERS;
-	/** @type {Record<string, OfferObj>} key: offerHash **/ offers = {};
-
 	/** @type {Record<number, import('simple-peer').Instance>} key: expiration timestamp */
 	offerInstanceByExpiration = {};
-	offerCreationTimeout = null;
+	creatingOffer = false; 		// flag to avoid multiple simultaneous creations (shared between all offers)
+	offerCreationTimeout = null; // sequential creation timeout (shared between all offers)
+	offersToCreate = TRANSPORTS.MAX_SDP_OFFERS;
+	/** @type {Record<string, OfferObj>} key: offerHash **/ offers = {};
 
 	tick() { // called in peerStore to avoid multiple intervals
 		const now = CLOCK.time;
@@ -65,18 +59,19 @@ export class OfferManager { // Manages the creation of SDP offers and handling o
 			offerCount++; // [live at the first line of the loop] used just below -> avoid Object.keys() call
 			const offer = this.offers[hash];
 			if (offer.isDigestingOneAnswer) { offer.isDigestingOneAnswer = false; continue; }
-			if (offer.digestingOneAnswerOf) offer.digestingOneAnswerOf = null; // reset it, should be done at the beginning of the next loop
 			if (offer.offererInstance.destroyed) continue; // offerer destroyed
+			
 			const unusedAnswers = offer.answers.filter(a => !a.used);
 			if (!unusedAnswers.length) continue; // no answers available
+			
 			const newestAnswer = unusedAnswers.reduce((a, b) => a.timestamp > b.timestamp ? a : b);
 			if (!newestAnswer) continue; // all answers are used
+
 			newestAnswer.used = true;
 			const receivedSince = now - newestAnswer.timestamp;
 			if (receivedSince > NODE.CONNECTION_UPGRADE_TIMEOUT / 2) continue; // remote peer will break the connection soon, don't use this answer
 			offer.offererInstance.signal(newestAnswer.signal);
 			offer.isDigestingOneAnswer = true;
-			offer.digestingOneAnswerOf = newestAnswer.peerId;
 			if (this.verbose > 2) console.log(`(${this.id}) Using answer from ${newestAnswer.peerId} for offer ${hash} (received since ${receivedSince} ms)`);
 		}
 
@@ -111,13 +106,17 @@ export class OfferManager { // Manages the creation of SDP offers and handling o
 
 		return instance;
 	}
+	#logAndOrIgnore(error, incl = '', level = 2) {
+		if (this.verbose < level && error.message.includes(incl)) return true; // avoid logging
+		if (this.verbose >= level && error.message.includes(incl)) return console.info(`%c OfferManager => ${error.message}`, 'color: orange;');
+		return false;
+	}
 	#onError = (error) => {
 		if (this.verbose < 1) return; // avoid logging
-		// PRODUCTION (SimplePeer ERRORS)
-		if (this.verbose < 2 && error.message.includes('Ice connection failed') ) return; // avoid logging
-		if (this.verbose > 1 && error.message.includes('Ice connection failed') ) return console.info(`%c WRTC => ${error.message}`, 'color: orange;');
-		if (this.verbose < 2 && error.message.includes('Connection failed')) return; // avoid logging
-		if (this.verbose > 1 && error.message.includes('Connection failed')) return console.info(`%c WRTC => ${error.message}`, 'color: orange;');
+		// PRODUCTION (SimplePeer ERRORS) --|
+		if (this.#logAndOrIgnore(error, 'Ice connection failed', 2)) return;
+		if (this.#logAndOrIgnore(error, 'Connection failed', 2)) return;
+		// --PRODUCTION ----------------- --|
 
 		if (this.verbose < 3 && error.message.startsWith('Simulated failure')) return; // avoid logging
 		if (this.verbose < 2 && error.message.startsWith('Failed to digest')) return; // avoid logging
@@ -127,20 +126,11 @@ export class OfferManager { // Manages the creation of SDP offers and handling o
 		if (this.verbose < 3 && error.message.startsWith('Transport instance already')) return; // avoid logging
 		if (this.verbose < 2 && error.message === 'cannot signal after peer is destroyed') return; // avoid logging
 
-		if (this.verbose < 3 && error.message.startsWith('No pending')) return; // avoid logging
-		if (this.verbose > 2 && error.message.startsWith('No pending')) return console.info(`%c${error.message}`, 'color: orange;');
-		
-		if (this.verbose < 3 && error.message.includes('is already linked')) return; // avoid logging
-		if (this.verbose > 2 && error.message.startsWith('Simulated failure')) return console.info(`%c${error.message}`, 'color: orange;');
-		
-		if (this.verbose < 3 && error.message.startsWith('There is already a pending')) return; // avoid logging
-		if (this.verbose > 2 && error.message.startsWith('There is already a pending')) return console.info(`%c${error.message}`, 'color: orange;');
-		
-		if (this.verbose < 3 && error.message.includes('closed the connection')) return; // avoid logging
-		if (this.verbose > 2 && error.message.includes('closed the connection')) return console.info(`%c${error.message}`, 'color: orange;');
-		
-		if (this.verbose < 3 && error.message.includes('No transport instance found for id:')) return; // avoid logging
-		if (this.verbose > 2 && error.message.includes('No transport instance found for id:')) return console.info(`%c${error.message}`, 'color: orange;');
+		if (this.#logAndOrIgnore(error, 'No pending', 3)) return;
+		if (this.#logAndOrIgnore(error, 'is already linked', 3)) return;
+		if (this.#logAndOrIgnore(error, 'There is already a pending', 3)) return;
+		if (this.#logAndOrIgnore(error, 'closed the connection', 3)) return;
+		if (this.#logAndOrIgnore(error, 'No transport instance found for id:', 3)) return;
 
 		if (this.verbose > 0) console.error(`transportInstance ERROR => `, error.stack);
 	};

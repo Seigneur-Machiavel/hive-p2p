@@ -13,6 +13,7 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 	/** @type {Record<string, PeerConnecting>} */ 	connecting = {};
 	/** @type {Record<string, PeerConnection>} */ 	connected = {};
 	/** @type {Record<string, KnownPeer>} */ 	  	known = {}; // known peers store
+	/** @type {number} */							knownCount = 0;
 	/** @type {Record<string, Function[]>} */ 		callbacks = {
 		'connect': [(peerId, direction) => this.#handleConnect(peerId, direction)],
 		'disconnect': [(peerId, direction) => this.#handleDisconnect(peerId, direction)],
@@ -83,7 +84,6 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 	}
 	#handleDisconnect(peerId, direction) { // First callback assigned in constructor
 		this.#removePeer(peerId, 'connected', direction);
-		this.#unlinkPeers(this.id, peerId); // Remove link in self known store
 	}
 	/** Remove a peer from our connections, and unlink from known store
 	 * @param {string} remoteId @param {'connected' | 'connecting' | 'both'} [status] default: both @param {'in' | 'out' | 'both'} [direction] default: both */
@@ -112,7 +112,7 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 	/** Associate two peers as neighbors in known store */
 	#linkPeers(peerId1 = 'toto', peerId2 = 'tutu') {
 		for (const pid of [peerId1, peerId2]) {
-			if (!this.known[pid]) this.known[pid] = new KnownPeer();
+			if (!this.known[pid]) { this.known[pid] = new KnownPeer(); this.knownCount++; }
 			this.known[pid].setNeighbor(pid === peerId1 ? peerId2 : peerId1); // set/update neighbor
 		}
 	}
@@ -121,7 +121,9 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 		for (const pid of [peerId1, peerId2]) {
 			if (!this.known[pid]) continue;
 			this.known[pid].unsetNeighbor(pid === peerId1 ? peerId2 : peerId1);
-			if (this.known[pid].connectionsCount === 0) delete this.known[pid];
+			if (this.known[pid].connectionsCount > 0) continue;
+			delete this.known[pid];
+			this.knownCount--;
 		}
 	}
 	cleanupExpired(andUpdateKnownBasedOnNeighbors = true) { // Clean up expired pending connections and pending links
@@ -151,20 +153,6 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 		if (!this.callbacks[callbackType]) throw new Error(`Unknown callback type: ${callbackType}`);
 		this.callbacks[callbackType].push(callback);
 	}
-	/** Initialize/Get a connecting peer WebRTC connection (SimplePeer Instance)
-	 * @param {string} remoteId @param {{type: 'offer' | 'answer', sdp: Record<string, string>}} signal
-	 * @param {string} [offerHash] offer only */
-	addConnectingPeer(remoteId, signal, offerHash) {
-		if (remoteId === this.id) throw new Error(`Refusing to connect to self (${this.id}).`);
-		
-		const peerConnection = this.offerManager.getPeerConnexionForSignal(remoteId, signal, offerHash);
-		if (!peerConnection) return this.verbose > 3 ? console.info(`%cFailed to get/create a peer connection for ID ${remoteId}.`, 'color: orange;') : null;
-
-		const direction = signal.type === 'offer' ? 'in' : 'out';
-		if (!this.connecting[remoteId]) this.connecting[remoteId] = {};
-		if (this.connecting[remoteId]) this.connecting[remoteId][direction] = peerConnection;
-		return true;
-	}
 	/** Cleanup expired neighbors and return the updated connections count @param {string} peerId */
 	getUpdatedPeerConnectionsCount(peerId, includesPublic = true) {
 		const time = CLOCK.time; let count = 0;
@@ -178,6 +166,22 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 			else if (!this.cryptoCodex.isPublicNode(id)) count++;
 		}
 		return count;
+	}
+	/** Initialize/Get a connecting peer WebRTC connection (SimplePeer Instance)
+	 * @param {string} remoteId @param {{type: 'offer' | 'answer', sdp: Record<string, string>}} signal
+	 * @param {string} [offerHash] offer only */
+	addConnectingPeer(remoteId, signal, offerHash) {
+		if (remoteId === this.id) throw new Error(`Refusing to connect to self (${this.id}).`);
+		
+		const direction = signal.type === 'offer' ? 'in' : 'out';
+		if (this.connecting[remoteId]?.[direction]) return; // already connecting out (should not happen)
+
+		const peerConnection = this.offerManager.getPeerConnexionForSignal(remoteId, signal, offerHash);
+		if (!peerConnection) return this.verbose > 3 ? console.info(`%cFailed to get/create a peer connection for ID ${remoteId}.`, 'color: orange;') : null;
+
+		if (!this.connecting[remoteId]) this.connecting[remoteId] = {};
+		if (this.connecting[remoteId]) this.connecting[remoteId][direction] = peerConnection;
+		return true;
 	}
 	/** @param {string} remoteId @param {{type: 'offer' | 'answer', sdp: Record<string, string>}} signal @param {string} [offerHash] answer only @param {number} timestamp Answer reception timestamp */
 	assignSignal(remoteId, signal, offerHash, timestamp) {

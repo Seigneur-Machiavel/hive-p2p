@@ -125,7 +125,7 @@ export class Gossip {
 	/** @param {string} from @param {Uint8Array} serialized */
 	handleGossipMessage(from, serialized) {
 		if (this.peerStore.isBanned(from)) return; // ignore messages from banned peers
-		for (const cb of this.callbacks.message_handle || []) cb(); // Simulator counter before filtering
+		for (const cb of this.callbacks.message_handle || []) cb(serialized); // Simulator counter before filtering
 		if (!this.bloomFilter.addMessage(serialized)) return; // already processed this message
 
 		// ==> NOTE: WE SHOULD SIGN THE MESSAGE AND VERIFY THE SIGNATURE <==

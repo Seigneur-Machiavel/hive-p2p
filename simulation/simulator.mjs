@@ -2,7 +2,7 @@ import path from 'path';
 import express from 'express';
 import { io } from 'socket.io-client'; // used for twitch events only
 import { WebSocketServer } from 'ws';
-import { CLOCK, SIMULATION, NODE, TRANSPORTS, IDENTITY, DISCOVERY } from '../core/global_parameters.mjs';
+import { CLOCK, SIMULATION, NODE, TRANSPORTS, IDENTITY, DISCOVERY, GOSSIP } from '../core/global_parameters.mjs';
 import { TestWsServer, TestWsConnection, TestTransport,
 	ICE_CANDIDATE_EMITTER, TEST_WS_EVENT_MANAGER, SANDBOX } from '../simulation/test-transports.mjs';
 //import { MessageQueue, Statician, TransmissionAnalyzer, SubscriptionsManager } from './simulator-utils.mjs';
@@ -17,7 +17,7 @@ if (SIMULATION.USE_TEST_TRANSPORTS) {//									|
 //---------------------------------------------------------------------/
 
 // IMPORT NODE AFTER SIMULATION ENV SETUP
-const { MessageQueue, Statician, TransmissionAnalyzer, SubscriptionsManager } = await import('./simulator-utils.mjs');
+const { MessageQueue, Statician, TransmissionAnalyzer, SubscriptionsManager } = await import('./simul-utils.mjs');
 const { CryptoCodex } = await import('../core/crypto-codex.mjs');
 const { NodeP2P } = await import('../core/node.mjs'); // dynamic import to allow simulation overrides
 // TO ACCESS THE VISUALIZER GO TO: http://localhost:3000 ------\
@@ -65,7 +65,7 @@ async function intervalsLoop(loopDelay = 8) { // OPTIMIZATION, SORRY FOR COMPLEX
 			if (n - (discoveryTickLastTime[peer.id] || 0) < DISCOVERY.LOOP_DELAY) continue; // not time yet
 			//console.log(`%c[${peer.id}] Discovery tick`, 'color: lightblue;');
 			discoveryTickLastTime[peer.id] = n;
-			peer.networkEnhancer.autoEnhancementTick();
+			peer.topologist.tick();
 			peer.peerStore.cleanupExpired();
 			peer.peerStore.offerManager.tick();
 		} if (isRestarting) return;
@@ -117,9 +117,15 @@ function pickUpRandomBootstraps(count = SIMULATION.BOOTSTRAPS_PER_PEER) {
 }
 /** @param {import('../core/node.mjs').NodeP2P} peer */
 function patchPeerHandlers(peer) {
-	peer.gossip.on('message_handle', () => statician.gossip++);
 	peer.messager.on('message_handle', () => statician.unicast++);
-	peer.gossip.on('diffusion_test', (fromId, msg, HOPS, message) => transmissionAnalyzer.analyze(peer.id, msg, HOPS, message, fromId));
+	peer.gossip.on('message_handle', (serialized) => {
+		statician.gossip++;
+		const { topic, HOPS, data } = peer.cryptoCodex.readGossipMessage(serialized) || {};
+		if (topic !== 'diffusion_test') return; // not a diffusion test message
+		transmissionAnalyzer.analyze(peer.id, data, HOPS)
+	});
+	// DEPRECATED
+	//peer.gossip.on('diffusion_test', (fromId, msg, HOPS, message) => transmissionAnalyzer.analyze(peer.id, msg, HOPS, message, fromId));
 }
 function addPeer(type, i = 0, bootstraps = [], init = false, setPublic = false) {
 	const selectedBootstraps = type === 'STANDARD_NODE' ? pickUpRandomBootstraps() : bootstraps;

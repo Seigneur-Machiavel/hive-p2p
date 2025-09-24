@@ -3,7 +3,7 @@ import { OfferManager } from './ice-offer-manager.mjs';
 import { PeerStore } from './peer-store.mjs';
 import { UnicastMessager } from './unicast.mjs';
 import { Gossip } from './gossip.mjs';
-import { NetworkEnhancer } from './network-enhancer.mjs';
+import { Topologist } from './topologist.mjs';
 import { CryptoCodex } from './crypto-codex.mjs';
 import { NodeServices } from './node-services.mjs';
 
@@ -16,10 +16,10 @@ export class NodeP2P {
 	/** class managing network connections */ peerStore;
 	/** class who manage direct messages */ messager;
 	/** class who manage gossip messages */ gossip;
-	/** class managing network */ networkEnhancer;
+	/** class managing network connections */ topologist;
 	/** @type {NodeServices | undefined} */ nodeServices;
 
-	/** Initialize a new P2P node instance, use .start() to init networkEnhancer
+	/** Initialize a new P2P node instance, use .start() to init topologist
 	 * @param {CryptoCodex} cryptoCodex - Identity of the node.
 	 * @param {Array<Record<string, string>>} bootstraps List of bootstrap nodes used as P2P network entry */
 	constructor(cryptoCodex, bootstraps = [], verbose = NODE.DEFAULT_VERBOSE) {
@@ -31,8 +31,8 @@ export class NodeP2P {
 		this.peerStore = new PeerStore(this.id, this.cryptoCodex, this.offerManager, verbose);
 		this.messager = new UnicastMessager(this.id, this.cryptoCodex, this.peerStore, verbose);
 		this.gossip = new Gossip(this.id, this.cryptoCodex, this.peerStore, verbose);
-		this.networkEnhancer = new NetworkEnhancer(this.id, this.gossip, this.messager, this.peerStore, bootstraps);
-		const { peerStore, messager, gossip, networkEnhancer } = this;
+		this.topologist = new Topologist(this.id, this.gossip, this.messager, this.peerStore, bootstraps);
+		const { peerStore, messager, gossip, topologist } = this;
 
 		// SETUP TRANSPORTS LISTENERS
 		peerStore.on('signal', (peerId, data) => this.sendMessage(peerId, data, 'signal_answer')); // answer created => send it to offerer
@@ -41,11 +41,11 @@ export class NodeP2P {
 		peerStore.on('data', (peerId, data) => this.#onData(peerId, data));
 		
 		// UNICAST LISTENERS
-		messager.on('signal_answer', (senderId, data) => networkEnhancer.handleIncomingSignal(senderId, data));
-		messager.on('signal_offer', (senderId, data) => networkEnhancer.handleIncomingSignal(senderId, data));
+		messager.on('signal_answer', (senderId, data) => topologist.handleIncomingSignal(senderId, data));
+		messager.on('signal_offer', (senderId, data) => topologist.handleIncomingSignal(senderId, data));
 
 		// GOSSIP LISTENERS
-		gossip.on('signal_offer', (senderId, data, HOPS) => networkEnhancer.handleIncomingSignal(senderId, data, HOPS));
+		gossip.on('signal_offer', (senderId, data, HOPS) => topologist.handleIncomingSignal(senderId, data, HOPS));
 
 		if (verbose > 2) console.log(`NodeP2P initialized: ${this.id}`);
 	}
@@ -59,8 +59,11 @@ export class NodeP2P {
 		const isHandshakeInitiator = remoteIsPublic || direction === 'in';
 		if (isHandshakeInitiator) this.sendMessage(peerId, this.id, 'handshake'); // send it in both case, no doubt...
 		
+		const isHoverNeighbored = this.peerStore.neighborsList.length >= DISCOVERY.TARGET_NEIGHBORS_COUNT + this.halfTarget;
 		const dispatchEvents = () => {
 			//this.sendMessage(peerId, this.id, 'handshake'); // send it in both case, no doubt...
+			if (DISCOVERY.ON_CONNECT_DISPATCH.OVER_NEIGHBORED && isHoverNeighbored)
+				this.broadcast([], 'over_neighbored'); // inform my neighbors that I am over neighbored
 			if (DISCOVERY.ON_CONNECT_DISPATCH.SHARE_HISTORY) 
 				if (this.peerStore.getUpdatedPeerConnectionsCount(peerId) <= 1) this.gossip.sendGossipHistoryToPeer(peerId);
 		};
@@ -70,8 +73,8 @@ export class NodeP2P {
 	/** @param {string} peerId @param {'in' | 'out'} direction */
 	#onDisconnect = (peerId, direction) => {
 		if (!this.peerStore.neighborsList.length) { // If we are totally alone => kick all connecting peers and invalidate all offers
-			for (const offerId in this.offerManager.offers) this.offerManager.offers[offerId].timestamp = 0; // reset offers to retry
 			for (const id in this.peerStore.connecting) this.peerStore.kickPeer(id, 0, 'no_neighbors_left');
+			for (const offerId in this.offerManager.offers) this.offerManager.offers[offerId].timestamp = 0; // reset offers to retry
 		}
 
 		const remoteIsPublic = this.cryptoCodex.isPublicNode(peerId);
@@ -102,7 +105,7 @@ export class NodeP2P {
 		if (domain) {
 			node.nodeServices = new NodeServices(codex, node.peerStore, undefined, verbose);
 			node.nodeServices.start(domain, port);
-			node.networkEnhancer.nodeServices = node.nodeServices;
+			node.topologist.nodeServices = node.nodeServices;
 		}
 		if (start) node.start();
 		return node;
@@ -111,8 +114,8 @@ export class NodeP2P {
 		CLOCK.sync(this.verbose).then(() => {
 			this.started = true;
 			if (SIMULATION.AVOID_INTERVALS) return true; // SIMULATOR CASE
-			this.networkEnhancer.tryConnectNextBootstrap(); // first shot ASAP
-			this.enhancerInterval = setInterval(() => this.networkEnhancer.autoEnhancementTick(), DISCOVERY.LOOP_DELAY);
+			this.topologist.tryConnectNextBootstrap(); // first shot ASAP
+			this.enhancerInterval = setInterval(() => this.topologist.tick(), DISCOVERY.LOOP_DELAY);
 			this.peerStoreInterval = setInterval(() => { this.peerStore.cleanupExpired(); this.peerStore.offerManager.tick(); }, 2500);
 		});
 		return true;

@@ -34,13 +34,13 @@ export class NodeServices {
 		for (const peerId  in this.peerStore.connected) {
 			const conn = this.peerStore.connected[peerId];
 			const nonPublicNeighborsCount = this.peerStore.getUpdatedPeerConnectionsCount(peerId, false);
-			if (nonPublicNeighborsCount > DISCOVERY.TARGET_NEIGHBORS_COUNT) {
+			if (nonPublicNeighborsCount > DISCOVERY.TARGET_NEIGHBORS_COUNT) { // OVER CONNECTED
 				this.peerStore.kickPeer(peerId, NODE.SERVICE.AUTO_KICK_DURATION, 'freePublicNode');
-				if (++kicked >= maxKick) break;
+				if (this.peerStore.neighborsList.length <= DISCOVERY.TARGET_NEIGHBORS_COUNT) break;
+				else continue; // Don't count in maxKick
 			}
 
-			const bonusDelay = Math.round(nonPublicNeighborsCount < 2 ? delay / 2 : 0);
-			if (conn.getConnectionDuration() < delay + bonusDelay) continue;
+			if (conn.getConnectionDuration() < (nonPublicNeighborsCount > 2 ? delay : delay * 2)) continue;
 			this.peerStore.kickPeer(peerId, NODE.SERVICE.AUTO_KICK_DURATION, 'freePublicNode');
 			if (++kicked >= maxKick) break;
 		}

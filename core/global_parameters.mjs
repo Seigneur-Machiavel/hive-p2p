@@ -14,10 +14,10 @@ export const SIMULATION = {
 	ICE_OFFER_FAILURE_RATE: .2, 	// default: .2, 20% offer failure
 	ICE_ANSWER_FAILURE_RATE: .15, 	// default: .15, 15% answer failure
 	// SIMULATOR OPTIONS
-	AVOID_FOLLOWERS_NODES: true, 	// avoid twitch nodes creation | default: true
+	AVOID_FOLLOWERS_NODES: false, 	// avoid twitch nodes creation | default: true
 	AUTO_START: true,				// auto start the simulation, false to wait the frontend | default: true
-	PUBLIC_PEERS_COUNT: 10,			// stable: 3,  medium: 20,  strong: 100 | default: 2
-	PEERS_COUNT: 900, //1860,		// stable: 25, medium: 800, strong: 4900 | default: 12
+	PUBLIC_PEERS_COUNT: 100,		// stable: 3,  medium: 20,  strong: 100 | default: 2
+	PEERS_COUNT: 1860,				// stable: 25, medium: 800, strong: 4900 | default: 12
 	BOOTSTRAPS_PER_PEER: 10,		// will not be exact, more like a limit. null = all of them | default: 10
 	DELAY_BETWEEN_INIT: 60,			// 0 = faster for simulating big networks but > 0 = should be more realistic | default: 60 (60sec to start 1000 peers)
 	RANDOM_UNICAST_PER_SEC: 0,		// default: 0, max: 1 (per peer)
@@ -59,13 +59,14 @@ export const TRANSPORTS = {
 
 export const DISCOVERY = {
 	PEER_LINK_DELAY: 10_000,		// delay between two peer declaring their connection to each other | default: 10_000 (10 seconds)
-	PEER_LINK_EXPIRATION: 120_000,	// time to consider a peer connection as valid | default: 120_000 (120 seconds)
+	PEER_LINK_EXPIRATION: 60_000,	// time to consider a peer connection as valid | default: 120_000 (120 seconds)
 	MAX_OVERLAP: 4, 				// Max of shared neighbors | soft: 5, default: 4, strict: 3
 	LOOP_DELAY: 2_500, 				// delay between connection attempts | default: 2_500 (2.5 seconds)
 	TARGET_NEIGHBORS_COUNT: 5, 		// default: 8, light: 6, super-light: 4
 	ON_CONNECT_DISPATCH: {		// => on Node.#onConnect() // DEPRECATING
 		DELAY: 0, 					// delay before dispatching events | default: 100 (.1 seconds)
 		BROADCAST_EVENT: false,		// Boolean to indicate if we broadcast 'peer_connected'
+		OVER_NEIGHBORED: true,		// Boolean to indicate if we broadcast 'over_neighbored' event when we are over neighbored | default: true
 		SHARE_HISTORY: false,		// Boolean to indicate if we broadcastToPeer some gossip history to the new peer | default: true
 	},
 	ON_DISCONNECT_DISPATCH: {	// => on Node.#onDisconnect() // DEPRECATING
@@ -97,8 +98,10 @@ export const GOSSIP = { // MARKERS RANGE: 128-255
 	EXPIRATION: 10_000, 	// Time to consider a message as valid | default: 10_000 (10 seconds)
 	CACHE_DURATION: 20_000, // Duration to keep messages in cache
 	HOPS: { // GOSSIP LIMITATION > LIMITING THE HOPS BASED ON THE MESSAGE TYPE
-		default: 16, 		// 16 should be the maximum
-		// signal_offer: 6, // works with 3
+		default: 20, 		// 16 should be the maximum
+		signal_offer: 6, 	// works with 3 ?
+		diffusion_test: 100, // must be high to reach all peers
+		over_neighbored: 6,
 		// peer_connected: 3,
 		// peer_disconnected: 3,
 	},
@@ -121,5 +124,7 @@ export const GOSSIP = { // MARKERS RANGE: 128-255
 		'131': 'peer_disconnected',
 		diffusion_test: 132,
 		'132': 'diffusion_test',
+		over_neighbored: 133,
+		'133': 'over_neighbored',
 	},
 }
