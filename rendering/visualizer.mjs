@@ -117,7 +117,8 @@ class NetworkVisualizer {
 		if (this.networkRenderer.currentPeerId !== peerId) {
 			console.log(`Selected peer changed, now => ${peerId}`);
 			this.networkRenderer.maxDistance = 0; // reset maxDistance to show all nodes
-			this.networkRenderer.lastAutoZoomMaxDistance = 0;
+			this.networkRenderer.avoidAutoZoomUntil = Date.now() + 2000; // avoid auto-zoom for 2 seconds
+			this.networkRenderer.lastAutoZoomDistance = 0;
 			this.networkRenderer.clearNetwork(); // Clear network and scroll peerId into view
 
 			for (const peerItem of document.querySelectorAll(`#peersList div[data-peer-id]`))

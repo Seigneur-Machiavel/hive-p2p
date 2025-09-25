@@ -14,10 +14,10 @@ export const SIMULATION = {
 	ICE_OFFER_FAILURE_RATE: .2, 	// default: .2, 20% offer failure
 	ICE_ANSWER_FAILURE_RATE: .15, 	// default: .15, 15% answer failure
 	// SIMULATOR OPTIONS
-	AVOID_FOLLOWERS_NODES: false, 	// avoid twitch nodes creation | default: true
+	AVOID_FOLLOWERS_NODES: true, 	// avoid twitch nodes creation | default: true
 	AUTO_START: true,				// auto start the simulation, false to wait the frontend | default: true
-	PUBLIC_PEERS_COUNT: 100,		// stable: 3,  medium: 20,  strong: 100 | default: 2
-	PEERS_COUNT: 1860,				// stable: 25, medium: 800, strong: 4900 | default: 12
+	PUBLIC_PEERS_COUNT: 3,			// stable: 3,  medium: 20,  strong: 100 , hardcore: 100
+	PEERS_COUNT: 100,				// stable: 25, medium: 800, strong: 1860, hardcore: 4900
 	BOOTSTRAPS_PER_PEER: 10,		// will not be exact, more like a limit. null = all of them | default: 10
 	DELAY_BETWEEN_INIT: 60,			// 0 = faster for simulating big networks but > 0 = should be more realistic | default: 60 (60sec to start 1000 peers)
 	RANDOM_UNICAST_PER_SEC: 0,		// default: 0, max: 1 (per peer)
@@ -38,8 +38,11 @@ export const NODE = {
 }
 
 export const IDENTITY = {
-	ARE_IDS_HEX: false,				// Boolean to indicate if we use hex ids, default: true = hex | false = strings as Bytes (can involve in serialization failures)
+	DIFFICULTY: 0,					// number of leading CATEGORY_PREFIX in bits for anti-sybil | default: 0(disabled) | RECOMMENDED: 7 | ON APPLY IF ARE_IDS_HEX = TRUE
+	ARGON2_MEM: 2**17,				// Memory usage in KiB for Argon2 | default: 2**16 = 65_536 (64 MiB) | RECOMMENDED: 2**17 = 131_072 (128 MiB) | ON APPLY IF ARE_IDS_HEX = TRUE
+	ARE_IDS_HEX: true,				// Boolean to indicate if we use hex ids, default: true = hex | false = strings as Bytes (can involve in serialization failures)
 	PUBLIC_PREFIX: '0', 			// Identifier prefix for public nodes | default: '0'
+	STANDARD_PREFIX: '1', 			// Identifier prefix for standard nodes | default: '1'
 	ID_LENGTH: 16,					// !!EVEN NUMBER ONLY!! length of peer id | default: 16
 	PUBKEY_LENGTH: 32,				// length of public/private keys | (ed25519) default: 32 bytes
 	PRIVATEKEY_LENGTH: 32,			// length of private key | (ed25519) default: 32 bytes
@@ -126,4 +129,13 @@ export const GOSSIP = { // MARKERS RANGE: 128-255
 		over_neighbored: 133,
 		'133': 'over_neighbored',
 	},
+}
+
+export const LOG_CSS = {
+	SIMULATOR: 'color: yellow; font-weight: bold;',
+	CRYPTO_CODEX: 'color: green;',
+	GOSSIP: 'color: fuchsia;',
+	UNICAST: 'color: cyan;',
+	PEER_STORE: 'color: orange;',
+	PUNISHER: { BAN: 'color: red; font-weight: bold;', KICK: 'color: darkorange; font-weight: bold;' },
 }

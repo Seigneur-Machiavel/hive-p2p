@@ -4,7 +4,8 @@ import { NODE, DISCOVERY } from '../core/global_parameters.mjs';
 
 export class NetworkRenderer {
 	initCameraZ = 1400;
-	lastAutoZoomMaxDistance = 0;
+	avoidAutoZoomUntil = 0;
+	lastAutoZoomDistance = 0;
 	fpsCountElement = document.getElementById('fpsCount');
 	maxVisibleConnections = 500; // to avoid performance issues
 	autoRotateEnabled = true;
@@ -115,7 +116,8 @@ export class NetworkRenderer {
 		this.nodeIndexMap = {}; // id → instanceIndex
 		this.indexNodeMap = {}; // instanceIndex → id
 		this.nodeBorders = {}; // id → borderMesh
-		const geometry = new THREE.SphereGeometry(this.options.nodeRadius, 8, 6);
+
+		const geometry = new THREE.SphereGeometry(this.options.nodeRadius, 6, 3);
 		const material = new THREE.MeshBasicMaterial();
 		this.instancedMesh = new THREE.InstancedMesh(geometry, material, 50000);
 		this.instancedMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(50000 * 3), 3);
@@ -294,7 +296,10 @@ export class NetworkRenderer {
 		this.connectionsStore.updateOrAssignLineColor(relayerId, this.currentPeerId, this.colors.gossipIncomingColor, .8, frameToIgnore + 5);
 	}
     setCurrentPeer(peerId, clearNetworkOneChange = true) {
-		if (clearNetworkOneChange && peerId !== this.currentPeerId) this.clearNetwork();
+		if (clearNetworkOneChange && peerId !== this.currentPeerId) {
+			this.clearNetwork();
+			this.avoidAutoZoomUntil = 0;
+		}
 
         // Reset previous current peer
         if (this.currentPeerId && this.nodesStore.has(this.currentPeerId)) this.nodesStore.get(this.currentPeerId).status = 'known';
@@ -365,24 +370,24 @@ export class NetworkRenderer {
 	}
 	#autoZoom(margin = 1.2) {
 		if (!this.isAnimating || this.options.mode !== '3d' || this.isPhysicPaused) return;
-
+		if (this.avoidAutoZoomUntil > Date.now()) return;
+		
 		const maxDist = this.maxDistance * margin;
-		if (maxDist - this.lastAutoZoomMaxDistance < 20) return;
-
 		const fov = this.camera.fov * (Math.PI / 180);
 		const height = 2 * maxDist;
 		const distance = height / (2 * Math.tan(fov / 2));
-		const targetDistance = distance * 1.2;
+		const targetDistance = Math.max(distance * 1.2, this.initCameraZ);
 		const currentDistance = this.camera.position.length();
-		const zoomSpeed = 0.1;
-		const newDistance = currentDistance + (targetDistance - currentDistance) * zoomSpeed;
-		const finalDistance = Math.max(newDistance, this.initCameraZ);
+		const zoomSpeed = .1;
+		const mode = currentDistance < targetDistance ? true : false; // true = zoom out | false = zoom in
+		const delta = Math.min(20, Math.abs(targetDistance - currentDistance) * zoomSpeed);
+		const newDistance = mode ? currentDistance + delta : currentDistance - delta;
 
-		this.camera.position.normalize().multiplyScalar(finalDistance);
+		if (Math.abs(newDistance - this.lastAutoZoomDistance) < 1) return;
+		this.lastAutoZoomDistance = newDistance;
+
+		this.camera.position.normalize().multiplyScalar(newDistance);
 		this.camera.lookAt(0, 0, 0);
-
-		if (Math.abs(currentDistance - targetDistance) < 10) 
-			this.lastAutoZoomMaxDistance = maxDist;
 	}
     #setupControls() {
 		let setupAutoRotateTimeout;
@@ -475,6 +480,7 @@ export class NetworkRenderer {
 
                 previousMousePosition.x = e.clientX;
                 previousMousePosition.y = e.clientY;
+				this.avoidAutoZoomUntil = Date.now() + 5000;
             }
 
             this.#handleMouseMove(e);
@@ -486,6 +492,7 @@ export class NetworkRenderer {
             const forward = new THREE.Vector3();
             this.camera.getWorldDirection(forward);
             this.camera.position.add(forward.multiplyScalar(e.deltaY * -zoomSpeed));
+			this.avoidAutoZoomUntil = Date.now() + 5000;
         });
 
 		this.elements.modeSwitchBtn.addEventListener('click', () => this.switchMode());
@@ -707,7 +714,7 @@ export class NetworkRenderer {
 			this.#autoRotate();
 			this.#autoZoom();
 		}
-		
+
 		this.instancedMesh.instanceMatrix.needsUpdate = true;
 		this.instancedMesh.instanceColor.needsUpdate = true;
 		this.renderer.render(this.scene, this.camera);

@@ -1,4 +1,4 @@
-import { CLOCK, NODE, TRANSPORTS } from './global_parameters.mjs';
+import { CLOCK, NODE, TRANSPORTS, LOG_CSS } from './global_parameters.mjs';
 import { PeerConnection } from './peer-store-utilities.mjs';
 import { xxHash32 } from '../libs/xxhash32.mjs';
 import wrtc from 'wrtc';
@@ -105,10 +105,12 @@ export class OfferManager { // Manages the creation of SDP offers and handling o
 
 		return instance;
 	}
-	#logAndOrIgnore(error, incl = '', level = 2) {
-		if (this.verbose < level && error.message.includes(incl)) return true; // avoid logging
-		if (this.verbose >= level && error.message.includes(incl)) return console.info(`%c OfferManager => ${error.message}`, 'color: orange;');
-		return false;
+	/** @param {Error} error @param {string} incl @param {number} level @param {'includes' | 'startsWith'} searchMode (Prefer 'startsWith' for performance) */
+	#logAndOrIgnore(error, incl = '', level = 2, searchMode = 'includes') { // if false => log it fully, if true => ignore it (message logged or ignored based on level)
+		if (searchMode[0] === 'i' && !error.message.includes(incl)) return false;
+		else if (!error.message.startsWith(incl)) return false;
+		if (this.verbose >= level) console.info(`%cOfferManager => ${error.message}`, LOG_CSS.PEER_STORE);
+		return true;
 	}
 	#onError = (error) => {
 		if (this.verbose < 1) return; // avoid logging
@@ -117,14 +119,13 @@ export class OfferManager { // Manages the creation of SDP offers and handling o
 		if (this.#logAndOrIgnore(error, 'Connection failed', 2)) return;
 		// --PRODUCTION ----------------- --|
 
-		if (this.verbose < 3 && error.message.startsWith('Simulated failure')) return; // avoid logging
-		if (this.verbose < 2 && error.message.startsWith('Failed to digest')) return; // avoid logging
-		if (this.verbose < 2 && error.message.startsWith('No peer found')) return; // avoid logging
-		if (this.verbose < 2 && error.message.startsWith('Missing transport instance')) return; // avoid logging
-		if (this.verbose < 2 && error.message.startsWith('Failed to create answer')) return; // avoid logging
-		if (this.verbose < 3 && error.message.startsWith('Transport instance already')) return; // avoid logging
-		if (this.verbose < 2 && error.message === 'cannot signal after peer is destroyed') return; // avoid logging
-
+		if (this.#logAndOrIgnore(error, 'Remote transport instance', 3, 'startsWith')) return;
+		if (this.#logAndOrIgnore(error, 'Simulated failure', 4, 'startsWith')) return;
+		if (this.#logAndOrIgnore(error, 'No peer found', 4, 'startsWith')) return;
+		if (this.#logAndOrIgnore(error, 'Missing transport instance', 2, 'startsWith')) return;
+		if (this.#logAndOrIgnore(error, 'Failed to create answer', 2, 'startsWith')) return;
+		if (this.#logAndOrIgnore(error, 'Transport instance already', 3, 'startsWith')) return;
+		if (this.#logAndOrIgnore(error, 'cannot signal after peer is destroyed', 3, 'startsWith')) return;
 		if (this.#logAndOrIgnore(error, 'No pending', 3)) return;
 		if (this.#logAndOrIgnore(error, 'is already linked', 3)) return;
 		if (this.#logAndOrIgnore(error, 'There is already a pending', 3)) return;
@@ -165,7 +166,7 @@ export class OfferManager { // Manages the creation of SDP offers and handling o
 			return new PeerConnection(remoteId, instance, 'in');
 		} catch (error) {
 			if (error.message.startsWith('No pending offer found') && this.verbose < 2) return null; // avoid logging
-			if (this.verbose > 1 && error.message.startsWith('No pending offer found')) return console.info(`%c${error.message}`, 'color: orange;');
+			if (this.verbose > 1 && error.message.startsWith('No pending offer found')) return console.info(`%c${error.message}`, LOG_CSS.PEER_STORE);
 			if (this.verbose > 0) console.error(error.stack);
 		}
 	}

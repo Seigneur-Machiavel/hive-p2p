@@ -1,4 +1,4 @@
-import { SIMULATION, NODE, UNICAST, GOSSIP } from '../core/global_parameters.mjs';
+import { SIMULATION, NODE, UNICAST, GOSSIP, LOG_CSS } from '../core/global_parameters.mjs';
 import { CryptoCodex } from '../core/crypto-codex.mjs';
 
 export class MessageQueue {
@@ -43,8 +43,8 @@ export class Statician { // DO NOT ADD VARIABLES, JUST COUNTERS !!
 			}
 			const averagePeersConnections = peersConnectionsCount.length === 0 ? 0 : (peersConnectionsCount.reduce((a, b) => a + b, 0) / peersConnectionsCount.length).toFixed(1);
 
-			if (verbose) console.info(`%c${Math.floor((Date.now() - sVARS.startTime) / 1000)}sec elapsed | Active: ${sVARS.publicInit + (sVARS.nextPeerToInit - 1)}/${Object.keys(peers.all).length} (${establishedWrtcConnCount}/${wrtcToEstablishCount} est. WebRTC | ${averagePeersConnections} avg conns on the ${establishedWrtcConnCount})`, 'color: yellow;');
-			if (verbose) console.info(`%c--STATS/sec: ${this.#getSimulationStatsPerSecond(delay)}`, 'color: yellow;');
+			if (verbose) console.info(`%c${Math.floor((Date.now() - sVARS.startTime) / 1000)}sec elapsed | Active: ${sVARS.publicInit + (sVARS.nextPeerToInit - 1)}/${Object.keys(peers.all).length} (${establishedWrtcConnCount}/${wrtcToEstablishCount} est. WebRTC | ${averagePeersConnections} avg conns on the ${establishedWrtcConnCount})`, LOG_CSS.SIMULATOR);
+			if (verbose) console.info(`%c--STATS/sec: ${this.#getSimulationStatsPerSecond(delay)}`, LOG_CSS.SIMULATOR);
 			for (const key in this) this[key] = 0;
 		}, delay);
 	}
@@ -162,13 +162,10 @@ export class SubscriptionsManager {
 			const sessionUnicastBandwidthSec = Math.round(this.unicastBandwidth.session / divider);
 			const [gossipLog, unicastLog] = [this.#getPeerStatsPerSecond('gossip', 'count', divider), this.#getPeerStatsPerSecond('unicast', 'count', divider)];
 			const [gossipBandwidthLog, unicastBandwidthLog] = [this.#getPeerStatsPerSecond('gossip', 'bandwidth', divider), this.#getPeerStatsPerSecond('unicast', 'bandwidth', divider)];
-			//if (gossipLog) console.log(`%c~GOSSIP/sec (total: ${sessionGossipSec} [${sessionGossipBandwidthSec} bytes]): ${gossipLog} [bytes: ${gossipBandwidthLog}]`, 'color: fuchsia;');
-			//if (unicastLog) console.log(`%c~UNICAST/sec (total: ${sessionUnicastSec} [${sessionUnicastBandwidthSec} bytes]): ${unicastLog} [bytes: ${unicastBandwidthLog}]`, 'color: cyan;');
-
-			if (gossipLog && this.verbose) console.log(`%c~GOSSIP/sec (total: ${sessionGossipSec}): ${gossipLog}`, 'color: fuchsia;');
-			if (gossipBandwidthLog && this.verbose) console.log(`%c~BANDWIDTH/sec (total: ${sessionGossipBandwidthSec} bytes): ${gossipBandwidthLog}`, 'color: fuchsia;');
-			if (unicastLog && this.verbose) console.log(`%c~UNICAST/sec (total: ${sessionUnicastSec}): ${unicastLog}`, 'color: cyan;');
-			if (unicastBandwidthLog && this.verbose) console.log(`%c~BANDWIDTH/sec (total: ${sessionUnicastBandwidthSec} bytes): ${unicastBandwidthLog}`, 'color: cyan;');
+			if (gossipLog && this.verbose) console.log(`%c~GOSSIP/sec (total: ${sessionGossipSec}): ${gossipLog}`, LOG_CSS.GOSSIP);
+			if (gossipBandwidthLog && this.verbose) console.log(`%c~BANDWIDTH/sec (total: ${sessionGossipBandwidthSec} bytes): ${gossipBandwidthLog}`, LOG_CSS.GOSSIP);
+			if (unicastLog && this.verbose) console.log(`%c~UNICAST/sec (total: ${sessionUnicastSec}): ${unicastLog}`, LOG_CSS.UNICAST);
+			if (unicastBandwidthLog && this.verbose) console.log(`%c~BANDWIDTH/sec (total: ${sessionUnicastBandwidthSec} bytes): ${unicastBandwidthLog}`, LOG_CSS.UNICAST);
 
 			// RESET SESSION COUNTERS
 			this.gossipCount.session = 0;

@@ -10,12 +10,45 @@ const { SANDBOX, ICE_CANDIDATE_EMITTER, TEST_WS_EVENT_MANAGER } = SIMULATION.ENA
  * @property {'offer' | 'answer'} signal.type
  * @property {string} signal.sdp
  * @property {string} [offerHash]
+ * 
+ * @typedef {Object} OfferQueueItem
+ * @property {string} senderId
+ * @property {SignalData} data
+ * @property {number} overlap
+ * @property {number} neighborsCount
+ * @property {number} timestamp
  * */
 
+class OfferQueue {
+	maxOffers = 30;
+	/** @type {Array<OfferQueueItem>} */ offers = [];
+	/** @type {'overlap' | 'neighborsCount'} */ orderingBy = 'neighborsCount';
+	get size() { return this.offers.length; }
+
+	updateOrderingBy(isHalfTargetReached = false) { this.orderingBy = isHalfTargetReached ? 'overlap' : 'neighborsCount'; }
+	removeOlderThan(age = 1000) { this.offers = this.offers.filter(item => item.timestamp + age >= CLOCK.time); }
+	get bestOfferInfo() {
+		const { senderId, overlap, neighborsCount, data, timestamp } = this.offers.shift() || {};
+		return { senderId, data, timestamp, value: this.orderingBy === 'overlap' ? overlap : neighborsCount };
+	}
+	
+	/** @param {OfferQueueItem} offer @param {boolean} isHalfTargetReached @param {{min: number, max: number}} [ignoringFactors] */
+	pushSortTrim(offer, ignoringFactors = {min: .2, max: .8}) { // => 20%-80% to ignore the offer depending on the queue length
+		const { min, max } = ignoringFactors; // AVOID SIMULATOR FLOODING, AND AVOID ALL PEERS TO PROCESS SAME OFFERS
+		if (Math.random() < Math.min(min, this.offers.size / this.maxOffers * max)) return;
+
+		this.offers.push(offer);
+		if (this.offers.length === 1) return;
+
+		// SORT THE QUEUE: by overlap ASCENDING, or by neighborsCount DESCENDING
+		this.offers.sort((a, b) => this.orderingBy === 'overlap' ? a.overlap - b.overlap : b.neighborsCount - a.neighborsCount);
+		if (this.size > this.maxOffers) this.offers.pop();
+	}
+}
+
 export class Topologist {
-	/** @type {Array<{senderId: string, data: SignalData, overlap: number, neighborsCount: number, timestamp: number}>} */
-	offersQueue = []; // OFFERS QUEUE
-	maxOffers = 30; // max offers in the queue
+	maxBonus = NODE.CONNECTION_UPGRADE_TIMEOUT * .2; // 20% of 15sec: 3sec max
+	offersQueue = new OfferQueue();
 	id;
 	gossip;
 	messager;
@@ -56,41 +89,28 @@ export class Topologist {
 	/** @param {string} peerId @param {SignalData} data @param {number} [HOPS] */
 	handleIncomingSignal(senderId, data, HOPS) {
 		if (this.isPublicNode || !senderId || this.peerStore.isKicked(senderId)) return;
-		const { signal, offerHash } = data || {}; // remoteInfo
-		if (signal.type !== 'offer' && signal.type !== 'answer') return;
-
-		const { connected, nonPublicNeighborsCount, isTooMany, isHalfReached } = this.#localTopologyInfo;
-		if (isTooMany) return; // AVOID CONNECTING TO TOO MANY "NON-PUBLIC PEERS"
-		if (connected[senderId]) return; // already connected
-		if (signal.type === 'answer') { // ANSWER SHORT CIRCUIT
-			if (this.peerStore.addConnectingPeer(senderId, signal, offerHash) !== true) return;
-			const p1NonPublicCount = this.#getOverlap(senderId).p1NonPublicCount;
-			const maxBonus = NODE.CONNECTION_UPGRADE_TIMEOUT * .2; // 20% of 15sec: 3sec max
-			// Rich should connect poor, and poor should connect rich.
-			const delta = Math.abs(nonPublicNeighborsCount - p1NonPublicCount);
-			const bonusPerDeltaPoint = maxBonus / DISCOVERY.TARGET_NEIGHBORS_COUNT; // from 0 to maxBonus
-			const bonus = Math.round(Math.min(maxBonus, delta * bonusPerDeltaPoint));
-			this.peerStore.assignSignal(senderId, signal, offerHash, CLOCK.time + bonus);
-			return;
-		}
+		if (data.signal?.type !== 'offer' && data.signal?.type !== 'answer') return;
 		
-		// Set the OFFER signal at the right position:
-		// > lower overlap first, if we have neighbors.
-		// > higher non-public neighbors count first if we don't have neighbors
-		// or if still space in the queue, add it at the end...
-		// AVOID SIMULATOR FLOODING, AND AVOID ALL PEERS TO PROCESS SAME OFFERS
-		// if (nonPublicNeighborsCount > this.twiceTarget) return; // we are over connected, ignore the offer
-		if (Math.random() < Math.min(0.2, this.offersQueue.length / this.maxOffers * 0.8)) return; // => 20%-80% to ignore the offer depending on the queue length
-		const { overlap, p1NonPublicCount } = this.#getOverlap(senderId);
-		if (p1NonPublicCount > this.twiceTarget) return; // the sender is over connected, ignore the offer
-		for (let i = 0; i < this.offersQueue.length; i++) { // place new best => before
-			const queueValue = this.offersQueue[i][isHalfReached ? 'overlap' : 'neighborsCount'];
-			if (isHalfReached && queueValue <= overlap) continue;  // lowest overlap
-			if (!isHalfReached && queueValue >= p1NonPublicCount) continue; // highest neighbors count
-			this.offersQueue.splice(i, 0, { senderId, data, overlap, neighborsCount: p1NonPublicCount, timestamp: CLOCK.time });
-			return this.offersQueue.length <= this.maxOffers ? null : this.offersQueue.pop();
+		const { signal, offerHash } = data || {}; // remoteInfo
+		const { connected, nonPublicNeighborsCount, isTooMany, isHalfReached } = this.#localTopologyInfo;
+		if (isTooMany || connected[senderId]) return;
+
+		if (signal.type === 'answer') { // ANSWER SHORT CIRCUIT => Rich should connect poor, and poor should connect rich.
+			if (this.peerStore.addConnectingPeer(senderId, signal, offerHash) !== true) return;
+			const delta = Math.abs(nonPublicNeighborsCount - this.#getOverlap(senderId).nonPublicCount);
+			const bonusPerDeltaPoint = this.maxBonus / DISCOVERY.TARGET_NEIGHBORS_COUNT; // from 0 to maxBonus
+			const bonus = Math.round(Math.min(this.maxBonus, delta * bonusPerDeltaPoint));
+			return this.peerStore.assignSignal(senderId, signal, offerHash, CLOCK.time + bonus);
 		}
-		if (this.offersQueue.length < this.maxOffers) this.offersQueue.push({ senderId, data, overlap, neighborsCount: p1NonPublicCount, timestamp: CLOCK.time });
+
+		// OFFER
+		if (nonPublicNeighborsCount > this.twiceTarget) return; // we are over connected, ignore the offer
+		const { overlap, nonPublicCount } = this.#getOverlap(senderId);
+		if (nonPublicCount > this.twiceTarget) return; // the sender is over connected, ignore the offer
+		
+		const offerItem = { senderId, data, overlap, neighborsCount: nonPublicCount, timestamp: CLOCK.time };
+		this.offersQueue.updateOrderingBy(isHalfReached);
+		this.offersQueue.pushSortTrim(offerItem);
 	}
 	tryConnectNextBootstrap(neighborsCount = 0, nonPublicNeighborsCount = 0) {
 		if (this.bootstrapsIds.size === 0) return;
@@ -123,8 +143,8 @@ export class Topologist {
 	}
 	#getOverlap(peerId1 = 'toto') {
 		const p1n = this.peerStore.known[peerId1]?.neighbors || {};
-		const result = { overlap: 0, p1NonPublicCount: 0, p1nCount: this.peerStore.getUpdatedPeerConnectionsCount(peerId1) };
-		for (const id in p1n) if (!CryptoCodex.isPublicNode(id)) result.p1NonPublicCount++;
+		const result = { overlap: 0, nonPublicCount: 0, p1nCount: this.peerStore.getUpdatedPeerConnectionsCount(peerId1) };
+		for (const id in p1n) if (!CryptoCodex.isPublicNode(id)) result.nonPublicCount++;
 		for (const id of this.peerStore.standardNeighborsList) if (p1n[id]) result.overlap++;
 		return result;
 	}
@@ -170,7 +190,7 @@ export class Topologist {
 		
 		let bestValue = null;
 		for (const overlapInfo of this.#getOverlaps(this.peerStore.standardNeighborsList)) {
-			const value = overlapInfo[isHalfReached ? 'overlap' : 'p1NonPublicCount'];
+			const value = overlapInfo[isHalfReached ? 'overlap' : 'nonPublicCount'];
 			if (bestValue === null) bestValue = value;
 			if (isHalfReached && value < bestValue) bestValue = value;
 			if (!isHalfReached && value <= bestValue) bestValue = value;
@@ -185,11 +205,11 @@ export class Topologist {
 			if (id === this.id || CryptoCodex.isPublicNode(id) || this.peerStore.isKicked(id)) continue;
 			else if (this.peerStore.connected[id] || this.peerStore.connecting[id]) continue;
 			
-			const { overlap, p1NonPublicCount } = this.#getOverlap(id);
-			if (p1NonPublicCount > DISCOVERY.TARGET_NEIGHBORS_COUNT) continue; // the peer is over connected, ignore it
-			if (bestValue === null) bestValue = isHalfReached ? overlap : p1NonPublicCount;
+			const { overlap, nonPublicCount } = this.#getOverlap(id);
+			if (nonPublicCount > DISCOVERY.TARGET_NEIGHBORS_COUNT) continue; // the peer is over connected, ignore it
+			if (bestValue === null) bestValue = isHalfReached ? overlap : nonPublicCount;
 			if (isHalfReached && overlap > bestValue) continue; // only target lowest overlap
-			if (!isHalfReached && p1NonPublicCount < bestValue) continue; // only target highest neighbors count
+			if (!isHalfReached && nonPublicCount < bestValue) continue; // only target highest neighbors count
 			selectedIds.push(id);
 			if (--maxIds <= 0) break;
 		}
@@ -210,31 +230,28 @@ export class Topologist {
 	 * - Highest neighbors count if we don't */
 	#digestBestOffers() {
 		let bestValue = null;
-		const now = CLOCK.time;
-		const nonPublicNeighborsCount = this.peerStore.standardNeighborsList.length;
 		let connectingCount = Object.keys(this.peerStore.connecting).length;
-		this.offersQueue = this.offersQueue.filter(item => item.timestamp + (TRANSPORTS.SDP_OFFER_EXPIRATION / 2) >= now);
-		for (let i = 0; i < this.offersQueue.length; i++) { // SELECT BEST
-			if (connectingCount >= this.twiceTarget) break; // avoid processing too many offers when we are already trying to connect to many peers
-			const { senderId, overlap, neighborsCount, data, timestamp } = this.offersQueue.shift() || {};
-			if (!senderId || this.peerStore.connected[senderId] || this.peerStore.isKicked(senderId)) continue;
+		this.offersQueue.updateOrderingBy(this.#localTopologyInfo.isHalfReached);
+		this.offersQueue.removeOlderThan(TRANSPORTS.SDP_OFFER_EXPIRATION / 2); // remove close to expiration offers
+		for (let i = 0; i < this.offersQueue.size; i++) {
+			const { senderId, data, timestamp, value } = this.offersQueue.bestOfferInfo;
+			if (!senderId || !data || !timestamp) break;
+			if (this.peerStore.connected[senderId] || this.peerStore.isKicked(senderId)) continue;
 			if (this.peerStore.connecting[senderId]?.['in']) continue;
-			if (bestValue === null) bestValue = nonPublicNeighborsCount ? overlap : neighborsCount;
-			if (nonPublicNeighborsCount && overlap > bestValue) continue;
-			if (!nonPublicNeighborsCount && neighborsCount < bestValue) continue;
+			bestValue = bestValue === null ? value : bestValue;
+			if (bestValue !== value) break; // stop if the value is not the best anymore
+
 			if (this.peerStore.addConnectingPeer(senderId, data.signal, data.offerHash) !== true) continue;
 			this.peerStore.assignSignal(senderId, data.signal, data.offerHash, timestamp);
 			connectingCount++;
 		}
 	}
+	
 	/** Kick the peer with the biggest overlap (any round of 2.5sec is isTooMany)
 	 * - If all peers have the same overlap, kick the one with the most non-public neighbors */
 	#improveTopologyByKickingPeers() {
 		const overlaps = this.#getOverlaps(this.peerStore.standardNeighborsList);
-		const sortedPeers = overlaps.sort((a, b) => {
-			if (b.overlap !== a.overlap) return b.overlap - a.overlap;
-			return b.p1NonPublicCount - a.p1NonPublicCount;
-		});
+		const sortedPeers = overlaps.sort((a, b) => b.overlap - a.overlap || b.nonPublicCount - a.nonPublicCount);
 		this.peerStore.kickPeer(sortedPeers[0].id, 60_000, 'improveTopology');
 	}
 }

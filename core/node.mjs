@@ -97,9 +97,9 @@ export class NodeP2P {
 	get publicUrl() { return this.nodeServices?.publicUrl; }
 
 	/** @param {Array<string>} bootstraps @param {CryptoCodex} [cryptoCodex] - Identity of the node; if not provided, a new one will be generated @param {boolean} [start] default: false @param {string} [domain] public node only, ex: 'localhost' @param {number} [port] public node only, ex: 8080 */
-	static createNode(bootstraps, cryptoCodex, start = true, domain, port = NODE.SERVICE.PORT, verbose = NODE.DEFAULT_VERBOSE) {
+	static async createNode(bootstraps, cryptoCodex, start = true, domain, port = NODE.SERVICE.PORT, verbose = NODE.DEFAULT_VERBOSE) {
 		const codex = cryptoCodex || new CryptoCodex();
-		if (!codex.publicKey) codex.generate(domain ? true : false);
+		if (!codex.publicKey) await codex.generate(domain ? true : false);
 
 		const node = new NodeP2P(codex, bootstraps, verbose);
 		if (domain) {
@@ -107,17 +107,16 @@ export class NodeP2P {
 			node.nodeServices.start(domain, port);
 			node.topologist.nodeServices = node.nodeServices;
 		}
-		if (start) node.start();
+		if (start) await node.start();
 		return node;
 	}
-	start() {
-		CLOCK.sync(this.verbose).then(() => {
-			this.started = true;
-			if (SIMULATION.AVOID_INTERVALS) return true; // SIMULATOR CASE
-			this.topologist.tryConnectNextBootstrap(); // first shot ASAP
-			this.enhancerInterval = setInterval(() => this.topologist.tick(), DISCOVERY.LOOP_DELAY);
-			this.peerStoreInterval = setInterval(() => { this.peerStore.cleanupExpired(); this.peerStore.offerManager.tick(); }, 2500);
-		});
+	async start() {
+		await CLOCK.sync(this.verbose);
+		this.started = true;
+		if (SIMULATION.AVOID_INTERVALS) return true; // SIMULATOR CASE
+		this.topologist.tryConnectNextBootstrap(); // first shot ASAP
+		this.enhancerInterval = setInterval(() => this.topologist.tick(), DISCOVERY.LOOP_DELAY);
+		this.peerStoreInterval = setInterval(() => { this.peerStore.cleanupExpired(); this.peerStore.offerManager.tick(); }, 2500);
 		return true;
 	}
 	/** Broadcast a message to all connected peers or to a specified peer

@@ -1,4 +1,4 @@
-import { CLOCK, SIMULATION, DISCOVERY } from './global_parameters.mjs';
+import { CLOCK, SIMULATION, DISCOVERY, LOG_CSS } from './global_parameters.mjs';
 import { PeerConnection, KnownPeer, Punisher } from './peer-store-utilities.mjs';
 const { SANDBOX, ICE_CANDIDATE_EMITTER, TEST_WS_EVENT_MANAGER } = SIMULATION.ENABLED ? await import('../simulation/test-transports.mjs') : {};
 /** @typedef {{ in: PeerConnection, out: PeerConnection }} PeerConnecting */
@@ -62,17 +62,17 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 	// PRIVATE METHODS
 	/** @param {string} peerId @param {'in' | 'out'} direction */
 	#handleConnect(peerId, direction) { // First callback assigned in constructor
-		if (!this.connecting[peerId]?.[direction]) return this.verbose >= 3 ? console.info(`%cPeer with ID ${peerId} is not connecting.`, 'color: orange;') : null;
+		if (!this.connecting[peerId]?.[direction]) return this.verbose >= 3 ? console.info(`%cPeer with ID ${peerId} is not connecting.`, LOG_CSS.PEER_STORE) : null;
 		
 		const peerConn = this.connecting[peerId][direction];
 		this.#removePeer(peerId, 'connecting', direction); // remove from connecting now, we are connected or will fail
 		if (this.isKicked(peerId)) {
-			if (this.verbose >= 3) console.info(`%c(${this.id}) Connect => Peer with ID ${peerId} is kicked. => close()`, 'color: orange;');
+			if (this.verbose >= 3) console.info(`%c(${this.id}) Connect => Peer with ID ${peerId} is kicked. => close()`, LOG_CSS.PEER_STORE);
 			return peerConn.close();
 		}
 
 		if (this.connected[peerId]) {
-			if (this.verbose > 1) console.warn(`%c(${this.id}) Connect => Peer with ID ${peerId} is already connected. => close()`, 'color: orange;');
+			if (this.verbose > 1) console.warn(`%c(${this.id}) Connect => Peer with ID ${peerId} is already connected. => close()`, LOG_CSS.PEER_STORE);
 			return peerConn.close();
 		}
 	
@@ -133,7 +133,7 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 				if (!this.connecting[peerId][dir]) continue;
 				const bonusTime = this.connected[peerId] ? 10000 : 0; // give some extra time if we are already connected to this peer
 				if (this.connecting[peerId][dir].pendingUntil + bonusTime > now) continue;
-				if (this.verbose >= 3 && !this.connected[peerId]) console.info(`%c(${this.id}) Pending ${dir} connection to peer ${peerId} expired.`, 'color: orange;');
+				if (this.verbose >= 4 && !this.connected[peerId]) console.info(`%c(${this.id}) Pending ${dir} connection to peer ${peerId} expired.`, LOG_CSS.PEER_STORE);
 				if (this.verbose > 0 && this.connected[peerId]?.direction === dir) console.info(`%c(${this.id}) Pending ${dir} connection to peer ${peerId} expired (already connected WARNING!).`, 'color: white;');
 				//if (!this.connecting[peerId]?.in?.isWebSocket) this.connecting[peerId]?.in?.close(); // close only in connection => out conn can be used by others answers
 				//else this.connecting[peerId]?.close();
@@ -177,7 +177,7 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 		if (this.connecting[remoteId]?.[direction]) return; // already connecting out (should not happen)
 
 		const peerConnection = this.offerManager.getPeerConnexionForSignal(remoteId, signal, offerHash);
-		if (!peerConnection) return this.verbose > 3 ? console.info(`%cFailed to get/create a peer connection for ID ${remoteId}.`, 'color: orange;') : null;
+		if (!peerConnection) return this.verbose > 3 ? console.info(`%cFailed to get/create a peer connection for ID ${remoteId}.`, LOG_CSS.PEER_STORE) : null;
 
 		if (!this.connecting[remoteId]) this.connecting[remoteId] = {};
 		if (this.connecting[remoteId]) this.connecting[remoteId][direction] = peerConnection;

@@ -1,11 +1,12 @@
-import { CLOCK, SIMULATION, NODE, IDENTITY, GOSSIP, UNICAST } from './global_parameters.mjs';
+import { CLOCK, SIMULATION, NODE, IDENTITY, GOSSIP, UNICAST, LOG_CSS } from './global_parameters.mjs';
 import { GossipMessage } from './gossip.mjs';
 import { DirectMessage, ReroutedDirectMessage } from './unicast.mjs';
 import { Converter } from '../services/converter.mjs';
-import { ed25519 } from '../services/cryptos.mjs';
+import { ed25519, Argon2Unified } from '../services/cryptos.mjs';
 export { Converter };
 
 export class CryptoCodex {
+	argon2 = new Argon2Unified();
 	converter = new Converter();
 	AVOID_CRYPTO = false;
 	verbose = NODE.DEFAULT_VERBOSE;
@@ -29,24 +30,38 @@ export class CryptoCodex {
 	/** @param {string} id */
 	get idLength() { return IDENTITY.ARE_IDS_HEX ? IDENTITY.ID_LENGTH / 2 : IDENTITY.ID_LENGTH; }
 	isPublicNode(id) { return CryptoCodex.isPublicNode(id); }
-    /** @param {Uint8Array} [seed] The privateKey. DON'T USE IN SIMULATION */
-	generate(isPublicNode, seed) { // Generate Ed25519 keypair cross-platform | set id only for simulator
+    /** @param {boolean} asPublicNode @param {Uint8Array} [seed] The privateKey. DON'T USE IN SIMULATION */
+	async generate(asPublicNode, seed) { // Generate Ed25519 keypair cross-platform | set id only for simulator
 		if (this.nodeId) return;
-		this.#generateAntiSybilIdentity(seed, isPublicNode ? true : false, 0);
+		await this.#generateAntiSybilIdentity(seed, asPublicNode);
+		if (!this.id) throw new Error('Failed to generate identity');
     }
+	/** Check if the id meets the difficulty @param {string} bitsString PubkeyHash hash as string @param {number} [difficulty] default: IDENTITY.DIFFICULTY(default: 0) */
+	pubkeyHashDifficultyCheck(bitsString, difficulty = IDENTITY.DIFFICULTY) { if (bitsString.startsWith('0'.repeat(difficulty))) return true; }
+	// Make it static?
 	#idFromPublicKey(publicKey) {
 		if (IDENTITY.ARE_IDS_HEX) return this.converter.bytesToHex(publicKey.slice(0, this.idLength), IDENTITY.ID_LENGTH);
 		return this.converter.bytesToString(publicKey.slice(0, IDENTITY.ID_LENGTH));
 	}
-	#generateAntiSybilIdentity(seed, isPublicNode, difficulty = 0) {
-		for (let i = 0; i < 1000; i++) { // avoid infinite loop
+	/** @param {Uint8Array} seed The privateKey. @param {boolean} asPublicNode @param {number} [difficulty] default: IDENTITY.DIFFICULTY(default: 0) */
+	async #generateAntiSybilIdentity(seed, asPublicNode, difficulty = IDENTITY.DIFFICULTY) {
+		const maxIterations = (2 ** difficulty) * 100; // avoid infinite loop
+		for (let i = 0; i < maxIterations; i++) { // avoid infinite loop
 			const { secretKey, publicKey } = ed25519.keygen(seed);
 			const id = this.#idFromPublicKey(publicKey);
-			if (isPublicNode && !this.isPublicNode(id)) continue; // Check prefix
-			if (!isPublicNode && this.isPublicNode(id)) continue; // Check prefix
+			if (asPublicNode && !this.isPublicNode(id)) continue; // Check prefix
+			if (!asPublicNode && this.isPublicNode(id)) continue; // Check prefix
+
+			const { bitsString } = await this.argon2.hash(secretKey, 'HiveP2P', IDENTITY.ARGON2_MEM) || {};
+			if (!bitsString) continue;
+			if (difficulty && !this.pubkeyHashDifficultyCheck(bitsString, difficulty)) continue;
+
 			this.id = id;
 			this.privateKey = secretKey; this.publicKey = publicKey;
+			if (this.verbose > 2) console.log(`%cNode generated id: ${this.id} (isPublic: ${asPublicNode}, difficulty: ${difficulty}) after ${((i + 1) / 2).toFixed(1)} iterations`, LOG_CSS.CRYPTO_CODEX);
+			return;
 		}
+		if (this.verbose > 0) console.log(`%cFAILED to generate id after ${maxIterations} iterations. Try lowering the difficulty.`, LOG_CSS.CRYPTO_CODEX);
 	}
 
 	// MESSSAGE CREATION (SERIALIZATION AND SIGNATURE INCLUDED)
@@ -160,7 +175,8 @@ export class CryptoCodex {
 	}
 	/** @param {Uint8Array | ArrayBuffer} serialized @return {GossipMessage | null } */
 	readGossipMessage(serialized) {
-		if (this.verbose > 3) console.log('readGossipMessage', serialized);
+		if (this.verbose > 3) console.log(`%creadGossipMessage ${serialized.byteLength} bytes`, LOG_CSS.CRYPTO_CODEX);
+		if (this.verbose > 3) console.log(`%c${serialized}`, LOG_CSS.CRYPTO_CODEX);
 		try { // 1, 1, 1, 8, 4, 32, X, 64, 1
 			const { marker, dataCode, neighLength, timestamp, dataLength, pubkey, associatedId } = this.readBufferHeader(serialized);
 			const topic = GOSSIP.MARKERS_BYTES[marker];
@@ -177,7 +193,8 @@ export class CryptoCodex {
 	}
 	/** @param {Uint8Array | ArrayBuffer} serialized @return {DirectMessage | ReroutedDirectMessage | null} */
 	readUnicastMessage(serialized) {
-		if (this.verbose > 3) console.log('readUnicastMessage', serialized);
+		if (this.verbose > 3) console.log(`%creadUnicastMessage ${serialized.byteLength} bytes`, LOG_CSS.CRYPTO_CODEX);
+		if (this.verbose > 3) console.log(`%c${serialized}`, LOG_CSS.CRYPTO_CODEX);
 		try { // 1, 1, 1, 8, 4, 32, X, 1, X, 64
 			const { marker, dataCode, neighLength, timestamp, dataLength, pubkey } = this.readBufferHeader(serialized, false);
 			const type = UNICAST.MARKERS_BYTES[marker];

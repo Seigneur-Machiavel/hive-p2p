@@ -2,7 +2,7 @@ import path from 'path';
 import express from 'express';
 import { io } from 'socket.io-client'; // used for twitch events only
 import { WebSocketServer } from 'ws';
-import { CLOCK, SIMULATION, NODE, TRANSPORTS, IDENTITY, DISCOVERY, GOSSIP } from '../core/global_parameters.mjs';
+import { CLOCK, SIMULATION, NODE, TRANSPORTS, IDENTITY, DISCOVERY, GOSSIP, LOG_CSS } from '../core/global_parameters.mjs';
 import { TestWsServer, TestWsConnection, TestTransport,
 	ICE_CANDIDATE_EMITTER, TEST_WS_EVENT_MANAGER, SANDBOX } from '../simulation/test-transports.mjs';
 //import { MessageQueue, Statician, TransmissionAnalyzer, SubscriptionsManager } from './simulator-utils.mjs';
@@ -63,7 +63,6 @@ async function intervalsLoop(loopDelay = 8) { // OPTIMIZATION, SORRY FOR COMPLEX
 			const peer = peers.all[id];
 			if (!peer.started) continue; // not started yet
 			if (n - (discoveryTickLastTime[peer.id] || 0) < DISCOVERY.LOOP_DELAY) continue; // not time yet
-			//console.log(`%c[${peer.id}] Discovery tick`, 'color: lightblue;');
 			discoveryTickLastTime[peer.id] = n;
 			peer.topologist.tick();
 			peer.peerStore.cleanupExpired();
@@ -102,7 +101,7 @@ async function destroyAllExistingPeers(pauseDuration = 2000) {
 	for (const peer of peers.public) { peer.destroy(); totalDestroyed ++; }
 	for (const peer of peers.standard) { peer.destroy(); totalDestroyed ++; }
 	if (totalDestroyed !== 0) await new Promise(resolve => setTimeout(resolve, pauseDuration)); // wait for destruction to complete
-	console.log(`%c| ° ${totalDestroyed} EXISTING PEERS DESTROYED ° |`, 'color: yellow; font-weight: bold;');
+	console.log(`%c| ° ${totalDestroyed} EXISTING PEERS DESTROYED ° |`, LOG_CSS.SIMULATOR);
 	isRestarting = false;
 }
 function pickUpRandomBootstraps(count = SIMULATION.BOOTSTRAPS_PER_PEER) {
@@ -127,12 +126,12 @@ function patchPeerHandlers(peer) {
 	// DEPRECATED
 	//peer.gossip.on('diffusion_test', (fromId, msg, HOPS, message) => transmissionAnalyzer.analyze(peer.id, msg, HOPS, message, fromId));
 }
-function addPeer(type, i = 0, bootstraps = [], init = false, setPublic = false) {
+async function addPeer(type, i = 0, bootstraps = [], init = false, setPublic = false) {
 	const selectedBootstraps = type === 'STANDARD_NODE' ? pickUpRandomBootstraps() : bootstraps;
 	const domain = setPublic ? 'localhost' : undefined;
 	const port = setPublic ? 8080 + (i * 2) : undefined;
 	const cryptoCodex = IDENTITY.ARE_IDS_HEX ? new CryptoCodex() : new CryptoCodex(`${type === 'STANDARD_NODE' ? 'N_' : IDENTITY.PUBLIC_PREFIX}${i}`);
-	const peer = NodeP2P.createNode(selectedBootstraps, cryptoCodex, init, domain, port);
+	const peer = await NodeP2P.createNode(selectedBootstraps, cryptoCodex, init, domain, port);
 	peers.all[peer.id] = peer;
 	peers[type === 'STANDARD_NODE' ? 'standard' : 'public'].push(peer);
 	if (setPublic) sVARS.publicPeersCards.push({ id: peer.id, publicUrl: peer.publicUrl });
@@ -144,17 +143,18 @@ async function initPeers() {
 	peers.public = []; peers.standard = []; peers.all = {};
 	sVARS.publicPeersCards = []; sVARS.nextPeerToInit = 0; sVARS.publicInit = 0;
 	const d = SIMULATION.DELAY_BETWEEN_INIT;
-	for (sVARS.publicInit; sVARS.publicInit < SIMULATION.PUBLIC_PEERS_COUNT; sVARS.publicInit++) addPeer('PUBLIC_NODE', sVARS.publicInit, [], true, true);
-	for (let i = 0; i < SIMULATION.PEERS_COUNT; i++) addPeer('STANDARD_NODE', i, sVARS.publicPeersCards, d === 0);
+	for (sVARS.publicInit; sVARS.publicInit < SIMULATION.PUBLIC_PEERS_COUNT; sVARS.publicInit++) await addPeer('PUBLIC_NODE', sVARS.publicInit, [], true, true);
+	for (let i = 0; i < SIMULATION.PEERS_COUNT; i++) await addPeer('STANDARD_NODE', i, sVARS.publicPeersCards, d === 0);
 
-	console.log(`%c| PEERS CREATED: { Public: ${peers.public.length}, Standard: ${peers.standard.length} } |`, 'color: yellow; font-weight: bold;');
+	console.log(`%c| PEERS CREATED: { Public: ${peers.public.length}, Standard: ${peers.standard.length} } |`, LOG_CSS.SIMULATOR);
 	if (d === 0) return sVARS.nextPeerToInit = SIMULATION.PEERS_COUNT; // already initialized
 
 	sVARS.nextPeerToInit = 0;
-	initInterval = setInterval(() => { // ... Or successively
-		if (peers.standard[sVARS.nextPeerToInit++]?.start()) return;
+	initInterval = setInterval(async () => { // ... Or successively
+		const started = await peers.standard[sVARS.nextPeerToInit++]?.start();
+		if (started) return;
 		clearInterval(initInterval);
-		console.log(`%c| °°° ALL PEERS INITIALIZED °°° |`, 'color: yellow; font-weight: bold;');
+		console.log(`%c| °°° ALL PEERS INITIALIZED °°° |`, LOG_CSS.SIMULATOR);
 	}, d);
 }
 function peersIdsObj() {
@@ -208,7 +208,7 @@ app.use('../rendering/visualizer.mjs', (req, res, next) => {
 });
 
 app.use(express.static(path.resolve()));
-const server = app.listen(3000, () => console.log('Server listening on http://localhost:3000'));
+const server = app.listen(3000, () => console.log('%cServer listening on http://localhost:3000', LOG_CSS.SIMULATOR));
 app.get('/', (req, res) => res.sendFile('rendering/visualizer.html', { root: '.' }));
 
 /** @type {WebSocket} */
@@ -283,7 +283,7 @@ class TwitchChatCommandInterpreter {
 		if (user === 'bot' && command === '!addfollower' && !SIMULATION.AVOID_FOLLOWERS_NODES) this.#createUserNode(args[0]);
 		if (command === '!connectto' && targetNodeId) this.userNodes[user]?.tryConnectToPeer(targetNodeId);
 	}
-	#createUserNode(user) {
+	async #createUserNode(user) {
 		if (this.userNodes[user]?.peerStore?.isDestroy) this.userNodes[user] = undefined;
 		if (this.userNodes[user]) return;
 		const cleanUser = user
@@ -292,7 +292,7 @@ class TwitchChatCommandInterpreter {
 			.replace(/[^\w-]/g, '_')             // remplacer chars spéciaux par _
 
 		const cryptoCodex = IDENTITY.ARE_IDS_HEX ? new CryptoCodex() : new CryptoCodex(`F_${cleanUser}`);
-		const peer = NodeP2P.createNode(pickUpRandomBootstraps(), cryptoCodex, true);
+		const peer = await NodeP2P.createNode(pickUpRandomBootstraps(), cryptoCodex, true);
 		this.userNodes[user] = peer;
 		peers.all[peer.id] = peer;
 		peers.standard.unshift(peer);
