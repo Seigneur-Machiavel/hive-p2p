@@ -11,11 +11,12 @@ export class DirectMessage { // TYPE DEFINITION
 	pubkey;
 	data;
 	signature;
+	signatureStart; // position in the serialized message where the signature starts
 
-	/** @param {string} type @param {number} timestamp @param {string[]} neighborsList @param {string[]} route @param {string} pubkey @param {string | Uint8Array | Object} data @param {string | undefined} signature */
-	constructor(type, timestamp, neighborsList, route, pubkey, data, signature) {
+	/** @param {string} type @param {number} timestamp @param {string[]} neighborsList @param {string[]} route @param {string} pubkey @param {string | Uint8Array | Object} data @param {string | undefined} signature @param {number} signatureStart */
+	constructor(type, timestamp, neighborsList, route, pubkey, data, signature, signatureStart) {
 		this.type = type; this.timestamp = timestamp; this.neighborsList = neighborsList;
-		this.route = route; this.pubkey = pubkey; this.data = data; this.signature = signature;
+		this.route = route; this.pubkey = pubkey; this.data = data; this.signature = signature; this.signatureStart = signatureStart;
 	}
 	getSenderId() { return this.route[0]; }
 	getTargetId() { return this.route[this.route.length - 1]; }
@@ -55,7 +56,7 @@ export class UnicastMessager {
 	maxRoutes = UNICAST.MAX_ROUTES;
 	maxNodes = UNICAST.MAX_NODES;
 
-	/** @param {string} selfId @param {import('./crypto-codex.mjs').CryptoCodex} cryptoCodex @param {import('./network-arbiter.mjs').Arbiter} arbiter @param {import('./peer-store.mjs').PeerStore} peerStore */
+	/** @param {string} selfId @param {import('./crypto-codex.mjs').CryptoCodex} cryptoCodex @param {import('./arbiter.mjs').Arbiter} arbiter @param {import('./peer-store.mjs').PeerStore} peerStore */
 	constructor(selfId, cryptoCodex, arbiter, peerStore, verbose = 0) {
 		this.id = selfId;
 		this.cryptoCodex = cryptoCodex;
@@ -105,20 +106,26 @@ export class UnicastMessager {
 		return { success: false, reason: `Error sending message to ${targetId}.` };
 	}
 	/** @param {string} from @param {Uint8Array} serialized */
-	handleDirectMessage(from, serialized) {
-		if (this.arbiter.isBanned(from)) return this.verbose >= 3 ? console.info(`%cReceived direct message from banned peer ${from}, ignoring.`, 'color: red;') : null;
+	async handleDirectMessage(from, serialized) {
+		if (this.arbiter.isBanished(from)) return this.verbose >= 3 ? console.info(`%cReceived direct message from banned peer ${from}, ignoring.`, 'color: red;') : null;
 
 		const message = this.cryptoCodex.readUnicastMessage(serialized);
-		if (!message || !message.route?.length) return this.verbose > 1 ? console.warn(`Received invalid unicast message from ${from}.`) : null;
+		if (!message) return this.arbiter.countPeerAction(from, 'WRONG_SERIALIZATION');
+		await this.arbiter.digestMessage(from, message, serialized);
+		if (this.arbiter.isBanished(from)) return; // ignore messages from banished peers
+		if (this.arbiter.isBanished(message.senderId)) return; // ignore messages from banished peers
 
 		const { traveledRoute, selfPosition, senderId, targetId, prevId, nextId } = message.extractRouteInfo(this.id);
-		for (const cb of this.callbacks.message_handle || []) cb(); // Simulator counter
-		//if (selfPosition === -1) throw new Error(`DirectMessage selfPosition is -1 for peer ${from}.`);
-		if (selfPosition === -1) return this.peerStore.kickPeer(from, 0, 'invalid-route'); // self not in route
-		if (prevId && from !== prevId) throw new Error(`DirectMessage previous hop id (${prevId}) does not match the actual from id (${from}).`);
 		if (from === senderId && from === this.id) throw new Error('DirectMessage senderId and from are both self id !!');
-		if (senderId === this.id) // !!Attacker can modify the route to kick a peer a by building a loop
-			return this.peerStore.kickPeer(from, 0, 'self-connection'); // from self is not allowed.
+		
+		for (const cb of this.callbacks.message_handle || []) cb(); // Simulator counter
+		//if (selfPosition === -1) return this.peerStore.kickPeer(from, 0, 'invalid-route'); // self not in route
+		//if (prevId && from !== prevId) throw new Error(`DirectMessage previous hop id (${prevId}) does not match the actual from id (${from}).`);
+		//if (senderId === this.id) // !!Attacker can modify the route to kick a peer a by building a loop
+			//return this.peerStore.kickPeer(from, 0, 'self-connection'); // from self is not allowed.
+		if (selfPosition === -1) return this.arbiter.adjustTrust(from, TRUST_VALUES.UNICAST_INVALID_ROUTE, 'Self not in route');
+		if (prevId && from !== prevId) return this.arbiter.adjustTrust(from, TRUST_VALUES.UNICAST_INVALID_ROUTE, 'Previous hop id does not match actual from id');
+		if (senderId === this.id) return this.arbiter.adjustTrust(from, TRUST_VALUES.UNICAST_INVALID_ROUTE, 'SenderId is self id');
 		
 		if (this.verbose > 3)
 			if (senderId === from) console.log(`(${this.id}) Direct ${message.type} from ${senderId}: ${message.data}`);

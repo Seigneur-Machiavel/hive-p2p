@@ -1,0 +1,123 @@
+import { CLOCK, NODE, GOSSIP, UNICAST, LOG_CSS } from './parameters.mjs';
+
+// TRUST_BALANCE = seconds of ban if negative - never exceed MAX_TRUST if positive
+// Growing each second by 1000ms until 0
+// Lowered each second by 100ms until 0 (avoid attacker growing balances on multiple disconnected peers)
+
+const GOSSIP_BYTES_PERIOD 			= 10_000; // 10 seconds
+const MAX_GOSSIP_BYTES_PER_PERIOD 	= 1_000_000; // 1MB per minute
+
+const MAX_TRUST 	= 		3_600_000; 		// +3600 seconds = 1 hour of good behavior
+const TRUST_VALUES 	= {
+	// POSITIVE IDENTITY
+	VALID_SIGNATURE: 		+10_000, 		// +10 seconds
+	VALID_POW: 				+300_000, 		// +5 minutes
+	// POSITIVE MESSAGES
+	UNICAST_RELAYED: 		+5_000, 		// +5 seconds
+
+	// NEGATIVE IDENTITY
+	WRONG_ID_PREFIX: 		-300_000, 		// -5 minutes
+	WRONG_SIGNATURE: 		-600_000, 		// -10 minutes
+	WRONG_POW: 				-100_000_000, 	// -100_000 seconds = 27 hours - should never happen with valid nodes
+
+	// NEGATIVE MESSAGES
+	WRONG_SERIALIZATION: 	-60_000, 		// -1 minute
+	GOSSIP_FLOOD: 			-5_000, 		// -5 seconds per message ?
+	GOSSIP_HOPS_EXCEEDED: 	-300_000, 		// -5 minutes ?
+	UNICAST_FLOOD: 			-10_000, 		// -10 seconds per message ?
+	UNICAST_INVALID_ROUTE: 	-60_000, 		// -1 minute
+	UNICAST_HOPS_EXCEEDED: 	-300_000, 		// -5 minutes ?
+	FAILED_HANDSHAKE: 		-60_000, 		// -1 minute - possible ?
+
+};
+export class Arbiter {
+	id; cryptoCodex; verbose;
+
+	/** - Key: peerId,  Value: trustBalance
+	 * - trustBalance = milliseconds of ban if negative
+	 * @type {Record<string, number>} */
+	trustBalances = {};
+
+	/** @type {Record<string, number>} */
+	neighborsGossipBytesCounter = {};
+	neighborsGossipBytesCounterResetIn = 0;
+
+	/** @param {string} selfId @param {import('./crypto-codex.mjs').CryptoCodex} cryptoCodex @param {number} verbose */
+	constructor(selfId, cryptoCodex, verbose = 0) {
+		this.id = selfId; this.cryptoCodex = cryptoCodex; this.verbose = verbose;
+	}
+
+	tick() {
+		for (const peerId in this.trustBalances) {
+			let balance = this.trustBalances[peerId];
+			if (balance === 0) continue; // increase to 0 or decrease slowly to 0
+			else balance = balance < 0 ? Math.min(0, balance + 1_000) : Math.max(0, balance - 100);
+		}
+	
+		// RESET GOSSIP BYTES COUNTER
+		if (this.neighborsGossipBytesCounterResetIn - 1_000 > 0) return;
+		this.neighborsGossipBytesCounterResetIn = GOSSIP_BYTES_PERIOD;
+		this.neighborsGossipBytesCounter = {};
+	}
+
+	/** Call from HiveP2P module only!
+	 * @param {string} peerId
+	 * @param {'WRONG_SERIALIZATION'} action */
+	countPeerAction(peerId, action) {
+		if (TRUST_VALUES[action]) return this.adjustTrust(peerId, TRUST_VALUES[action]);
+	}
+	/** @param {string} peerId @param {number} delta @param {string} [reason] */
+	adjustTrust(peerId, delta, reason = 'na') { // Internal and API use - return true if peer isn't banished
+		if (peerId === this.id) return; // self
+		if (delta) this.trustBalances[peerId] = Math.min(MAX_TRUST, (this.trustBalances[peerId] || 0) + delta);
+		if (delta && this.verbose > 2) console.log(`%c(Arbiter: ${this.id}) ${peerId} +${delta}ms (${reason}). Updated: ${this.trustBalances[peerId]}ms.`, LOG_CSS.ARBITER);
+		if (this.isBanished(peerId) && this.verbose > 1) console.log(`%c(Arbiter: ${this.id}) Peer ${peerId} is now banished.`, LOG_CSS.ARBITER);
+	}
+	isBanished(peerId = 'toto') { return (this.trustBalances[peerId] || 0) < 0; }
+
+	// MESSAGE VERIFICATION
+	/** Return "True" if counted, return "False" if it should be ignored @param {string} peerId @param {number} byteLength */
+	countGossipMessageBytes(peerId, byteLength) {
+		if (!this.neighborsGossipBytesCounter[peerId]) this.neighborsGossipBytesCounter[peerId] = 0;
+		this.neighborsGossipBytesCounter[peerId] += byteLength;
+		if (this.neighborsGossipBytesCounter[peerId] < MAX_GOSSIP_BYTES_PER_PERIOD) return true;
+		return this.adjustTrust(peerId, TRUST_VALUES.GOSSIP_FLOOD);
+	}
+	/** Call from HiveP2P module only! @param {string} from @param {any} message @param {Uint8Array} serialized @param {number} [powCheckFactor] default: 0.01 (1%) */
+	async digestMessage(from, message, serialized, powCheckFactor = .01) {
+		const { senderId, pubkey, topic } = message; // avoid powControl() on banished peers
+		this.#signatureControl(from, message, serialized);
+		if (topic) this.#hopsControl(from, message);
+		else this.#routeLengthControl(from, message);
+		
+		if (this.isBanished(from) || this.isBanished(senderId)) return;
+		if (this.trustBalances[senderId] > TRUST_VALUES.VALID_POW) return;
+		if (Math.random() < powCheckFactor) await this.#powControl(senderId, pubkey);
+	}
+	/** @param {string} from @param {import('./gossip.mjs').GossipMessage} message @param {Uint8Array} serialized */
+	#signatureControl(from, message, serialized) {
+		const { pubkey, signature, signatureStart } = message;
+		const signedData = serialized.subarray(0, signatureStart);
+		const signatureValid = this.cryptoCodex.verifySignature(pubkey, signature, signedData);
+		if (signatureValid) this.adjustTrust(from, TRUST_VALUES.VALID_SIGNATURE, 'Gossip signature valid');
+		else this.adjustTrust(from, TRUST_VALUES.WRONG_SIGNATURE, 'Gossip signature invalid');
+	}
+	/** GOSSIP @param {string} from @param {import('./gossip.mjs').GossipMessage} message */
+	#hopsControl(from, message) {
+		const { HOPS, topic } = message;
+		if (HOPS <= (GOSSIP.HOPS[topic] || GOSSIP.HOPS.default)) return;
+		this.adjustTrust(from, TRUST_VALUES.GOSSIP_HOPS_EXCEEDED, 'Gossip HOPS exceeded');
+	}
+	/** UNICAST @param {string} from @param {import('./unicast.mjs').DirectMessage} message */
+	#routeLengthControl(from, message) {
+		const { route } = message;
+		if (route.length <= UNICAST.MAX_HOPS) return;
+		this.adjustTrust(from, TRUST_VALUES.UNICAST_HOPS_EXCEEDED, 'Unicast HOPS exceeded');
+	}
+	/** ONLY APPLY AFTER #signatureControl() - @param {string} senderId @param {Uint8Array} pubkey */
+	async #powControl(senderId, pubkey) {
+		const isValid = await this.cryptoCodex.pubkeyDifficultyCheck(pubkey);
+		if (isValid) this.adjustTrust(senderId, TRUST_VALUES.VALID_POW, 'Gossip PoW valid');
+		else this.adjustTrust(senderId, TRUST_VALUES.WRONG_POW, 'Gossip PoW invalid');
+	}
+}

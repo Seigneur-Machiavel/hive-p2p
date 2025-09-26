@@ -16,8 +16,8 @@ export const SIMULATION = {
 	// SIMULATOR OPTIONS
 	AVOID_FOLLOWERS_NODES: true, 	// avoid twitch nodes creation | default: true
 	AUTO_START: true,				// auto start the simulation, false to wait the frontend | default: true
-	PUBLIC_PEERS_COUNT: 3,			// stable: 3,  medium: 20,  strong: 100 , hardcore: 100
-	PEERS_COUNT: 100,				// stable: 25, medium: 800, strong: 1860, hardcore: 4900
+	PUBLIC_PEERS_COUNT: 20,			// stable: 3,  medium: 20,  strong: 100 , hardcore: 100
+	PEERS_COUNT: 800,				// stable: 25, medium: 800, strong: 1860, hardcore: 4900
 	BOOTSTRAPS_PER_PEER: 10,		// will not be exact, more like a limit. null = all of them | default: 10
 	DELAY_BETWEEN_INIT: 60,			// 0 = faster for simulating big networks but > 0 = should be more realistic | default: 60 (60sec to start 1000 peers)
 	RANDOM_UNICAST_PER_SEC: 0,		// default: 0, max: 1 (per peer)
@@ -133,6 +133,7 @@ export const GOSSIP = { // MARKERS RANGE: 128-255
 
 export const LOG_CSS = {
 	SIMULATOR: 'color: yellow; font-weight: bold;',
+	ARBITER: 'color: white;',
 	CRYPTO_CODEX: 'color: green;',
 	GOSSIP: 'color: fuchsia;',
 	UNICAST: 'color: cyan;',

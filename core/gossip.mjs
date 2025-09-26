@@ -10,12 +10,13 @@ export class GossipMessage { // TYPE DEFINITION
 	pubkey;
 	data;
 	signature;
+	signatureStart; // position in the serialized message where the signature starts
 
-	/** @param {string} topic @param {number} timestamp @param {string[]} neighborsList @param {number} HOPS @param {string} senderId @param {string} pubkey @param {string | Uint8Array | Object} data @param {string | undefined} signature */
-	constructor(topic, timestamp, neighborsList, HOPS, senderId, pubkey, data, signature) { // PROBABLY DEPRECATED
+	/** @param {string} topic @param {number} timestamp @param {string[]} neighborsList @param {number} HOPS @param {string} senderId @param {string} pubkey @param {string | Uint8Array | Object} data @param {string | undefined} signature @param {number} signatureStart */
+	constructor(topic, timestamp, neighborsList, HOPS, senderId, pubkey, data, signature, signatureStart) {
 		this.topic = topic; this.timestamp = timestamp; this.neighborsList = neighborsList;
 		this.HOPS = HOPS; this.senderId = senderId; this.pubkey = pubkey; this.data = data;
-		this.signature = signature;
+		this.signature = signature; this.signatureStart = signatureStart;
 	}
 }
 
@@ -83,7 +84,7 @@ export class Gossip {
 	/** @type {Record<string, Function[]>} */ callbacks = { message_handle: [] };
 	id; cryptoCodex; arbiter; peerStore; verbose; bloomFilter;
 
-	/** @param {string} selfId @param {import('./crypto-codex.mjs').CryptoCodex} cryptoCodex @param {import('./network-arbiter.mjs').Arbiter} arbiter @param {import('./peer-store.mjs').PeerStore} peerStore */
+	/** @param {string} selfId @param {import('./crypto-codex.mjs').CryptoCodex} cryptoCodex @param {import('./arbiter.mjs').Arbiter} arbiter @param {import('./peer-store.mjs').PeerStore} peerStore */
 	constructor(selfId, cryptoCodex, arbiter, peerStore, verbose = 0) {
 		this.id = selfId;
 		this.cryptoCodex = cryptoCodex;
@@ -119,16 +120,18 @@ export class Gossip {
 		const gossipHistory = this.bloomFilter.getGossipHistoryByTime('asc');
 		for (const entry of gossipHistory) this.#broadcastToPeer(peerId, entry.data);
 	}
-	/** @param {string} from @param {Uint8Array} serialized */
-	handleGossipMessage(from, serialized) {
-		if (this.arbiter.isBanned(from)) return; // ignore messages from banned peers
+	/** @param {string} from @param {Uint8Array} serialized @returns {void} */
+	async handleGossipMessage(from, serialized) {
+		if (!this.arbiter.countGossipMessageBytes(from, serialized.byteLength)) return; // ignore if flooding/banished
 		for (const cb of this.callbacks.message_handle || []) cb(serialized); // Simulator counter before filtering
 		if (!this.bloomFilter.addMessage(serialized)) return; // already processed this message
 
-		// ==> NOTE: WE SHOULD SIGN THE MESSAGE AND VERIFY THE SIGNATURE <==
 		const message = this.cryptoCodex.readGossipMessage(serialized);
-		if (!message) throw new Error(`Failed to deserialize gossip message from ${from}.`);
-		
+		if (!message) return this.arbiter.countPeerAction(from, 'WRONG_SERIALIZATION');
+		await this.arbiter.digestMessage(from, message, serialized);
+		if (this.arbiter.isBanished(from)) return; // ignore messages from banished peers
+		if (this.arbiter.isBanished(message.senderId)) return; // ignore messages from banished peers
+
 		const { topic, timestamp, neighborsList, HOPS, senderId, data } = message;
 		if (senderId === this.id) throw new Error(`#${this.id}#${from}# Received our own message back from peer ${from}.`);
 		

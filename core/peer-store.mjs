@@ -53,7 +53,7 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 		'data': []
 	};
 
-	/** @param {string} selfId @param {import('./crypto-codex.mjs').CryptoCodex} cryptoCodex @param {import('./ice-offer-manager.mjs').OfferManager} offerManager @param {import('./network-arbiter.mjs').Arbiter} arbiter @param {number} [verbose] default: 0 */
+	/** @param {string} selfId @param {import('./crypto-codex.mjs').CryptoCodex} cryptoCodex @param {import('./ice-offer-manager.mjs').OfferManager} offerManager @param {import('./arbiter.mjs').Arbiter} arbiter @param {number} [verbose] default: 0 */
 	constructor(selfId, cryptoCodex, offerManager, arbiter, verbose = 0) { // SETUP SDP_OFFER_MANAGER CALLBACKS
 		this.id = selfId;
 		this.cryptoCodex = cryptoCodex;
@@ -63,7 +63,7 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 
 		/** @param {string} remoteId @param {any} signalData @param {string} [offerHash] answer only */
 		this.offerManager.onSignalAnswer = (remoteId, signalData, offerHash) => { // answer only
-			if (this.isDestroy || this.isKicked(remoteId) || this.arbiter.isSanctioned(remoteId)) return; // not accepted
+			if (this.isDestroy || this.isKicked(remoteId) || this.arbiter.isBanished(remoteId)) return; // not accepted
 			for (const cb of this.callbacks.signal) cb(remoteId, { signal: signalData, offerHash });
 		};
 		/** @param {string | undefined} remoteId @param {import('simple-peer').Instance} instance */
@@ -75,7 +75,7 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 			instance.on('close', () => { if (peerId) for (const cb of this.callbacks.disconnect) cb(peerId, instance.initiator ? 'out' : 'in'); });
 			instance.on('data', data => {
 				if (peerId) for (const cb of this.callbacks.data) cb(peerId, data);
-				else { // FIRST MESSAGE SHOULD BE HANDSHAKE WITH ID // USELESS ?
+				else { // FIRST MESSAGE SHOULD BE HANDSHAKE WITH ID
 					const d = new Uint8Array(data); if (d[0] > 127) return; // not unicast, ignore
 					const { route, type, neighborsList } = cryptoCodex.readUnicastMessage(d) || {};
 					if (type !== 'handshake' || route.length !== 2 || route[1] !== this.id) return;

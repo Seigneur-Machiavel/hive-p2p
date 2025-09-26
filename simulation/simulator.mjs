@@ -53,7 +53,10 @@ async function intervalsLoop(loopDelay = 8) { // OPTIMIZATION, SORRY FOR COMPLEX
 	const beforeMsgQueueTick = Math.round(200 / loopDelay); // 200 ms / 8ms = 25
 	const beforeWsEventManagerTick = Math.round(480 / loopDelay); // 480 ms / 8ms = 60
 	const beforeIceCandidateEmitterTick = Math.round(520 / loopDelay); // 520 ms / 8ms = 65
+	
 	const discoveryTickLastTime = {}; // key: peerId, value: lastTime
+	let arbiterCounter = 0; 		// PEER ARBITER
+	const beforeArbiterTick = Math.round(1000 / loopDelay); // 1000 ms / 8ms = 125
 
 	async function tick(n) {
 		if (isRestarting) return;
@@ -62,6 +65,11 @@ async function intervalsLoop(loopDelay = 8) { // OPTIMIZATION, SORRY FOR COMPLEX
 		for (const id in peers.all) {
 			const peer = peers.all[id];
 			if (!peer.started) continue; // not started yet
+			if (arbiterCounter-- <= 0) { // PEER ARBITER TICK
+				arbiterCounter = beforeArbiterTick;
+				peer.arbiter.tick();
+			}
+
 			if (n - (discoveryTickLastTime[peer.id] || 0) < DISCOVERY.LOOP_DELAY) continue; // not time yet
 			discoveryTickLastTime[peer.id] = n;
 			peer.topologist.tick();

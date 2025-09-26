@@ -1,5 +1,5 @@
 import { CLOCK, SIMULATION, NODE, TRANSPORTS, DISCOVERY } from './parameters.mjs';
-import { Arbiter } from './network-arbiter.mjs';
+import { Arbiter } from './arbiter.mjs';
 import { OfferManager } from './ice-offer-manager.mjs';
 import { PeerStore } from './peer-store.mjs';
 import { UnicastMessager } from './unicast.mjs';
@@ -115,6 +115,7 @@ export class NodeP2P {
 		this.started = true;
 		if (SIMULATION.AVOID_INTERVALS) return true; // SIMULATOR CASE
 		this.topologist.tryConnectNextBootstrap(); // first shot ASAP
+		this.arbiterInterval = setInterval(() => this.arbiter.tick(), 1000);
 		this.enhancerInterval = setInterval(() => this.topologist.tick(), DISCOVERY.LOOP_DELAY);
 		this.peerStoreInterval = setInterval(() => { this.peerStore.cleanupExpired(); this.peerStore.offerManager.tick(); }, 2500);
 		return true;
