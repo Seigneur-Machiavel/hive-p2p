@@ -44,7 +44,7 @@ export class Statician { // DO NOT ADD VARIABLES, JUST COUNTERS !!
 			const averagePeersConnections = peersConnectionsCount.length === 0 ? 0 : (peersConnectionsCount.reduce((a, b) => a + b, 0) / peersConnectionsCount.length).toFixed(1);
 
 			if (verbose) console.info(`%c${Math.floor((Date.now() - sVARS.startTime) / 1000)}sec elapsed | Active: ${sVARS.publicInit + (sVARS.nextPeerToInit - 1)}/${Object.keys(peers.all).length} (${establishedWrtcConnCount}/${wrtcToEstablishCount} est. WebRTC | ${averagePeersConnections} avg conns on the ${establishedWrtcConnCount})`, LOG_CSS.SIMULATOR);
-			if (verbose) console.info(`%c--STATS/sec: ${this.#getSimulationStatsPerSecond(delay)}`, LOG_CSS.SIMULATOR);
+			if (verbose) console.info(`%c~STATS/sec: ${this.#getSimulationStatsPerSecond(delay)}`, LOG_CSS.SIMULATOR);
 			for (const key in this) this[key] = 0;
 		}, delay);
 	}

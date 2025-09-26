@@ -51,7 +51,7 @@ export const IDENTITY = {
 if (!IDENTITY.ARE_IDS_HEX) IDENTITY.PUBLIC_PREFIX = 'P_'; // FOR SIMULTOR STRING IDS
 
 export const TRANSPORTS = {
-	MAX_SDP_OFFERS: 2, 				// max SDP offers to create in advance | default: 3
+	MAX_SDP_OFFERS: 3, 				// max SDP offers to create in advance | default: 3
 	SIGNAL_CREATION_TIMEOUT: 8_000, // time to wait for signal before destroying WTRC connection | default: 8_000 (8 seconds) | note: SimplePeer have a internal timeout of 5 secondes, we should be above that
 	SDP_OFFER_EXPIRATION: 40_000, 	// duration to consider an SDP offer as valid | default: 40_000 (40 seconds)
 	WS_CLIENT: WebSocket,			// Simulation: patched with TestWsConnection (this one can be used as a server too)
@@ -62,7 +62,7 @@ export const TRANSPORTS = {
 export const DISCOVERY = {
 	PEER_LINK_DELAY: 10_000,		// delay between two peer declaring their connection to each other | default: 10_000 (10 seconds)
 	PEER_LINK_EXPIRATION: 60_000,	// time to consider a peer connection as valid | default: 120_000 (120 seconds)
-	MAX_OVERLAP: 4, 				// Max of shared neighbors | soft: 5, default: 4, strict: 3
+	// MAX_OVERLAP: 2, // DEPRECIATED 	// Max of shared neighbors | soft: 5, default: 4, strict: 3
 	LOOP_DELAY: 2_500, 				// delay between connection attempts | default: 2_500 (2.5 seconds)
 	TARGET_NEIGHBORS_COUNT: 5, 		// default: 8, light: 6, super-light: 4
 	ON_CONNECT_DISPATCH: {		// => on Node.#onConnect() // DEPRECATING

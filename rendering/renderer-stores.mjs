@@ -85,7 +85,7 @@ class PeerLineConnection {
 		this.repaintIgnored = 0;
 		return false;
 	}
-	assignOrUpdateLineColor(scene, fromPos = {}, toPos = {}, color = 0x666666, opacity = .4) {
+	assignOrUpdateLineColor(scene, fromPos = {}, toPos = {}, color = 0x666666, opacity = .4, dashed = false) {
 		if (this.line) return this.#updateLineColor(color, opacity);
 		if (!fromPos || !toPos) return false; // skip if missing position
 
@@ -94,9 +94,13 @@ class PeerLineConnection {
 		geometry.setAttribute('position', new THREE.BufferAttribute(p, 3));
 
 		const material = new THREE.LineBasicMaterial({ color, transparent: true, opacity });
+		/*const material = dashed
+		? new THREE.LineDashedMaterial({ color, transparent: true, opacity, dashSize: 30, gapSize: 60 })
+		: new THREE.LineBasicMaterial({ color, transparent: true, opacity });*/
 		const line = new THREE.Line(geometry, material);
 		scene.add(line);
 		this.line = line;
+		//this.line.isDashed = dashed;
 		return 'created';
 	}
 }
@@ -154,7 +158,7 @@ export class ConnectionsStore {
 		if (!validKey) return;
 
 		const [ fromPos, toPos ] = [ this.nodesStore.get(fromId)?.position, this.nodesStore.get(toId)?.position ];
-		const result = this.store[validKey].assignOrUpdateLineColor(this.scene, fromPos, toPos);
+		const result = this.store[validKey].assignOrUpdateLineColor(this.scene, fromPos, toPos, undefined, undefined, true);
 		if (result === false) return;
 
 		this.peerConnsWithLines[validKey] = this.store[validKey];

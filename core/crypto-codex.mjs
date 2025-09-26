@@ -3,7 +3,6 @@ import { GossipMessage } from './gossip.mjs';
 import { DirectMessage, ReroutedDirectMessage } from './unicast.mjs';
 import { Converter } from '../services/converter.mjs';
 import { ed25519, Argon2Unified } from '../services/cryptos.mjs';
-export { Converter };
 
 export class CryptoCodex {
 	argon2 = new Argon2Unified();
