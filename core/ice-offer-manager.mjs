@@ -1,5 +1,4 @@
-import { CLOCK, NODE, TRANSPORTS, LOG_CSS } from './global_parameters.mjs';
-import { PeerConnection } from './peer-store-utilities.mjs';
+import { CLOCK, NODE, TRANSPORTS, LOG_CSS } from './parameters.mjs';
 import { xxHash32 } from '../libs/xxhash32.mjs';
 import wrtc from 'wrtc';
 
@@ -143,7 +142,7 @@ export class OfferManager { // Manages the creation of SDP offers and handling o
 		if (this.verbose > 3) console.log(`(OfferManager) Added answer from ${remoteId} for offer ${offerHash}`);
 	}
 	/** @param {string} remoteId @param {{type: 'offer' | 'answer', sdp: Record<string, string>}} signal @param {string} [offerHash] offer only */
-	getPeerConnexionForSignal(remoteId, signal, offerHash) {
+	getTransportInstanceForSignal(remoteId, signal, offerHash) {
 		try {
 			if (!signal || !signal.type || !signal.sdp) throw new Error('Wrong remote SDP provided');
 			
@@ -155,7 +154,7 @@ export class OfferManager { // Manages the creation of SDP offers and handling o
 			if (type === 'answer') { // NEED TO FIND THE PENDING OFFERER INSTANCE
 				const instance = offerHash ? this.offers[offerHash]?.offererInstance : null;
 				if (!instance) throw new Error('No pending offer found for the given offer hash to accept the answer');
-				return new PeerConnection(remoteId, instance, 'out');
+				return instance;
 			}
 			
 			// type === 'offer' => CREATE ANSWERER INSTANCE
@@ -163,7 +162,7 @@ export class OfferManager { // Manages the creation of SDP offers and handling o
 			instance.on('error', (error) => this.#onError(error));
 			instance.on('signal', (data) => this.onSignalAnswer(remoteId, data, offerHash));
 			instance.on('connect', () => this.onConnect(remoteId, instance));
-			return new PeerConnection(remoteId, instance, 'in');
+			return instance;
 		} catch (error) {
 			if (error.message.startsWith('No pending offer found') && this.verbose < 2) return null; // avoid logging
 			if (this.verbose > 1 && error.message.startsWith('No pending offer found')) return console.info(`%c${error.message}`, LOG_CSS.PEER_STORE);

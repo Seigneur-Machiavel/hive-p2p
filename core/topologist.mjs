@@ -1,5 +1,5 @@
-import { CLOCK, SIMULATION, TRANSPORTS, NODE, DISCOVERY, GOSSIP } from './global_parameters.mjs';
-import { PeerConnection } from './peer-store-utilities.mjs';
+import { CLOCK, SIMULATION, TRANSPORTS, NODE, DISCOVERY, GOSSIP } from './parameters.mjs';
+import { PeerConnection } from './peer-store.mjs';
 import { CryptoCodex } from './crypto-codex.mjs';
 const { SANDBOX, ICE_CANDIDATE_EMITTER, TEST_WS_EVENT_MANAGER } = SIMULATION.ENABLED ? await import('../simulation/test-transports.mjs') : {};
 
@@ -47,21 +47,17 @@ class OfferQueue {
 }
 
 export class Topologist {
-	maxBonus = NODE.CONNECTION_UPGRADE_TIMEOUT * .2; // 20% of 15sec: 3sec max
-	offersQueue = new OfferQueue();
-	id;
-	gossip;
-	messager;
-	peerStore;
-	bootstraps;
+	id; gossip; messager; peerStore; bootstraps;
 	halfTarget = Math.ceil(DISCOVERY.TARGET_NEIGHBORS_COUNT / 2);
 	twiceTarget = DISCOVERY.TARGET_NEIGHBORS_COUNT * 2;
 	/** @type {Set<string>} */ bootstrapsIds = new Set();
-	get isPublicNode() { return this.nodeServices?.publicUrl ? true : false; }
-	/** @type {import('./node-services.mjs').NodeServices | undefined} */ nodeServices;
-
-	nextBootstrapIndex = 0;
+	get isPublicNode() { return this.services?.publicUrl ? true : false; }
+	/** @type {import('./node-services.mjs').NodeServices | undefined} */ services;
+	
 	phase = 0;
+	nextBootstrapIndex = 0;
+	offersQueue = new OfferQueue();
+	maxBonus = NODE.CONNECTION_UPGRADE_TIMEOUT * .2; // 20% of 15sec: 3sec max
 
 	/** @param {string} selfId @param {import('./gossip.mjs').Gossip} gossip @param {import('./unicast.mjs').UnicastMessager} messager @param {import('./peer-store.mjs').PeerStore} peerStore @param {Array<{id: string, publicUrl: string}>} bootstraps */
 	constructor(selfId, gossip, messager, peerStore, bootstraps) {
@@ -76,7 +72,7 @@ export class Topologist {
 		const { neighborsCount, nonPublicNeighborsCount, isEnough, isTooMany, isHalfReached } = this.#localTopologyInfo;
 		const offersToCreate = nonPublicNeighborsCount >= DISCOVERY.TARGET_NEIGHBORS_COUNT / 3 ? 1 : TRANSPORTS.MAX_SDP_OFFERS;
 		this.peerStore.offerManager.offersToCreate = isEnough ? 0 : offersToCreate;
-		if (this.isPublicNode) { this.nodeServices.freePublicNodeByKickingPeers(); return; } // public nodes don't need more connections
+		if (this.isPublicNode) { this.services.freePublicNodeByKickingPeers(); return; } // public nodes don't need more connections
 		if (isTooMany) return Math.random() > .05 ? this.#improveTopologyByKickingPeers() : null;
 		
 		if (!isEnough) this.#digestBestOffers(); // => needs more peers

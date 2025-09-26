@@ -1,19 +1,51 @@
-import { CLOCK, SIMULATION, DISCOVERY, LOG_CSS } from './global_parameters.mjs';
-import { PeerConnection, KnownPeer, Punisher } from './peer-store-utilities.mjs';
+import { CLOCK, SIMULATION, NODE, DISCOVERY, LOG_CSS } from './parameters.mjs';
 const { SANDBOX, ICE_CANDIDATE_EMITTER, TEST_WS_EVENT_MANAGER } = SIMULATION.ENABLED ? await import('../simulation/test-transports.mjs') : {};
-/** @typedef {{ in: PeerConnection, out: PeerConnection }} PeerConnecting */
 
+export class KnownPeer { // known peer, not necessarily connected
+	neighbors; connectionsCount;
+
+	/** CAUTION: Call this one only in PeerStore.unlinkPeers() @param {Record<string, number>} neighbors key: peerId, value: timestamp */
+	constructor(neighbors = {}) { this.neighbors = neighbors; this.connectionsCount = Object.keys(neighbors).length; }
+
+	/** Set or update neighbor @param {string} peerId @param {number} [timestamp] */
+	setNeighbor(peerId, timestamp = CLOCK.time) {
+		if (!this.neighbors[peerId]) this.connectionsCount++;
+		this.neighbors[peerId] = timestamp;
+	}
+	/** Unset neighbor @param {string} peerId */
+	unsetNeighbor(peerId) {
+		if (this.neighbors[peerId]) this.connectionsCount--;
+		delete this.neighbors[peerId];
+	}
+}
+
+export class PeerConnection { // WebSocket or WebRTC connection wrapper
+	peerId; transportInstance; isWebSocket; direction; pendingUntil; connStartTime;
+
+	/** Connection to a peer, can be WebSocket or WebRTC, can be connecting or connected
+	 * @param {string} peerId
+	 * @param {import('simple-peer').Instance | import('ws').WebSocket} transportInstance
+	 * @param {'in' | 'out'} direction @param {boolean} [isWebSocket] default: false */
+	constructor(peerId, transportInstance, direction, isWebSocket = false) {
+		this.peerId = peerId; this.transportInstance = transportInstance;
+		this.isWebSocket = isWebSocket; this.direction = direction;
+		this.pendingUntil = CLOCK.time + NODE.CONNECTION_UPGRADE_TIMEOUT;
+	}
+	setConnected() { this.connStartTime = CLOCK.time; this.pendingUntil = 0; }
+	getConnectionDuration() { return this.connStartTime ? CLOCK.time - this.connStartTime : 0; }
+	close() { this.isWebSocket ? this.transportInstance?.close() : this.transportInstance?.destroy(); }
+}
+
+/** @typedef {{ in: PeerConnection, out: PeerConnection }} PeerConnecting */
 export class PeerStore { // Manages all peers informations and connections (WebSocket and WebRTC)
-	cryptoCodex;
-	verbose;
-	id;
-	offerManager;
-	punisher = new Punisher();
+	id; cryptoCodex; offerManager; arbiter; verbose; isDestroy = false;
+
 	/** @type {string[]} The neighbors IDs */ 		neighborsList = []; // faster access
 	/** @type {Record<string, PeerConnecting>} */ 	connecting = {};
 	/** @type {Record<string, PeerConnection>} */ 	connected = {};
 	/** @type {Record<string, KnownPeer>} */ 	  	known = {}; // known peers store
 	/** @type {number} */							knownCount = 0;
+	/** @type {Record<string, number>} */ 			kick = {}; // peerId, timestamp until kick expires
 	/** @type {Record<string, Function[]>} */ 		callbacks = {
 		'connect': [(peerId, direction) => this.#handleConnect(peerId, direction)],
 		'disconnect': [(peerId, direction) => this.#handleDisconnect(peerId, direction)],
@@ -21,14 +53,17 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 		'data': []
 	};
 
-	/** @param {string} selfId @param {import('./crypto-codex.mjs').CryptoCodex} cryptoCodex @param {import('./ice-offer-manager.mjs').OfferManager} offerManager @param {number} [verbose] default: 0 */
-	constructor(selfId, cryptoCodex, offerManager, verbose = 0) { // SETUP SDP_OFFER_MANAGER CALLBACKS
-		this.cryptoCodex = cryptoCodex; this.verbose = verbose; this.id = selfId;
+	/** @param {string} selfId @param {import('./crypto-codex.mjs').CryptoCodex} cryptoCodex @param {import('./ice-offer-manager.mjs').OfferManager} offerManager @param {import('./network-arbiter.mjs').Arbiter} arbiter @param {number} [verbose] default: 0 */
+	constructor(selfId, cryptoCodex, offerManager, arbiter, verbose = 0) { // SETUP SDP_OFFER_MANAGER CALLBACKS
+		this.id = selfId;
+		this.cryptoCodex = cryptoCodex;
 		this.offerManager = offerManager;
+		this.arbiter = arbiter;
+		this.verbose = verbose; 
 
 		/** @param {string} remoteId @param {any} signalData @param {string} [offerHash] answer only */
 		this.offerManager.onSignalAnswer = (remoteId, signalData, offerHash) => { // answer only
-			if (this.isDestroy || this.punisher.isSanctioned(remoteId)) return; // not accepted
+			if (this.isDestroy || this.isKicked(remoteId) || this.arbiter.isSanctioned(remoteId)) return; // not accepted
 			for (const cb of this.callbacks.signal) cb(remoteId, { signal: signalData, offerHash });
 		};
 		/** @param {string | undefined} remoteId @param {import('simple-peer').Instance} instance */
@@ -176,11 +211,11 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 		const direction = signal.type === 'offer' ? 'in' : 'out';
 		if (this.connecting[remoteId]?.[direction]) return; // already connecting out (should not happen)
 
-		const peerConnection = this.offerManager.getPeerConnexionForSignal(remoteId, signal, offerHash);
-		if (!peerConnection) return this.verbose > 3 ? console.info(`%cFailed to get/create a peer connection for ID ${remoteId}.`, LOG_CSS.PEER_STORE) : null;
+		const instance = this.offerManager.getTransportInstanceForSignal(remoteId, signal, offerHash);
+		if (!instance) return this.verbose > 3 ? console.info(`%cFailed to get transport instance for signal from ${remoteId}.`, LOG_CSS.PEER_STORE) : null;
 
 		if (!this.connecting[remoteId]) this.connecting[remoteId] = {};
-		if (this.connecting[remoteId]) this.connecting[remoteId][direction] = peerConnection;
+		this.connecting[remoteId][direction] = new PeerConnection(remoteId, instance, direction);
 		return true;
 	}
 	/** @param {string} remoteId @param {{type: 'offer' | 'answer', sdp: Record<string, string>}} signal @param {string} [offerHash] answer only @param {number} timestamp Answer reception timestamp */
@@ -192,6 +227,13 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 			else peerConn.transportInstance.signal(signal);
 		} catch (error) { console.error(`Error signaling ${signal?.type} for ${remoteId}:`, error.stack); }
 	}
+	/** Avoid peer connection @param {string} peerId @param {number} duration default: 60_000ms @param {string} [reason] */
+	kickPeer(peerId, duration = 60_000, reason) {
+		if (duration) this.kick[peerId] = CLOCK.time + duration;
+		this.#removePeer(peerId, 'both');
+		if (this.verbose > 1) console.log(`%c(${this.id}) Kicked peer ${peerId} for ${duration / 1000}s. ${reason ? '| Reason: ' + reason : ''}`, 'color: green;');
+	}
+	isKicked(peerId) { return this.kick[peerId] && this.kick[peerId] > CLOCK.time; }
 	/** Improve discovery by considering used route as peer links @param {string[]} route */
 	digestValidRoute(route = []) { for (let i = 1; i < route.length; i++) this.#linkPeers(route[i - 1], route[i]); }
 	/** @param {string} peerId @param {string[]} neighbors */
@@ -207,20 +249,4 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 		for (const [peerId, connObj] of Object.entries(this.connecting)) { this.#removePeer(peerId); connObj['in']?.close(); connObj['out']?.close(); }
 		this.offerManager.destroy();
 	}
-
-	// PUNISHER API
-	/** Avoid peer connection and messages @param {string} peerId @param {number} duration default: 60_000ms */
-	banPeer(peerId, duration = 60_000) {
-		if (duration) this.punisher.sanctionPeer(peerId, 'ban', duration);
-		this.#removePeer(peerId, 'both');
-		if (this.verbose > 1) console.log(`%c(${this.id}) Banned peer ${peerId} for ${duration / 1000}s.`, 'color: red;');
-	}
-	isBanned(peerId) { return this.punisher.isSanctioned(peerId, 'ban'); }
-	/** Avoid peer connection @param {string} peerId @param {number} duration default: 60_000ms @param {string} [reason] */
-	kickPeer(peerId, duration = 60_000, reason) {
-		if (duration) this.punisher.sanctionPeer(peerId, 'kick', duration);
-		this.#removePeer(peerId, 'both');
-		if (this.verbose > 1) console.log(`%c(${this.id}) Kicked peer ${peerId} for ${duration / 1000}s. ${reason ? '| Reason: ' + reason : ''}`, 'color: green;');
-	}
-	isKicked(peerId) { return this.punisher.isSanctioned(peerId, 'kick'); }
 }

@@ -1,4 +1,4 @@
-import { SIMULATION, DISCOVERY, UNICAST } from "./global_parameters.mjs";
+import { SIMULATION, DISCOVERY, UNICAST } from "./parameters.mjs";
 import { RouteBuilder_V2 } from "./route-builder.mjs";
 const { SANDBOX, ICE_CANDIDATE_EMITTER, TEST_WS_EVENT_MANAGER } = SIMULATION.ENABLED ? await import('../simulation/test-transports.mjs') : {};
 const RouteBuilder = RouteBuilder_V2; // temporary switch
@@ -48,22 +48,20 @@ export class ReroutedDirectMessage extends DirectMessage {
 }
 
 export class UnicastMessager {
-	cryptoCodex;
-	verbose;
 	/** @type {Record<string, Function[]>} */ callbacks = { message_handle: [] };
-	id;
-	peerStore;
-	pathFinder;
+	id; cryptoCodex; arbiter; peerStore; verbose; pathFinder;
+	
 	maxHops = UNICAST.MAX_HOPS;
 	maxRoutes = UNICAST.MAX_ROUTES;
 	maxNodes = UNICAST.MAX_NODES;
 
-	/** @param {string} selfId @param {import('./crypto-codex.mjs').CryptoCodex} cryptoCodex @param {import('./peer-store.mjs').PeerStore} peerStore */
-	constructor(selfId, cryptoCodex, peerStore, verbose = 0) {
-		this.cryptoCodex = cryptoCodex;
-		this.verbose = verbose;
+	/** @param {string} selfId @param {import('./crypto-codex.mjs').CryptoCodex} cryptoCodex @param {import('./network-arbiter.mjs').Arbiter} arbiter @param {import('./peer-store.mjs').PeerStore} peerStore */
+	constructor(selfId, cryptoCodex, arbiter, peerStore, verbose = 0) {
 		this.id = selfId;
+		this.cryptoCodex = cryptoCodex;
+		this.arbiter = arbiter;
 		this.peerStore = peerStore;
+		this.verbose = verbose;
 		this.pathFinder = new RouteBuilder(this.id, this.peerStore);
 	}
 
@@ -108,7 +106,7 @@ export class UnicastMessager {
 	}
 	/** @param {string} from @param {Uint8Array} serialized */
 	handleDirectMessage(from, serialized) {
-		if (this.peerStore.isBanned(from)) return this.verbose >= 3 ? console.info(`%cReceived direct message from banned peer ${from}, ignoring.`, 'color: red;') : null;
+		if (this.arbiter.isBanned(from)) return this.verbose >= 3 ? console.info(`%cReceived direct message from banned peer ${from}, ignoring.`, 'color: red;') : null;
 
 		const message = this.cryptoCodex.readUnicastMessage(serialized);
 		if (!message || !message.route?.length) return this.verbose > 1 ? console.warn(`Received invalid unicast message from ${from}.`) : null;

@@ -2,7 +2,7 @@ import path from 'path';
 import express from 'express';
 import { io } from 'socket.io-client'; // used for twitch events only
 import { WebSocketServer } from 'ws';
-import { CLOCK, SIMULATION, NODE, TRANSPORTS, IDENTITY, DISCOVERY, GOSSIP, LOG_CSS } from '../core/global_parameters.mjs';
+import { CLOCK, SIMULATION, NODE, TRANSPORTS, IDENTITY, DISCOVERY, GOSSIP, LOG_CSS } from '../core/parameters.mjs';
 import { TestWsServer, TestWsConnection, TestTransport,
 	ICE_CANDIDATE_EMITTER, TEST_WS_EVENT_MANAGER, SANDBOX } from '../simulation/test-transports.mjs';
 //import { MessageQueue, Statician, TransmissionAnalyzer, SubscriptionsManager } from './simulator-utils.mjs';

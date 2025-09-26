@@ -1,4 +1,4 @@
-import { CLOCK, GOSSIP, DISCOVERY } from './global_parameters.mjs';
+import { CLOCK, GOSSIP, DISCOVERY } from './parameters.mjs';
 import { xxHash32 } from '../libs/xxhash32.mjs';
 
 export class GossipMessage { // TYPE DEFINITION
@@ -80,19 +80,16 @@ class DegenerateBloomFilter {
 }
 
 export class Gossip {
-	cryptoCodex;
-	verbose;
-	id;
-	peerStore;
-	bloomFilter;
 	/** @type {Record<string, Function[]>} */ callbacks = { message_handle: [] };
-	
-	/** @param {string} peerId @param {import('./crypto-codex.mjs').CryptoCodex} cryptoCodex @param {import('./peer-store.mjs').PeerStore} peerStore */
-	constructor(peerId, cryptoCodex, peerStore, verbose = 0) {
+	id; cryptoCodex; arbiter; peerStore; verbose; bloomFilter;
+
+	/** @param {string} selfId @param {import('./crypto-codex.mjs').CryptoCodex} cryptoCodex @param {import('./network-arbiter.mjs').Arbiter} arbiter @param {import('./peer-store.mjs').PeerStore} peerStore */
+	constructor(selfId, cryptoCodex, arbiter, peerStore, verbose = 0) {
+		this.id = selfId;
 		this.cryptoCodex = cryptoCodex;
-		this.verbose = verbose;
-		this.id = peerId;
+		this.arbiter = arbiter;
 		this.peerStore = peerStore;
+		this.verbose = verbose;
 		this.bloomFilter = new DegenerateBloomFilter(cryptoCodex);
 	}
 
@@ -124,7 +121,7 @@ export class Gossip {
 	}
 	/** @param {string} from @param {Uint8Array} serialized */
 	handleGossipMessage(from, serialized) {
-		if (this.peerStore.isBanned(from)) return; // ignore messages from banned peers
+		if (this.arbiter.isBanned(from)) return; // ignore messages from banned peers
 		for (const cb of this.callbacks.message_handle || []) cb(serialized); // Simulator counter before filtering
 		if (!this.bloomFilter.addMessage(serialized)) return; // already processed this message
 

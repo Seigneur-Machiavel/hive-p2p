@@ -1,4 +1,5 @@
-import { CLOCK, SIMULATION, NODE, TRANSPORTS, DISCOVERY } from './global_parameters.mjs';
+import { CLOCK, SIMULATION, NODE, TRANSPORTS, DISCOVERY } from './parameters.mjs';
+import { Arbiter } from './network-arbiter.mjs';
 import { OfferManager } from './ice-offer-manager.mjs';
 import { PeerStore } from './peer-store.mjs';
 import { UnicastMessager } from './unicast.mjs';
@@ -9,15 +10,13 @@ import { NodeServices } from './node-services.mjs';
 
 export class NodeP2P {
 	started = false;
-	verbose;
-	cryptoCodex;
-	/** should be based on crypto */ id;
+	id; cryptoCodex; verbose; arbiter;
 	/** class managing ICE offers */ offerManager;
 	/** class managing network connections */ peerStore;
 	/** class who manage direct messages */ messager;
 	/** class who manage gossip messages */ gossip;
 	/** class managing network connections */ topologist;
-	/** @type {NodeServices | undefined} */ nodeServices;
+	/** @type {NodeServices | undefined} */ services;
 
 	/** Initialize a new P2P node instance, use .start() to init topologist
 	 * @param {CryptoCodex} cryptoCodex - Identity of the node.
@@ -28,11 +27,12 @@ export class NodeP2P {
 		this.id = this.cryptoCodex.id;
 		const stunUrls = NodeServices.deriveSTUNServers(bootstraps);
 		this.offerManager = new OfferManager(this.id, stunUrls, verbose);
-		this.peerStore = new PeerStore(this.id, this.cryptoCodex, this.offerManager, verbose);
-		this.messager = new UnicastMessager(this.id, this.cryptoCodex, this.peerStore, verbose);
-		this.gossip = new Gossip(this.id, this.cryptoCodex, this.peerStore, verbose);
+		this.arbiter = new Arbiter(this.id, cryptoCodex, verbose);
+		this.peerStore = new PeerStore(this.id, this.cryptoCodex, this.offerManager, this.arbiter, verbose);
+		this.messager = new UnicastMessager(this.id, this.cryptoCodex, this.arbiter, this.peerStore, verbose);
+		this.gossip = new Gossip(this.id, this.cryptoCodex, this.arbiter, this.peerStore, verbose);
 		this.topologist = new Topologist(this.id, this.gossip, this.messager, this.peerStore, bootstraps);
-		const { peerStore, messager, gossip, topologist } = this;
+		const { arbiter, peerStore, messager, gossip, topologist } = this;
 
 		// SETUP TRANSPORTS LISTENERS
 		peerStore.on('signal', (peerId, data) => this.sendMessage(peerId, data, 'signal_answer')); // answer created => send it to offerer
@@ -94,7 +94,7 @@ export class NodeP2P {
 	}
 
 	// PUBLIC API
-	get publicUrl() { return this.nodeServices?.publicUrl; }
+	get publicUrl() { return this.services?.publicUrl; }
 
 	/** @param {Array<string>} bootstraps @param {CryptoCodex} [cryptoCodex] - Identity of the node; if not provided, a new one will be generated @param {boolean} [start] default: false @param {string} [domain] public node only, ex: 'localhost' @param {number} [port] public node only, ex: 8080 */
 	static async createNode(bootstraps, cryptoCodex, start = true, domain, port = NODE.SERVICE.PORT, verbose = NODE.DEFAULT_VERBOSE) {
@@ -103,9 +103,9 @@ export class NodeP2P {
 
 		const node = new NodeP2P(codex, bootstraps, verbose);
 		if (domain) {
-			node.nodeServices = new NodeServices(codex, node.peerStore, undefined, verbose);
-			node.nodeServices.start(domain, port);
-			node.topologist.nodeServices = node.nodeServices;
+			node.services = new NodeServices(codex, node.peerStore, undefined, verbose);
+			node.services.start(domain, port);
+			node.topologist.services = node.services;
 		}
 		if (start) await node.start();
 		return node;

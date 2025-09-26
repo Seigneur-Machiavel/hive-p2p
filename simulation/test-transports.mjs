@@ -1,4 +1,4 @@
-import { SIMULATION, NODE } from '../core/global_parameters.mjs';
+import { SIMULATION, NODE } from '../core/parameters.mjs';
 import { Sandbox, ICECandidateEmitter } from './tranports-sandbox.mjs';
 
 class TestWsEventManager { // manage init() and close() to avoid timeout usage
