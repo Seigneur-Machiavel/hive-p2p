@@ -1,6 +1,6 @@
 {
   "name": "hive-p2p",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "P2P networking library for browser and Node.js with WebRTC",
   "type": "module",
   "main": "./index.mjs",
