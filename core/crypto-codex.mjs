@@ -191,8 +191,9 @@ export class CryptoCodex {
 			const signatureStart = 47 + NDBL;
 			const signature = serialized.slice(signatureStart, signatureStart + IDENTITY.SIGNATURE_LENGTH);
 			const HOPS = serialized[serialized.length - 1];
+			const expectedEnd = signatureStart + IDENTITY.SIGNATURE_LENGTH + 1;
 			const senderId = associatedId;
-			return new GossipMessage(topic, timestamp, neighbors, HOPS, senderId, pubkey, deserializedData, signature, signatureStart);
+			return new GossipMessage(topic, timestamp, neighbors, HOPS, senderId, pubkey, deserializedData, signature, signatureStart, expectedEnd);
 		} catch (error) { if (this.verbose > 1) console.warn(`Error deserializing ${topic || 'unknown'} gossip message:`, error.stack); }
 		return null;
 	}
@@ -215,12 +216,13 @@ export class CryptoCodex {
 			const initialMessageEnd = signatureStart + IDENTITY.SIGNATURE_LENGTH;
 			const signature = serialized.slice(signatureStart, initialMessageEnd);
 			const isPatched = (serialized.length > initialMessageEnd);
-			if (!isPatched) return new DirectMessage(type, timestamp, neighbors, route, pubkey, deserializedData, signature, signatureStart);
+
+			if (!isPatched) return new DirectMessage(type, timestamp, neighbors, route, pubkey, deserializedData, signature, signatureStart, initialMessageEnd);
 
 			const rerouterPubkey = serialized.slice(initialMessageEnd, initialMessageEnd + 32);
 			const newRoute = this.#bytesToIds(serialized.slice(initialMessageEnd + 32, serialized.length - IDENTITY.SIGNATURE_LENGTH));
 			const rerouterSignature = serialized.slice(serialized.length - IDENTITY.SIGNATURE_LENGTH);
-			return new ReroutedDirectMessage(type, timestamp, neighbors, route, pubkey, deserializedData, signature, rerouterPubkey, newRoute, rerouterSignature);
+			return new ReroutedDirectMessage(type, timestamp, neighbors, route, pubkey, deserializedData, signature, rerouterPubkey, newRoute, rerouterSignature, serialized.length);
 		} catch (error) { if (this.verbose > 1) console.warn(`Error deserializing ${type || 'unknown'} unicast message:`, error.stack); }
 		return null;
 	}

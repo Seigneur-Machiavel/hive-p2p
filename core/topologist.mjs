@@ -118,7 +118,7 @@ export class Topologist {
 
 		// MINIMIZE BOOTSTRAP CONNECTIONS DEPENDING ON HOW MANY NEIGHBORS WE HAVE
 		if (publicConnectedCount + publicConnectingCount >= this.halfTarget) return; // already connected to enough bootstraps
-		if (nonPublicNeighborsCount + publicConnectedCount > DISCOVERY.TARGET_NEIGHBORS_COUNT) return; // no more bootstrap needed
+		if (neighborsCount >= DISCOVERY.TARGET_NEIGHBORS_COUNT) return; // no more bootstrap needed
 		if (connectingCount + nonPublicNeighborsCount > this.twiceTarget) return; // no more bootstrap needed
 
 		const { id, publicUrl } = this.bootstraps[this.nextBootstrapIndex++ % this.bootstrapsIds.size];
@@ -230,6 +230,7 @@ export class Topologist {
 		this.offersQueue.updateOrderingBy(this.#localTopologyInfo.isHalfReached);
 		this.offersQueue.removeOlderThan(TRANSPORTS.SDP_OFFER_EXPIRATION / 2); // remove close to expiration offers
 		for (let i = 0; i < this.offersQueue.size; i++) {
+			//if (connectingCount > this.twiceTarget * 2) break; // stop if we are over connecting
 			const { senderId, data, timestamp, value } = this.offersQueue.bestOfferInfo;
 			if (!senderId || !data || !timestamp) break;
 			if (this.peerStore.connected[senderId] || this.peerStore.isKicked(senderId)) continue;

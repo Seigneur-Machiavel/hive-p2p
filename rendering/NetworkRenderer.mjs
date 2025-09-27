@@ -58,6 +58,7 @@ export class NetworkRenderer {
 	// State
 	currentPeerId = null;
 	hoveredNodeId = null;
+	hoveredNodeRepaintInterval = null;
 	isAnimating = false;
 	isPhysicPaused = false;
 
@@ -275,25 +276,29 @@ export class NetworkRenderer {
 		// remove visual lines that are not in the array
 		for (const connStr in this.connectionsStore.store) {
 			const peerConn = this.connectionsStore.store[connStr];
+			if (peerConn.isHovered) continue; // still hovered
+			if (peerConn.repaintIgnored) continue; // still ignored
 			if (!existingConnsKeys[connStr]) this.connectionsStore.unset(...connStr.split(':'));
 			else if (!drawLinesKeys[connStr] && peerConn.line) this.connectionsStore.unassignLine(...connStr.split(':'));
 		}
 	}
 	displayDirectMessageRoute(relayerId, route = [], frameToIgnore = 30) {
+		const fto = Math.round(frameToIgnore * (this.frameCount / 60));
 		const maxTraveledColorIndex = this.colors.traveledConnection.length - 1;
 		let traveledIndex = 0;
 		let isRelayerIdPassed = false;
 		for (let i = 1; i < route.length; i++) {
 			const color = isRelayerIdPassed ? this.colors.toTravelConnection : this.colors.traveledConnection[traveledIndex];
-			this.connectionsStore.updateOrAssignLineColor(route[i - 1], route[i], color, .5, frameToIgnore);
+			this.connectionsStore.updateOrAssignLineColor(route[i - 1], route[i], color, .5, fto, true);
 			traveledIndex = Math.min(traveledIndex + 1, maxTraveledColorIndex);
 			if (route[i - 1] === relayerId) isRelayerIdPassed = true;
 		}
 	}
-	// THIS IS A VERY FIRST IMPLEMENTATION, NEEDS REFINEMENT
-	displayGossipMessageRoute(relayerId, senderId, topic = 'peer_connected', data, frameToIgnore = 20) {
-		this.connectionsStore.updateOrAssignLineColor(senderId, relayerId, this.colors.gossipOutgoingColor, .4, frameToIgnore);
-		this.connectionsStore.updateOrAssignLineColor(relayerId, this.currentPeerId, this.colors.gossipIncomingColor, .8, frameToIgnore + 5);
+	displayGossipMessageRoute(relayerId, senderId, topic = 'peer_connected', data, frameToIgnore = 25) {
+		const fto = Math.round(frameToIgnore * (this.frameCount / 60));
+		const fto2 = Math.round((frameToIgnore + 5) * (this.frameCount / 60));
+		this.connectionsStore.updateOrAssignLineColor(senderId, relayerId, this.colors.gossipOutgoingColor, .4, fto, true);
+		this.connectionsStore.updateOrAssignLineColor(relayerId, this.currentPeerId, this.colors.gossipIncomingColor, .8, fto2, true);
 	}
     setCurrentPeer(peerId, clearNetworkOneChange = true) {
 		if (clearNetworkOneChange && peerId !== this.currentPeerId) {
@@ -525,6 +530,8 @@ export class NetworkRenderer {
 
 		// Reset previous hovered node
 		if (this.hoveredNodeId) {
+			clearInterval(this.hoveredNodeRepaintInterval);
+			this.hoveredNodeRepaintInterval = null;
 			const prevInstanceIndex = this.nodeIndexMap[this.hoveredNodeId];
 			if (prevInstanceIndex !== undefined) {
 				const originalColor = new THREE.Color(this.#getNodeColor(this.hoveredNodeId));
@@ -557,9 +564,12 @@ export class NetworkRenderer {
 		this.renderer.domElement.style.cursor = 'pointer';
 
 		// Set hovered connections flag
-		const hoveredNode = this.nodesStore.get(this.hoveredNodeId);
-		const neighbors = hoveredNode ? hoveredNode.neighbors : [];
-		for (const toId of neighbors) this.connectionsStore.setHovered(toId, this.hoveredNodeId);
+		this.hoveredNodeRepaintInterval = setInterval(() => {
+			const hoveredNode = this.nodesStore.get(this.hoveredNodeId);
+			console.log(`Repainting hovered node ${this.hoveredNodeId} and its neighbors`);
+			const neighbors = hoveredNode ? hoveredNode.neighbors : [];
+			for (const toId of neighbors) this.connectionsStore.setHovered(toId, this.hoveredNodeId);
+		}, 60);
 	}
 	#showTooltip(x, y, nodeId, element = document.getElementById('tooltip')) {
 		const node = this.nodesStore.get(nodeId);
@@ -710,11 +720,11 @@ export class NetworkRenderer {
 			this.lastPhysicUpdate = currentTime;
 			const nodeIds = this.nodesStore.getNodesIds();
 			this.#updateNodesPositions(nodeIds);
-			this.connectionsStore.updateConnections(this.currentPeerId, this.hoveredNodeId, this.colors, this.options.mode);
 			this.#autoRotate();
 			this.#autoZoom();
 		}
 
+		this.connectionsStore.updateConnections(this.currentPeerId, this.hoveredNodeId, this.colors, this.options.mode);
 		this.instancedMesh.instanceMatrix.needsUpdate = true;
 		this.instancedMesh.instanceColor.needsUpdate = true;
 		this.renderer.render(this.scene, this.camera);

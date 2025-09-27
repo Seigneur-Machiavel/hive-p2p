@@ -14,6 +14,8 @@
 /** Optimized route finder using bidirectional BFS and early stopping
  * Much more efficient than V1 for longer paths by searching from both ends */
 export class RouteBuilder_V2 {
+	/** @type {Record<string, RouteInfo[]>} */
+	cache = {}; // key: remoteId, value: paths
 	peerStore;
 
 	/** @param {string} selfId @param {PeerStore} peerStore */
@@ -35,16 +37,41 @@ export class RouteBuilder_V2 {
 		if (this.peerStore.connected[remoteId]) return { routes: [{ path: [this.id, remoteId]}], success: true, nodesExplored: 1 };
 		if (!this.peerStore.known[remoteId]) return this.#buildBlindRoutes(remoteId);
 
+		if (this.cache[remoteId] && this.#verifyRoutesStillValid(this.cache[remoteId]))
+			return { routes: this.cache[remoteId], success: true, nodesExplored: 0 };
+
 		const result = this.#bidirectionalSearch(remoteId, maxHops, maxNodes, goodEnoughHops);
 		if (!result.success) return { routes: [], success: false, nodesExplored: result.nodesExplored };
 		
-		const routes = [];
-		for (const path of result.paths) routes.push({ path, hops: path.length - 1 });
-		if (sortByHops) routes.sort((a, b) => a.hops - b.hops);
-		return { routes: routes.slice(0, maxRoutes), success: true, nodesExplored: result.nodesExplored };
+		const routes = this.#buildRoutesFromPathsAndSortByHops(result.paths, sortByHops);
+		const selectedRoutes = routes.slice(0, maxRoutes);
+		this.cache[remoteId] = selectedRoutes;
+		return { routes: selectedRoutes, success: true, nodesExplored: result.nodesExplored };
 	}
-
-	#buildBlindRoutes(remoteId, randomizeOrder = true) {
+	/** @param {RouteInfo[]} routes */
+	#verifyRoutesStillValid(routes) {
+		// Check if all nodes are still known and connections still exist
+		for (const { path } of routes) {
+			for (let i = 1; i < path.length; i++) {
+				const from = path[i - 1];
+				const to = path[i];
+				if (from === this.id) {
+					if (!this.peerStore.connected[to]) return false;
+				} else {
+					if (!this.peerStore.known[from]?.neighbors?.[to]) return false;
+				}
+			}
+		}
+		return true;
+	}
+	#buildRoutesFromPathsAndSortByHops(paths, sortByHops) {
+		const routes = [];
+		for (const path of paths) routes.push({ path, hops: path.length - 1 });
+		if (sortByHops) routes.sort((a, b) => a.hops - b.hops);
+		return routes;
+	}
+	// Build blind routes via all connected peers in shuffled order
+	#buildBlindRoutes(remoteId) {
 		const routes = [];
 		const connected = this.peerStore.neighborsList;
 		const shuffledIndexes = [...Array(connected.length).keys()].sort(() => Math.random() - 0.5);

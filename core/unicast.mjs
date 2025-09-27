@@ -1,4 +1,5 @@
 import { SIMULATION, DISCOVERY, UNICAST } from "./parameters.mjs";
+import { TRUST_VALUES } from "./arbiter.mjs";
 import { RouteBuilder_V2 } from "./route-builder.mjs";
 const { SANDBOX, ICE_CANDIDATE_EMITTER, TEST_WS_EVENT_MANAGER } = SIMULATION.ENABLED ? await import('../simulation/test-transports.mjs') : {};
 const RouteBuilder = RouteBuilder_V2; // temporary switch
@@ -12,11 +13,12 @@ export class DirectMessage { // TYPE DEFINITION
 	data;
 	signature;
 	signatureStart; // position in the serialized message where the signature starts
+	expectedEnd; // expected length of the serialized message
 
-	/** @param {string} type @param {number} timestamp @param {string[]} neighborsList @param {string[]} route @param {string} pubkey @param {string | Uint8Array | Object} data @param {string | undefined} signature @param {number} signatureStart */
-	constructor(type, timestamp, neighborsList, route, pubkey, data, signature, signatureStart) {
+	/** @param {string} type @param {number} timestamp @param {string[]} neighborsList @param {string[]} route @param {string} pubkey @param {string | Uint8Array | Object} data @param {string | undefined} signature @param {number} signatureStart @param {number} expectedEnd */
+	constructor(type, timestamp, neighborsList, route, pubkey, data, signature, signatureStart, expectedEnd) {
 		this.type = type; this.timestamp = timestamp; this.neighborsList = neighborsList;
-		this.route = route; this.pubkey = pubkey; this.data = data; this.signature = signature; this.signatureStart = signatureStart;
+		this.route = route; this.pubkey = pubkey; this.data = data; this.signature = signature; this.signatureStart = signatureStart; this.expectedEnd = expectedEnd;
 	}
 	getSenderId() { return this.route[0]; }
 	getTargetId() { return this.route[this.route.length - 1]; }
@@ -108,6 +110,7 @@ export class UnicastMessager {
 	/** @param {string} from @param {Uint8Array} serialized */
 	async handleDirectMessage(from, serialized) {
 		if (this.arbiter.isBanished(from)) return this.verbose >= 3 ? console.info(`%cReceived direct message from banned peer ${from}, ignoring.`, 'color: red;') : null;
+		if (!this.arbiter.countMessageBytes(from, serialized.byteLength, 'unicast')) return; // ignore if flooding/banished
 
 		const message = this.cryptoCodex.readUnicastMessage(serialized);
 		if (!message) return this.arbiter.countPeerAction(from, 'WRONG_SERIALIZATION');
@@ -119,10 +122,6 @@ export class UnicastMessager {
 		if (from === senderId && from === this.id) throw new Error('DirectMessage senderId and from are both self id !!');
 		
 		for (const cb of this.callbacks.message_handle || []) cb(); // Simulator counter
-		//if (selfPosition === -1) return this.peerStore.kickPeer(from, 0, 'invalid-route'); // self not in route
-		//if (prevId && from !== prevId) throw new Error(`DirectMessage previous hop id (${prevId}) does not match the actual from id (${from}).`);
-		//if (senderId === this.id) // !!Attacker can modify the route to kick a peer a by building a loop
-			//return this.peerStore.kickPeer(from, 0, 'self-connection'); // from self is not allowed.
 		if (selfPosition === -1) return this.arbiter.adjustTrust(from, TRUST_VALUES.UNICAST_INVALID_ROUTE, 'Self not in route');
 		if (prevId && from !== prevId) return this.arbiter.adjustTrust(from, TRUST_VALUES.UNICAST_INVALID_ROUTE, 'Previous hop id does not match actual from id');
 		if (senderId === this.id) return this.arbiter.adjustTrust(from, TRUST_VALUES.UNICAST_INVALID_ROUTE, 'SenderId is self id');
@@ -132,6 +131,7 @@ export class UnicastMessager {
 			else console.log(`(${this.id}) Direct ${message.type} from ${senderId} (lastRelay: ${from}): ${message.data}`);
 		
 		this.peerStore.digestPeerNeighbors(senderId, message.neighborsList);
+		if (from !== senderId) this.arbiter.adjustTrust(from, TRUST_VALUES.UNICAST_RELAYED, 'Relayed unicast message');
 		if (DISCOVERY.ON_UNICAST.DIGEST_TRAVELED_ROUTE) this.peerStore.digestValidRoute(traveledRoute);
 		if (this.id === targetId) { for (const cb of this.callbacks[message.type] || []) cb(senderId, message.data); return; } // message for self
 

@@ -34,7 +34,7 @@ let initInterval = null;
 let isRestarting = false;
 const sVARS = { // SIMULATION VARIABLES
 	publicInit: 0,
-	nextPeerToInit: 0,
+	nextPeerToInit: null,
 	publicPeersCards: [],
 	startTime: Date.now()
 };
@@ -55,31 +55,37 @@ async function intervalsLoop(loopDelay = 8) { // OPTIMIZATION, SORRY FOR COMPLEX
 	const beforeIceCandidateEmitterTick = Math.round(520 / loopDelay); // 520 ms / 8ms = 65
 	
 	const discoveryTickLastTime = {}; // key: peerId, value: lastTime
-	let arbiterCounter = 0; 		// PEER ARBITER
+	let arbiterCounter = {}; 			// PEER ARBITER COUNTERS
 	const beforeArbiterTick = Math.round(1000 / loopDelay); // 1000 ms / 8ms = 125
 
 	async function tick(n) {
 		if (isRestarting) return;
 		if (!SIMULATION.AVOID_INTERVALS) return; // not enabled
 		
-		for (const id in peers.all) {
-			const peer = peers.all[id];
+		let peersAllCount = 0;
+		for (const id in peers.all) { // PEER ARBITER TICK (+ counting peers)
+			const peer = peers.all[id]; peersAllCount++;
 			if (!peer.started) continue; // not started yet
-			if (arbiterCounter-- <= 0) { // PEER ARBITER TICK
-				arbiterCounter = beforeArbiterTick;
-				peer.arbiter.tick();
-			}
+			if (arbiterCounter[id]-- > 0) continue // PEER ARBITER TICK
+			arbiterCounter[id] = beforeArbiterTick;
+			peer.arbiter.tick();
+		}
 
-			if (n - (discoveryTickLastTime[peer.id] || 0) < DISCOVERY.LOOP_DELAY) continue; // not time yet
-			discoveryTickLastTime[peer.id] = n;
+		let discoveryTicksThisLoop = 0;
+		const maxDiscoveryTickBatch = peersAllCount / (DISCOVERY.LOOP_DELAY / loopDelay / 4); // max number of discovery tick per loop, avoid long loop delays
+		for (const id in peers.all) { // PEER DISCOVERY TICK
+			const peer = peers.all[id];
+			if (n - (discoveryTickLastTime[id] || 0) < DISCOVERY.LOOP_DELAY) continue; // not time yet
+			discoveryTickLastTime[id] = n;
 			peer.topologist.tick();
 			peer.peerStore.cleanupExpired();
 			peer.peerStore.offerManager.tick();
+			if (discoveryTicksThisLoop++ > maxDiscoveryTickBatch) break; // avoid long loop delays
 		} if (isRestarting) return;
 
-		if (msgQueueCounter-- <= 0) {
+		if (msgQueueCounter-- <= 0) { // VISUALIZER MESSAGE QUEUE PROCESS TICK
 			msgQueueCounter = beforeMsgQueueTick;
-			await msgQueue.tick(); 			 	 // VISUALIZER MESSAGE QUEUE PROCESS TICK
+			await msgQueue.tick(); 			 	 
 		} if (isRestarting) return;
 		if (wsEventManagerCounter-- <= 0) { // TEST WS EVENT MANAGER TICK
 			wsEventManagerCounter = beforeWsEventManagerTick;
@@ -147,6 +153,7 @@ async function addPeer(type, i = 0, bootstraps = [], init = false, setPublic = f
 }
 async function initPeers() {
 	if (initInterval) clearInterval(initInterval);
+	//sVARS.nextPeerToInit = null;
 	await destroyAllExistingPeers();
 	peers.public = []; peers.standard = []; peers.all = {};
 	sVARS.publicPeersCards = []; sVARS.nextPeerToInit = 0; sVARS.publicInit = 0;
@@ -156,7 +163,7 @@ async function initPeers() {
 
 	console.log(`%c| PEERS CREATED: { Public: ${peers.public.length}, Standard: ${peers.standard.length} } |`, LOG_CSS.SIMULATOR);
 	if (d === 0) return sVARS.nextPeerToInit = SIMULATION.PEERS_COUNT; // already initialized
-
+	
 	sVARS.nextPeerToInit = 0;
 	initInterval = setInterval(async () => { // ... Or successively
 		const started = await peers.standard[sVARS.nextPeerToInit++]?.start();

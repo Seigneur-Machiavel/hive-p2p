@@ -4,11 +4,11 @@ import { CLOCK, NODE, GOSSIP, UNICAST, LOG_CSS } from './parameters.mjs';
 // Growing each second by 1000ms until 0
 // Lowered each second by 100ms until 0 (avoid attacker growing balances on multiple disconnected peers)
 
-const GOSSIP_BYTES_PERIOD 			= 10_000; // 10 seconds
-const MAX_GOSSIP_BYTES_PER_PERIOD 	= 1_000_000; // 1MB per minute
+const BYTES_COUNT_PERIOD 			= 10_000; 		// 10 seconds
+const MAX_BYTES_PER_PERIOD 			= 1_000_000; 	// 1MB per period
 
 const MAX_TRUST 	= 		3_600_000; 		// +3600 seconds = 1 hour of good behavior
-const TRUST_VALUES 	= {
+export const TRUST_VALUES = {
 	// POSITIVE IDENTITY
 	VALID_SIGNATURE: 		+10_000, 		// +10 seconds
 	VALID_POW: 				+300_000, 		// +5 minutes
@@ -16,19 +16,18 @@ const TRUST_VALUES 	= {
 	UNICAST_RELAYED: 		+5_000, 		// +5 seconds
 
 	// NEGATIVE IDENTITY
-	WRONG_ID_PREFIX: 		-300_000, 		// -5 minutes
+	//WRONG_ID_PREFIX: 		-300_000, 		// -5 minutes
 	WRONG_SIGNATURE: 		-600_000, 		// -10 minutes
 	WRONG_POW: 				-100_000_000, 	// -100_000 seconds = 27 hours - should never happen with valid nodes
 
 	// NEGATIVE MESSAGES
 	WRONG_SERIALIZATION: 	-60_000, 		// -1 minute
-	GOSSIP_FLOOD: 			-5_000, 		// -5 seconds per message ?
-	GOSSIP_HOPS_EXCEEDED: 	-300_000, 		// -5 minutes ?
-	UNICAST_FLOOD: 			-10_000, 		// -10 seconds per message ?
+	GOSSIP_FLOOD: 			-60_000, 		// -1 minute per message
+	UNICAST_FLOOD: 			-30_000, 		// -30 seconds per message
+	HOPS_EXCEEDED: 			-300_000, 		// -5 minutes
 	UNICAST_INVALID_ROUTE: 	-60_000, 		// -1 minute
-	UNICAST_HOPS_EXCEEDED: 	-300_000, 		// -5 minutes ?
-	FAILED_HANDSHAKE: 		-60_000, 		// -1 minute - possible ?
-
+	FAILED_HANDSHAKE: 		-600_000, 		// -10 minutes ??? => TODO
+	WRONG_LENGTH: 			-600_000, 		// -10 minutes
 };
 export class Arbiter {
 	id; cryptoCodex; verbose;
@@ -37,10 +36,8 @@ export class Arbiter {
 	 * - trustBalance = milliseconds of ban if negative
 	 * @type {Record<string, number>} */
 	trustBalances = {};
-
-	/** @type {Record<string, number>} */
-	neighborsGossipBytesCounter = {};
-	neighborsGossipBytesCounterResetIn = 0;
+	bytesCounters = { gossip: 0, unicast: 0 };
+	bytesCounterResetIn = 0;
 
 	/** @param {string} selfId @param {import('./crypto-codex.mjs').CryptoCodex} cryptoCodex @param {number} verbose */
 	constructor(selfId, cryptoCodex, verbose = 0) {
@@ -55,9 +52,9 @@ export class Arbiter {
 		}
 	
 		// RESET GOSSIP BYTES COUNTER
-		if (this.neighborsGossipBytesCounterResetIn - 1_000 > 0) return;
-		this.neighborsGossipBytesCounterResetIn = GOSSIP_BYTES_PERIOD;
-		this.neighborsGossipBytesCounter = {};
+		if (this.bytesCounterResetIn - 1_000 > 0) return;
+		this.bytesCounterResetIn = BYTES_COUNT_PERIOD;
+		this.bytesCounters = { gossip: 0, unicast: 0 };
 	}
 
 	/** Call from HiveP2P module only!
@@ -76,23 +73,30 @@ export class Arbiter {
 	isBanished(peerId = 'toto') { return (this.trustBalances[peerId] || 0) < 0; }
 
 	// MESSAGE VERIFICATION
-	/** Return "True" if counted, return "False" if it should be ignored @param {string} peerId @param {number} byteLength */
-	countGossipMessageBytes(peerId, byteLength) {
-		if (!this.neighborsGossipBytesCounter[peerId]) this.neighborsGossipBytesCounter[peerId] = 0;
-		this.neighborsGossipBytesCounter[peerId] += byteLength;
-		if (this.neighborsGossipBytesCounter[peerId] < MAX_GOSSIP_BYTES_PER_PERIOD) return true;
-		return this.adjustTrust(peerId, TRUST_VALUES.GOSSIP_FLOOD);
+	/** @param {string} peerId @param {number} byteLength @param {'gossip' | 'unicast'} type */
+	countMessageBytes(peerId, byteLength, type) {
+		if (!this.bytesCounters[type]) this.bytesCounters[type] = 0;
+		this.bytesCounters[type] += byteLength;
+		if (this.bytesCounters[type] < MAX_BYTES_PER_PERIOD) return true;
+		return this.adjustTrust(peerId, type === 'gossip' ? TRUST_VALUES.GOSSIP_FLOOD : TRUST_VALUES.UNICAST_FLOOD, 'Message flood detected');
 	}
 	/** Call from HiveP2P module only! @param {string} from @param {any} message @param {Uint8Array} serialized @param {number} [powCheckFactor] default: 0.01 (1%) */
 	async digestMessage(from, message, serialized, powCheckFactor = .01) {
-		const { senderId, pubkey, topic } = message; // avoid powControl() on banished peers
+		const { senderId, pubkey, topic, expectedEnd } = message; // avoid powControl() on banished peers
 		this.#signatureControl(from, message, serialized);
+		if (!this.#lengthControl(topic ? 'gossip' : 'unicast', serialized, expectedEnd)) return;
+
 		if (topic) this.#hopsControl(from, message);
 		else this.#routeLengthControl(from, message);
 		
 		if (this.isBanished(from) || this.isBanished(senderId)) return;
 		if (this.trustBalances[senderId] > TRUST_VALUES.VALID_POW) return;
 		if (Math.random() < powCheckFactor) await this.#powControl(senderId, pubkey);
+	}
+	/** @param {'gossip' | 'unicast'} type */
+	#lengthControl(type, serialized, expectedEnd) {
+		if (!expectedEnd || serialized.length === expectedEnd) return true;
+		this.adjustTrust(from, TRUST_VALUES.WRONG_LENGTH, `${type} message length mismatch`);
 	}
 	/** @param {string} from @param {import('./gossip.mjs').GossipMessage} message @param {Uint8Array} serialized */
 	#signatureControl(from, message, serialized) {
@@ -102,17 +106,15 @@ export class Arbiter {
 		if (signatureValid) this.adjustTrust(from, TRUST_VALUES.VALID_SIGNATURE, 'Gossip signature valid');
 		else this.adjustTrust(from, TRUST_VALUES.WRONG_SIGNATURE, 'Gossip signature invalid');
 	}
-	/** GOSSIP @param {string} from @param {import('./gossip.mjs').GossipMessage} message */
+	/** GOSSIP only @param {string} from @param {import('./gossip.mjs').GossipMessage} message */
 	#hopsControl(from, message) {
-		const { HOPS, topic } = message;
-		if (HOPS <= (GOSSIP.HOPS[topic] || GOSSIP.HOPS.default)) return;
-		this.adjustTrust(from, TRUST_VALUES.GOSSIP_HOPS_EXCEEDED, 'Gossip HOPS exceeded');
+		if (message.HOPS <= (GOSSIP.HOPS[message.topic] || GOSSIP.HOPS.default)) return;
+		this.adjustTrust(from, TRUST_VALUES.HOPS_EXCEEDED, 'Gossip HOPS exceeded');
 	}
-	/** UNICAST @param {string} from @param {import('./unicast.mjs').DirectMessage} message */
+	/** UNICAST only @param {string} from @param {import('./unicast.mjs').DirectMessage} message */
 	#routeLengthControl(from, message) {
-		const { route } = message;
-		if (route.length <= UNICAST.MAX_HOPS) return;
-		this.adjustTrust(from, TRUST_VALUES.UNICAST_HOPS_EXCEEDED, 'Unicast HOPS exceeded');
+		if (message.route.length <= UNICAST.MAX_HOPS) return;
+		this.adjustTrust(from, TRUST_VALUES.HOPS_EXCEEDED, 'Unicast HOPS exceeded');
 	}
 	/** ONLY APPLY AFTER #signatureControl() - @param {string} senderId @param {Uint8Array} pubkey */
 	async #powControl(senderId, pubkey) {

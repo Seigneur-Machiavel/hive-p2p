@@ -11,12 +11,13 @@ export class GossipMessage { // TYPE DEFINITION
 	data;
 	signature;
 	signatureStart; // position in the serialized message where the signature starts
+	expectedEnd; // expected length of the serialized message
 
-	/** @param {string} topic @param {number} timestamp @param {string[]} neighborsList @param {number} HOPS @param {string} senderId @param {string} pubkey @param {string | Uint8Array | Object} data @param {string | undefined} signature @param {number} signatureStart */
-	constructor(topic, timestamp, neighborsList, HOPS, senderId, pubkey, data, signature, signatureStart) {
+	/** @param {string} topic @param {number} timestamp @param {string[]} neighborsList @param {number} HOPS @param {string} senderId @param {string} pubkey @param {string | Uint8Array | Object} data @param {string | undefined} signature @param {number} signatureStart @param {number} expectedEnd */
+	constructor(topic, timestamp, neighborsList, HOPS, senderId, pubkey, data, signature, signatureStart, expectedEnd) {
 		this.topic = topic; this.timestamp = timestamp; this.neighborsList = neighborsList;
 		this.HOPS = HOPS; this.senderId = senderId; this.pubkey = pubkey; this.data = data;
-		this.signature = signature; this.signatureStart = signatureStart;
+		this.signature = signature; this.signatureStart = signatureStart; this.expectedEnd = expectedEnd;
 	}
 }
 
@@ -122,7 +123,8 @@ export class Gossip {
 	}
 	/** @param {string} from @param {Uint8Array} serialized @returns {void} */
 	async handleGossipMessage(from, serialized) {
-		if (!this.arbiter.countGossipMessageBytes(from, serialized.byteLength)) return; // ignore if flooding/banished
+		if (this.arbiter.isBanished(from)) return this.verbose >= 3 ? console.info(`%cReceived gossip message from banned peer ${from}, ignoring.`, 'color: red;') : null;
+		if (!this.arbiter.countMessageBytes(from, serialized.byteLength, 'gossip')) return; // ignore if flooding/banished
 		for (const cb of this.callbacks.message_handle || []) cb(serialized); // Simulator counter before filtering
 		if (!this.bloomFilter.addMessage(serialized)) return; // already processed this message
 

@@ -60,17 +60,26 @@ export class NodesStore {
 	}
 }
 
+const lineMaterials = {};
 class PeerLineConnection {
 	/** @type {THREE.Line} */ line;
 	/** @type {number} in frames */ repaintIgnored = 0;
 	/** @type {boolean} */ isHovered = false;
 
-	#updateLineColor(colorHex = 0x666666, opacity = .4) {
+	#updateLineColor(colorHex = 0x666666, opacity = .4, dashed = false) {
 		if (!this.line || this.line === true) return false; // not assigned (physic only)
-		this.line.material.color.setHex(colorHex);
-		this.line.material.opacity = opacity;
-		this.line.material.needsUpdate = true;
+		this.line.material = this.#getLineMaterial(colorHex, opacity, dashed);
+		if (dashed) this.line.computeLineDistances();
 		return 'updated';
+	}
+	#getLineMaterial(colorHex, opacity, dashed) {
+		const matKey = `${colorHex.toString(16)}_${opacity}_${dashed}`;
+		if (lineMaterials[matKey]) return lineMaterials[matKey];
+		const material = dashed
+			? new THREE.LineDashedMaterial({ color: colorHex, transparent: true, opacity, dashSize: 12, gapSize: 20 })
+			: new THREE.LineBasicMaterial({ color: colorHex, transparent: true, opacity });
+		lineMaterials[matKey] = material;
+		return material;
 	}
 	disposeLine(scene) {
 		if (!this.line || this.line === true) return;
@@ -86,21 +95,17 @@ class PeerLineConnection {
 		return false;
 	}
 	assignOrUpdateLineColor(scene, fromPos = {}, toPos = {}, color = 0x666666, opacity = .4, dashed = false) {
-		if (this.line) return this.#updateLineColor(color, opacity);
+		if (this.line) return this.#updateLineColor(color, opacity, dashed);
 		if (!fromPos || !toPos) return false; // skip if missing position
 
 		const geometry = new THREE.BufferGeometry();
 		const p = new Float32Array([fromPos.x, fromPos.y, fromPos.z, toPos.x, toPos.y, toPos.z]);
 		geometry.setAttribute('position', new THREE.BufferAttribute(p, 3));
-
-		const material = new THREE.LineBasicMaterial({ color, transparent: true, opacity });
-		/*const material = dashed
-		? new THREE.LineDashedMaterial({ color, transparent: true, opacity, dashSize: 30, gapSize: 60 })
-		: new THREE.LineBasicMaterial({ color, transparent: true, opacity });*/
+		
+		const material = this.#getLineMaterial(color, opacity, dashed);
 		const line = new THREE.Line(geometry, material);
 		scene.add(line);
 		this.line = line;
-		//this.line.isDashed = dashed;
 		return 'created';
 	}
 }
@@ -158,7 +163,7 @@ export class ConnectionsStore {
 		if (!validKey) return;
 
 		const [ fromPos, toPos ] = [ this.nodesStore.get(fromId)?.position, this.nodesStore.get(toId)?.position ];
-		const result = this.store[validKey].assignOrUpdateLineColor(this.scene, fromPos, toPos, undefined, undefined, true);
+		const result = this.store[validKey].assignOrUpdateLineColor(this.scene, fromPos, toPos);
 		if (result === false) return;
 
 		this.peerConnsWithLines[validKey] = this.store[validKey];
@@ -170,14 +175,14 @@ export class ConnectionsStore {
 		for (const key in this.store)
 			if (this.store[key].isHovered) this.unset(...key.split(':'), true);
 	}
-	updateOrAssignLineColor(fromId = 'toto', toId = 'tutu', color = 0x666666, opacity = .4, ignoreRepaintFrames) {
+	updateOrAssignLineColor(fromId = 'toto', toId = 'tutu', color = 0x666666, opacity = .4, ignoreRepaintFrames, dashed = false) {
 		const { key1, key2, validKey } = this.#getKeys(fromId, toId);
 		const peerConn = validKey ? this.store[validKey] : null;
 		if (!peerConn) return false;
 
 		// assign line  HERE HERE HERE
 		const [ fromPos, toPos ] = [ this.nodesStore.get(fromId)?.position, this.nodesStore.get(toId)?.position ];
-		const result = peerConn.assignOrUpdateLineColor(this.scene, fromPos, toPos, color, opacity);
+		const result = peerConn.assignOrUpdateLineColor(this.scene, fromPos, toPos, color, opacity, dashed);
 		if (result === 'created') peerConn.line.userData = { fromId, toId, type: 'connection' };
 		if (result && ignoreRepaintFrames) peerConn.repaintIgnored = ignoreRepaintFrames;
 		if (result) this.peerConnsWithLines[validKey] = peerConn;
@@ -185,12 +190,9 @@ export class ConnectionsStore {
 	}
 
 	updateConnections(currentPeerId, hoveredNodeId, colors, mode = '3d') { // positions & colors
-		/*const nodeIdsCount = nodeIds.length;
-		const batchSize = Math.floor(Math.min(nodeIdsCount, this.updateBatchMax));
-		if (batchSize >= nodeIdsCount) return { batchIds: nodeIds, forceMultiplier: 1 };*/
-
 		for (const connStr in this.peerConnsWithLines) {
-			const peerConn = this.peerConnsWithLines[connStr]; if (!peerConn) continue;
+			const peerConn = this.peerConnsWithLines[connStr];
+			if (!peerConn) continue;
 			const [fromId, toId] = connStr.split(':');
 			const fromPos = this.nodesStore.get(fromId)?.position;
 			const toPos = this.nodesStore.get(toId)?.position;
@@ -205,16 +207,19 @@ export class ConnectionsStore {
 			positionAttribute.array[5] = mode === '3d' ? toPos.z : 0;
 			positionAttribute.needsUpdate = true;
 
-			if (this.store[connStr].countIgnoredRepaint()) continue;
+			if (this.store[connStr].countIgnoredRepaint()) {
+				if (peerConn.line.material.isDashedLineMaterial) peerConn.line.computeLineDistances();
+				continue;
+			}
 
 			// Update connection color
 			const { connection, currentPeerConnection, hoveredPeer } = colors;
 			const isCurrentPeer = fromId === currentPeerId || toId === currentPeerId;
 			const isHoveredPeer = fromId === hoveredNodeId || toId === hoveredNodeId;
-
 			const color = isCurrentPeer ? currentPeerConnection : isHoveredPeer ? hoveredPeer : connection;
 			const opacity = color === connection ? .33 : .5;
 			const result = peerConn.assignOrUpdateLineColor(this.scene, fromPos, toPos, color, opacity);
+			if (peerConn.line.material.isDashedLineMaterial) peerConn.line.computeLineDistances();
 			if (result) this.peerConnsWithLines[connStr] = peerConn;
 		}
 	}

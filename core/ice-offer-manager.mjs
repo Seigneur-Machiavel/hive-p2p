@@ -123,7 +123,7 @@ export class OfferManager { // Manages the creation of SDP offers and handling o
 		if (this.#logAndOrIgnore(error, 'No peer found', 4, 'startsWith')) return;
 		if (this.#logAndOrIgnore(error, 'Missing transport instance', 2, 'startsWith')) return;
 		if (this.#logAndOrIgnore(error, 'Failed to create answer', 2, 'startsWith')) return;
-		if (this.#logAndOrIgnore(error, 'Transport instance already', 3, 'startsWith')) return;
+		if (this.#logAndOrIgnore(error, 'Transport instance', 3, 'startsWith')) return;
 		if (this.#logAndOrIgnore(error, 'cannot signal after peer is destroyed', 3, 'startsWith')) return;
 		if (this.#logAndOrIgnore(error, 'No pending', 3)) return;
 		if (this.#logAndOrIgnore(error, 'is already linked', 3)) return;

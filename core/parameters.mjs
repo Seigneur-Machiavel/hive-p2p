@@ -14,12 +14,12 @@ export const SIMULATION = {
 	ICE_OFFER_FAILURE_RATE: .2, 	// default: .2, 20% offer failure
 	ICE_ANSWER_FAILURE_RATE: .15, 	// default: .15, 15% answer failure
 	// SIMULATOR OPTIONS
-	AVOID_FOLLOWERS_NODES: true, 	// avoid twitch nodes creation | default: true
+	AVOID_FOLLOWERS_NODES: false, 	// avoid twitch nodes creation | default: true
 	AUTO_START: true,				// auto start the simulation, false to wait the frontend | default: true
-	PUBLIC_PEERS_COUNT: 20,			// stable: 3,  medium: 20,  strong: 100 , hardcore: 100
-	PEERS_COUNT: 800,				// stable: 25, medium: 800, strong: 1860, hardcore: 4900
+	PUBLIC_PEERS_COUNT: 100,		// stable: 3,  medium: 20,  strong: 100 , hardcore: 100
+	PEERS_COUNT: 1860,				// stable: 25, medium: 800, strong: 1860, hardcore: 4900
 	BOOTSTRAPS_PER_PEER: 10,		// will not be exact, more like a limit. null = all of them | default: 10
-	DELAY_BETWEEN_INIT: 60,			// 0 = faster for simulating big networks but > 0 = should be more realistic | default: 60 (60sec to start 1000 peers)
+	DELAY_BETWEEN_INIT: 10,			// 0 = faster for simulating big networks but > 0 = should be more realistic | default: 60 (60sec to start 1000 peers)
 	RANDOM_UNICAST_PER_SEC: 0,		// default: 0, max: 1 (per peer)
 	RANDOM_GOSSIP_PER_SEC: 0,		// default: 0, max: 1 (per peer)
 	DIFFUSION_TEST_DELAY: 10_000,	// frequency of diffusion test | default: 20_000 (20 seconds)
@@ -110,7 +110,7 @@ export const GOSSIP = { // MARKERS RANGE: 128-255
 	TRANSMISSION_RATE: { // GOSSIP PONDERATION > LOWERING THE TRANSMISSION RATE BASED ON NEIGHBOURS COUNT, BUT INVOLVE A LOWER GOSSIP DIFFUSION
 		MIN_NEIGHBOURS_TO_APPLY_PONDERATION: 2, // DECREASE TO APPLY PONDERATION SOONER, default: 4
 		NEIGHBOURS_PONDERATION: 5, 	// DECREASE TO LOWER TRANSMISSION RATE BASED ON NEIGHBOURS COUNT, default: 2
-		default: 1, 				// .51 === 50%
+		default: 1, 				// 1 === 100%
 		signal_offer: .618, 		// .618 === 61.8%
 		// peer_connected: .5, 		// we can reduce this, but lowering the map quality
 		// peer_disconnected: .618
