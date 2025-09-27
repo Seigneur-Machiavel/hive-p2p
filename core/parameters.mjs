@@ -48,7 +48,6 @@ export const IDENTITY = {
 	PRIVATEKEY_LENGTH: 32,			// length of private key | (ed25519) default: 32 bytes
 	SIGNATURE_LENGTH: 64,			// length of signature | default: 64 bytes
 }
-if (!IDENTITY.ARE_IDS_HEX) IDENTITY.PUBLIC_PREFIX = 'P_'; // FOR SIMULTOR STRING IDS
 
 export const TRANSPORTS = {
 	MAX_SDP_OFFERS: 3, 				// max SDP offers to create in advance | default: 3
