@@ -9,7 +9,7 @@ export const CLOCK = Clock.instance;
 export const SIMULATION = {
 	// FACILITIES TO SIMULATE NETWORK CONDITIONS AND SCENARIOS
 	AVOID_INTERVALS: false,			// avoid intervals for faster simulation | default: true
-	USE_TEST_TRANSPORTS: true, 		// enable simulation features
+	USE_TEST_TRANSPORTS: false, 		// enable simulation features
 	ICE_DELAY: { min: 250, max: 3000 }, // ICE candidates in ms | default: { min: 250, max: 3000 }
 	ICE_OFFER_FAILURE_RATE: .2, 	// default: .2, 20% offer failure
 	ICE_ANSWER_FAILURE_RATE: .15, 	// default: .15, 15% answer failure
@@ -40,7 +40,7 @@ export const NODE = {
 export const IDENTITY = {
 	DIFFICULTY: 0,					// number of leading CATEGORY_PREFIX in bits for anti-sybil | default: 0(disabled) | RECOMMENDED: 7 | ON APPLY IF ARE_IDS_HEX = TRUE
 	ARGON2_MEM: 2**17,				// Memory usage in KiB for Argon2 | default: 2**16 = 65_536 (64 MiB) | RECOMMENDED: 2**17 = 131_072 (128 MiB) | ON APPLY IF ARE_IDS_HEX = TRUE
-	ARE_IDS_HEX: false,				// Boolean to indicate if we use hex ids, default: true = hex | false = strings as Bytes (can involve in serialization failures)
+	ARE_IDS_HEX: true,				// Boolean to indicate if we use hex ids, default: true = hex | false = strings as Bytes (can involve in serialization failures)
 	PUBLIC_PREFIX: '0', 			// Identifier prefix for public nodes | default: '0'
 	STANDARD_PREFIX: '1', 			// Identifier prefix for standard nodes | default: '1'
 	ID_LENGTH: 16,					// !!EVEN NUMBER ONLY!! length of peer id | default: 16
