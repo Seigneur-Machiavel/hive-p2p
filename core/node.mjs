@@ -8,31 +8,6 @@ import { Topologist } from './topologist.mjs';
 import { CryptoCodex } from './crypto-codex.mjs';
 import { NodeServices } from './node-services.mjs';
 
-export class NodeConfig {
-	/** @type {Array<string>} */
-	bootstraps;
-	/** @type {CryptoCodex} */
-	cryptoCodex;
-	/** @type {boolean} */
-	start;
-	/** @type {string | undefined} */
-	domain;
-	/** @type {number | undefined} */
-	port;
-	/** @type {number} */
-	verbose;
-
-	/** @param {Array<string>} bootstraps @param {CryptoCodex} [cryptoCodex] - Identity of the node; if not provided, a new one will be generated @param {boolean} [start] default: false @param {string} [domain] public node only, ex: 'localhost' @param {number} [port] public node only, ex: 8080 */
-	constructor(bootstraps, cryptoCodex, start, domain, port, verbose) {
-		this.bootstraps = bootstraps;
-		this.cryptoCodex = cryptoCodex;
-		this.start = start;
-		this.domain = domain;
-		this.port = port;
-		this.verbose = verbose;
-	}
-}
-
 export class NodeP2P {
 	started = false;
 	id; cryptoCodex; verbose; arbiter;
@@ -121,9 +96,8 @@ export class NodeP2P {
 	// PUBLIC API
 	get publicUrl() { return this.services?.publicUrl; }
 
-	/** @param {NodeConfig} config */
-	static async createNode(config) {
-		const { bootstraps, cryptoCodex, start, domain, port, verbose } = config;
+	/** @param {Array<string>} bootstraps @param {CryptoCodex} [cryptoCodex] - Identity of the node; if not provided, a new one will be generated @param {boolean} [start] default: false @param {string} [domain] public node only, ex: 'localhost' @param {number} [port] public node only, ex: 8080 */
+	static async createNode(bootstraps, cryptoCodex, start = true, domain, port = NODE.SERVICE.PORT, verbose = NODE.DEFAULT_VERBOSE) {
 		const codex = cryptoCodex || new CryptoCodex();
 		if (!codex.publicKey) await codex.generate(domain ? true : false);
 

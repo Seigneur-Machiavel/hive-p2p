@@ -8,7 +8,7 @@ export const CLOCK = Clock.instance;
 
 export const SIMULATION = {
 	// FACILITIES TO SIMULATE NETWORK CONDITIONS AND SCENARIOS
-	AVOID_INTERVALS: true,			// avoid intervals for faster simulation | default: true
+	AVOID_INTERVALS: false,			// avoid intervals for faster simulation | default: true
 	USE_TEST_TRANSPORTS: true, 		// enable simulation features
 	ICE_DELAY: { min: 250, max: 3000 }, // ICE candidates in ms | default: { min: 250, max: 3000 }
 	ICE_OFFER_FAILURE_RATE: .2, 	// default: .2, 20% offer failure

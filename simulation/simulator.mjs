@@ -8,8 +8,10 @@ import { TestWsServer, TestWsConnection, TestTransport,
 //import { MessageQueue, Statician, TransmissionAnalyzer, SubscriptionsManager } from './simulator-utils.mjs';
 
 // SETUP SIMULATION ENV -----------------------------------------------\
-CLOCK.mockMode = SIMULATION.USE_TEST_TRANSPORTS; 		//				|
-if (!IDENTITY.ARE_IDS_HEX) IDENTITY.PUBLIC_PREFIX = 'P_';	//			|
+CLOCK.mockMode = SIMULATION.USE_TEST_TRANSPORTS; //						|
+IDENTITY.ARE_IDS_HEX = false;				// FOR SIMULATOR STRING IDS	|
+IDENTITY.PUBLIC_PREFIX = 'P_'; //										|
+SIMULATION.AVOID_INTERVALS = SIMULATION.AVOID_INTERVALS; //				|
 if (SIMULATION.USE_TEST_TRANSPORTS) {//									|
 	TRANSPORTS.WS_SERVER = TestWsServer; // default: WebSocketServer	|
 	TRANSPORTS.WS_CLIENT = TestWsConnection; // default: WebSocket		|
