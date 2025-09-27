@@ -1,24 +1,44 @@
 {
-  "name": "p2p",
+  "name": "hive-p2p",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.mjs",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+  "description": "P2P networking library for browser and Node.js with WebRTC",
+  "type": "module",
+  "main": "./index.mjs",
+  "browser": "./browser.mjs",
+  "exports": {
+    ".": {
+      "browser": "./browser.mjs",
+      "node": "./index.mjs",
+      "default": "./index.mjs"
+    }
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "files": [
+    "core/",
+    "libs/",
+    "services/",
+    "index.mjs",
+    "browser.mjs"
+  ],
   "dependencies": {
     "@noble/ed25519": "3.0.0",
-    "@noble/hashes": "2.0.0",
+    "@noble/hashes": "2.0.0", 
     "argon2": "~0.44.0",
     "express": "~5.1.0",
     "node-pre-gyp": "~0.17.0",
     "simple-peer": "~9.11.1",
     "socket.io-client": "~4.8.1",
-	"socket.io": "~4.8.1",
+    "socket.io": "~4.8.1",
     "wrtc": "~0.4.7",
     "ws": "~8.18.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Seigneur-Machiavel/hive-p2p.git"
+  },
+  "keywords": ["p2p", "webrtc", "networking", "browser", "nodejs", "gossip", "mesh"],
+  "author": "Seigneur-Machiavel",
+  "license": "MIT",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
   }
 }

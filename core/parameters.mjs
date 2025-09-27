@@ -140,3 +140,7 @@ export const LOG_CSS = {
 	PEER_STORE: 'color: orange;',
 	PUNISHER: { BAN: 'color: red; font-weight: bold;', KICK: 'color: darkorange; font-weight: bold;' },
 }
+
+export default {
+	CLOCK, SIMULATION, NODE, TRANSPORTS, DISCOVERY, IDENTITY, UNICAST, GOSSIP, LOG_CSS
+};
