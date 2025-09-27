@@ -1,6 +1,6 @@
 {
   "name": "hive-p2p",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "P2P networking library for browser and Node.js with WebRTC",
   "type": "module",
   "main": "./index.mjs",
@@ -21,7 +21,7 @@
   ],
   "dependencies": {
     "@noble/ed25519": "3.0.0",
-    "@noble/hashes": "2.0.0", 
+    "@noble/hashes": "2.0.0",
     "argon2": "~0.44.0",
     "express": "~5.1.0",
     "node-pre-gyp": "~0.17.0",
@@ -35,7 +35,15 @@
     "type": "git",
     "url": "https://github.com/Seigneur-Machiavel/hive-p2p.git"
   },
-  "keywords": ["p2p", "webrtc", "networking", "browser", "nodejs", "gossip", "mesh"],
+  "keywords": [
+    "p2p",
+    "webrtc",
+    "networking",
+    "browser",
+    "nodejs",
+    "gossip",
+    "mesh"
+  ],
   "author": "Seigneur-Machiavel",
   "license": "MIT",
   "scripts": {
