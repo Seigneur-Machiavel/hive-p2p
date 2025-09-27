@@ -73,7 +73,7 @@ export class NodeServices {
 	#startSTUNServer(host = 'localhost', port = NODE.SERVICE.PORT + 1) {
 		this.stunServer = dgram.createSocket('udp4');
 		this.stunServer.on('message', (msg, rinfo) => {
-			if (this.verbose > 1) console.log(`%cSTUN message from ${rinfo.address}:${rinfo.port} - ${msg.toString('hex')}`, 'color: blue;');
+			if (this.verbose > 2) console.log(`%cSTUN message from ${rinfo.address}:${rinfo.port} - ${msg.toString('hex')}`, 'color: blue;');
 			if (!this.#isValidSTUNRequest(msg)) return;
 			this.stunServer.send(this.#buildSTUNResponse(msg, rinfo), rinfo.port, rinfo.address);
 		});
@@ -102,7 +102,7 @@ export class NodeServices {
 		response.writeUInt16BE(rinfo.port, 26); // Port
 		response.writeUInt32BE(Converter.ipToInt(rinfo.address), 28); // IP
 		
-		if (this.verbose > 1) console.log(`%cSTUN Response: client will discover IP ${rinfo.address}:${rinfo.port}`, 'color: green;');
+		if (this.verbose > 2) console.log(`%cSTUN Response: client will discover IP ${rinfo.address}:${rinfo.port}`, 'color: green;');
 		return response;
 	}
 	/** @param {Array<{id: string, publicUrl: string}>} bootstraps */

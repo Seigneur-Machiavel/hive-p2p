@@ -8,6 +8,46 @@ import { Topologist } from './topologist.mjs';
 import { CryptoCodex } from './crypto-codex.mjs';
 import { NodeServices } from './node-services.mjs';
 
+/** Create and start a new PublicNodeP2P instance.
+ * @param {Object} options
+ * @param {Array<{id: string, publicUrl: string}>} options.bootstraps List of bootstrap nodes used as P2P network entry
+ * @param {boolean} [options.autoStart] If true, the node will automatically start after creation (default: true)
+ * @param {CryptoCodex} [options.cryptoCodex] Identity of the node; if not provided, a new one will be generated
+ * @param {string} [options.domain] If provided, the node will operate as a public node and start necessary services (e.g., WebSocket server)
+ * @param {number} [options.port] If provided, the node will listen on this port (default: NODE.SERVICE.PORT)
+ * @param {number} [options.verbose] Verbosity level for logging (default: NODE.DEFAULT_VERBOSE) */
+export async function createPublicNode(options) {		
+	const verbose = options.verbose !== undefined ? options.verbose : NODE.DEFAULT_VERBOSE;
+	const domain = options.domain || undefined;
+	const codex = options.cryptoCodex || new CryptoCodex(undefined, verbose);
+	if (!codex.publicKey) await codex.generate(domain ? true : false);
+	
+	const node = new NodeP2P(codex, options.bootstraps || [], verbose);
+	if (domain) {
+		node.services = new NodeServices(codex, node.peerStore, undefined, verbose);
+		node.services.start(domain, options.port || NODE.SERVICE.PORT);
+		node.topologist.services = node.services;
+	}
+	if (options.autoStart !== false) await node.start();
+	return node;
+}
+
+/** Create and start a new NodeP2P instance.
+ * @param {Object} options
+ * @param {Array<{id: string, publicUrl: string}>} options.bootstraps List of bootstrap nodes used as P2P network entry
+ * @param {CryptoCodex} [options.cryptoCodex] Identity of the node; if not provided, a new one will be generated
+ * @param {boolean} [options.autoStart] If true, the node will automatically start after creation (default: true)
+ * @param {number} [options.verbose] Verbosity level for logging (default: NODE.DEFAULT_VERBOSE) */
+export async function createNode(options = {}) {
+	const verbose = options.verbose !== undefined ? options.verbose : NODE.DEFAULT_VERBOSE;
+	const codex = options.cryptoCodex || new CryptoCodex(undefined, verbose);
+	if (!codex.publicKey) await codex.generate(false);
+
+	const node = new NodeP2P(codex, options.bootstraps || [], verbose);
+	if (options.autoStart !== false) await node.start();
+	return node;
+}
+
 export class NodeP2P {
 	started = false;
 	id; cryptoCodex; verbose; arbiter;
@@ -23,15 +63,16 @@ export class NodeP2P {
 	 * @param {Array<Record<string, string>>} bootstraps List of bootstrap nodes used as P2P network entry */
 	constructor(cryptoCodex, bootstraps = [], verbose = NODE.DEFAULT_VERBOSE) {
 		this.verbose = verbose;
+		if (this.topologist?.services) this.topologist.services.verbose = verbose;
 		this.cryptoCodex = cryptoCodex;
 		this.id = this.cryptoCodex.id;
-		const stunUrls = NodeServices.deriveSTUNServers(bootstraps);
+		const stunUrls = NodeServices.deriveSTUNServers(bootstraps || []);
 		this.offerManager = new OfferManager(this.id, stunUrls, verbose);
 		this.arbiter = new Arbiter(this.id, cryptoCodex, verbose);
 		this.peerStore = new PeerStore(this.id, this.cryptoCodex, this.offerManager, this.arbiter, verbose);
 		this.messager = new UnicastMessager(this.id, this.cryptoCodex, this.arbiter, this.peerStore, verbose);
 		this.gossip = new Gossip(this.id, this.cryptoCodex, this.arbiter, this.peerStore, verbose);
-		this.topologist = new Topologist(this.id, this.gossip, this.messager, this.peerStore, bootstraps);
+		this.topologist = new Topologist(this.id, this.gossip, this.messager, this.peerStore, bootstraps || []);
 		const { arbiter, peerStore, messager, gossip, topologist } = this;
 
 		// SETUP TRANSPORTS LISTENERS
@@ -95,21 +136,11 @@ export class NodeP2P {
 
 	// PUBLIC API
 	get publicUrl() { return this.services?.publicUrl; }
+	get publicIdentity() { return { id: this.id, publicUrl: this.publicUrl }; }
 
-	/** @param {Array<string>} bootstraps @param {CryptoCodex} [cryptoCodex] - Identity of the node; if not provided, a new one will be generated @param {boolean} [start] default: false @param {string} [domain] public node only, ex: 'localhost' @param {number} [port] public node only, ex: 8080 */
-	static async createNode(bootstraps, cryptoCodex, start = true, domain, port = NODE.SERVICE.PORT, verbose = NODE.DEFAULT_VERBOSE) {
-		const codex = cryptoCodex || new CryptoCodex();
-		if (!codex.publicKey) await codex.generate(domain ? true : false);
-
-		const node = new NodeP2P(codex, bootstraps, verbose);
-		if (domain) {
-			node.services = new NodeServices(codex, node.peerStore, undefined, verbose);
-			node.services.start(domain, port);
-			node.topologist.services = node.services;
-		}
-		if (start) await node.start();
-		return node;
-	}
+	onMessageData(callback) { this.messager.on('message', callback); }
+	onGossipData(callback) { this.gossip.on('gossip', callback); }
+	
 	async start() {
 		await CLOCK.sync(this.verbose);
 		this.started = true;

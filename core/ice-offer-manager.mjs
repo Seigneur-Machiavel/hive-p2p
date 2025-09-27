@@ -84,7 +84,8 @@ export class OfferManager { // Manages the creation of SDP offers and handling o
 		this.offerInstanceByExpiration[expiration] = instance;
 	};
 	#createOffererInstance(expiration) {
-		const instance = new TRANSPORTS.PEER({ initiator: true, trickle: false, wrtc, config: { iceServers: this.stunUrls } });
+		const iceCompleteTimeout = TRANSPORTS.ICE_COMPLETE_TIMEOUT || 1_000;
+		const instance = new TRANSPORTS.PEER({ initiator: true, trickle: false, iceCompleteTimeout, wrtc, config: { iceServers: this.stunUrls } });
 		instance.on('error', error => this.#onError(error));
 		instance.on('signal', data => { // trickle: false => only one signal event with the full offer
 			const { candidate, type } = data; // with trickle, we need to adapt the approach.
@@ -158,7 +159,8 @@ export class OfferManager { // Manages the creation of SDP offers and handling o
 			}
 			
 			// type === 'offer' => CREATE ANSWERER INSTANCE
-			const instance = new TRANSPORTS.PEER({ initiator: false, trickle: false, wrtc, config: { iceServers: this.stunUrls } });
+			const iceCompleteTimeout = TRANSPORTS.ICE_COMPLETE_TIMEOUT || 1_000;
+			const instance = new TRANSPORTS.PEER({ initiator: false, trickle: false, iceCompleteTimeout, wrtc, config: { iceServers: this.stunUrls } });
 			instance.on('error', (error) => this.#onError(error));
 			instance.on('signal', (data) => this.onSignalAnswer(remoteId, data, offerHash));
 			instance.on('connect', () => this.onConnect(remoteId, instance));

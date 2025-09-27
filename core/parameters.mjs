@@ -50,7 +50,8 @@ export const IDENTITY = {
 }
 
 export const TRANSPORTS = {
-	MAX_SDP_OFFERS: 3, 				// max SDP offers to create in advance | default: 3
+	MAX_SDP_OFFERS: 2, 				// max SDP offers to create in advance | default: 3
+	ICE_COMPLETE_TIMEOUT: 1_000, 	// time to wait for ICE gathering to complete | default: 1_000 (1 second)
 	SIGNAL_CREATION_TIMEOUT: 8_000, // time to wait for signal before destroying WTRC connection | default: 8_000 (8 seconds) | note: SimplePeer have a internal timeout of 5 secondes, we should be above that
 	SDP_OFFER_EXPIRATION: 40_000, 	// duration to consider an SDP offer as valid | default: 40_000 (40 seconds)
 	WS_CLIENT: WebSocket,			// Simulation: patched with TestWsConnection (this one can be used as a server too)

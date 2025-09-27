@@ -1,8 +1,8 @@
 import path from 'path';
 import express from 'express';
-import { io } from 'socket.io-client'; // used for twitch events only
 import { Server } from 'socket.io';
-import { CLOCK, SIMULATION, NODE, TRANSPORTS, IDENTITY, DISCOVERY, GOSSIP, LOG_CSS } from '../core/parameters.mjs';
+import { io } from 'socket.io-client'; // used for twitch events only
+import { CLOCK, SIMULATION, NODE, TRANSPORTS, IDENTITY, DISCOVERY, LOG_CSS } from '../core/parameters.mjs';
 import { TestWsServer, TestWsConnection, TestTransport,
 	ICE_CANDIDATE_EMITTER, TEST_WS_EVENT_MANAGER, SANDBOX } from '../simulation/test-transports.mjs';
 //import { MessageQueue, Statician, TransmissionAnalyzer, SubscriptionsManager } from './simulator-utils.mjs';
@@ -11,19 +11,19 @@ import { TestWsServer, TestWsConnection, TestTransport,
 SIMULATION.USE_TEST_TRANSPORTS = true; //								|
 IDENTITY.ARE_IDS_HEX = false;		// FOR SIMULATOR STRING IDS			|
 IDENTITY.PUBLIC_PREFIX = 'P_'; //										|
-SIMULATION.AVOID_INTERVALS = SIMULATION.AVOID_INTERVALS; //				|
+SIMULATION.AVOID_INTERVALS = true; //									|
 CLOCK.mockMode = SIMULATION.USE_TEST_TRANSPORTS; //						|
-//																		|				
-TRANSPORTS.WS_SERVER = TestWsServer; // default: WebSocketServer		|
+//																		|
+TRANSPORTS.WS_SERVER = TestWsServer;	 // default: WebSocketServer	|
 TRANSPORTS.WS_CLIENT = TestWsConnection; // default: WebSocket			|
-TRANSPORTS.PEER = TestTransport; // default: SimplePeer					|
+TRANSPORTS.PEER = TestTransport; 		 // default: SimplePeer			|
 //																		|
 //---------------------------------------------------------------------/
 
 // IMPORT NODE AFTER SIMULATION ENV SETUP
 const { MessageQueue, Statician, TransmissionAnalyzer, SubscriptionsManager } = await import('./simul-utils.mjs');
 const { CryptoCodex } = await import('../core/crypto-codex.mjs');
-const { NodeP2P } = await import('../core/node.mjs'); // dynamic import to allow simulation overrides
+const { createNode, createPublicNode } = await import('../core/node.mjs'); // dynamic import to allow simulation overrides
 // TO ACCESS THE VISUALIZER GO TO: http://localhost:3000 ------\
 // LOGS COLORS :											   |
 // BLUE:      SYSTEM									 	   |
@@ -149,7 +149,9 @@ async function addPeer(type, i = 0, bootstraps = [], init = false, setPublic = f
 	const domain = setPublic ? 'localhost' : undefined;
 	const port = setPublic ? 8080 + (i * 2) : undefined;
 	const cryptoCodex = IDENTITY.ARE_IDS_HEX ? new CryptoCodex() : new CryptoCodex(`${type === 'STANDARD_NODE' ? 'N_' : IDENTITY.PUBLIC_PREFIX}${i}`);
-	const peer = await NodeP2P.createNode(selectedBootstraps, cryptoCodex, init, domain, port);
+	let peer = domain
+		? await createPublicNode({ bootstraps: selectedBootstraps, cryptoCodex, autoStart: init, domain, port, verbose: NODE.DEFAULT_VERBOSE })
+		: await createNode({ bootstraps: selectedBootstraps, cryptoCodex, autoStart: init, verbose: NODE.DEFAULT_VERBOSE });
 	peers.all[peer.id] = peer;
 	peers[type === 'STANDARD_NODE' ? 'standard' : 'public'].push(peer);
 	if (setPublic) sVARS.publicPeersCards.push({ id: peer.id, publicUrl: peer.publicUrl });
@@ -279,7 +281,8 @@ socketServer.on('connection', (socket) => {
 
 // TWITCH TCHAT COMMANDS INTERPRETER
 class TwitchChatCommandInterpreter {
-	/** @type {Record<string, NodeP2P>} */ userNodes = {};
+	/** @type {Record<string, import('./core/node.mjs').NodeP2P>} */
+	userNodes = {};
 
 	constructor() {
 		this.ioSocket = io('http://localhost:14598');
@@ -306,7 +309,7 @@ class TwitchChatCommandInterpreter {
 			.replace(/[^\w-]/g, '_')             // remplacer chars spéciaux par _
 
 		const cryptoCodex = IDENTITY.ARE_IDS_HEX ? new CryptoCodex() : new CryptoCodex(`F_${cleanUser}`);
-		const peer = await NodeP2P.createNode(pickUpRandomBootstraps(), cryptoCodex, true);
+		const peer = await createPublicNode({ bootstraps: pickUpRandomBootstraps(), cryptoCodex, domain: 'localhost', port: 9000 + Object.keys(this.userNodes).length * 2, verbose: 2 });
 		this.userNodes[user] = peer;
 		peers.all[peer.id] = peer;
 		peers.standard.unshift(peer);

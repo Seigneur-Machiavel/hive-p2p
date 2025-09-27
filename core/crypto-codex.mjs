@@ -14,13 +14,21 @@ export class CryptoCodex {
     /** @type {Uint8Array} */ privateKey;
 
 	/** @param {string} [nodeId] If provided: used to generate a fake keypair > disable crypto operations */
-	constructor(nodeId) {
+	constructor(nodeId, verbose = NODE.DEFAULT_VERBOSE) {
+		this.verbose = verbose;
 		if (!nodeId) return; // IF NOT PROVIDED: generate() should be called.
 		this.AVOID_CRYPTO = true;
 		this.id = nodeId.padEnd(IDENTITY.ID_LENGTH, ' ').slice(0, IDENTITY.ID_LENGTH);
 		this.privateKey = new Uint8Array(32).fill(0); this.publicKey = new Uint8Array(32).fill(0);
 		const idBytes = new TextEncoder().encode(this.id); // use nodeId to create a fake public key
 		for (let i = 0; i < IDENTITY.ID_LENGTH; i++) this.publicKey[i] = idBytes[i];
+	}
+
+	/** @param {boolean} asPublicNode Default: false @param {Uint8Array} seed PrivateKey *-optional* */
+	static async createCryptoCodex(asPublicNode, seed) {
+		const cryptoCodex = new CryptoCodex(undefined, this.verbose);
+		await cryptoCodex.generate(asPublicNode, seed);
+		return cryptoCodex;
 	}
 
 	// IDENTITY
