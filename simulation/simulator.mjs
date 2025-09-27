@@ -1,6 +1,7 @@
 import path from 'path';
 import express from 'express';
 import { io } from 'socket.io-client'; // used for twitch events only
+import { Server } from 'socket.io';
 import { WebSocketServer } from 'ws';
 import { CLOCK, SIMULATION, NODE, TRANSPORTS, IDENTITY, DISCOVERY, GOSSIP, LOG_CSS } from '../core/parameters.mjs';
 import { TestWsServer, TestWsConnection, TestTransport,
@@ -223,18 +224,12 @@ app.use('../rendering/visualizer.mjs', (req, res, next) => {
 });
 
 app.use(express.static(path.resolve()));
-const server = app.listen(3000, () => console.log('%cServer listening on http://localhost:3000', LOG_CSS.SIMULATOR));
+app.listen(3000, () => console.log('%cServer listening on http://localhost:3000', LOG_CSS.SIMULATOR));
 app.get('/', (req, res) => res.sendFile('rendering/visualizer.html', { root: '.' }));
 
 /** @type {WebSocket} */
 let clientWs;
-const send = (msgObj, startTime) => { // Send message to visualizer (front)
-	if (!startTime) clientWs.send(JSON.stringify(msgObj));
-	else clientWs.send(JSON.stringify(msgObj), () => {
-		const tt = Date.now() - startTime;
-		if (tt > minLogTime) console.log(`Message ${msgObj.type} sent (${tt}ms)`);
-	});
-}
+const send = (msgObj) => { if (clientWs) clientWs.emit('message', msgObj); }
 const onMessage = async (data) => {
 	if (!data) return;
 	switch (data.type) {
@@ -267,15 +262,16 @@ const onMessage = async (data) => {
 const msgQueue = new MessageQueue(onMessage);
 const sManager = new SubscriptionsManager(send, peers, new CryptoCodex(), NODE.DEFAULT_VERBOSE);
 intervalsLoop(); // start intervals loop
-const wss = new WebSocketServer({ server });
-wss.on('connection', (ws) => {
-	if (clientWs) clientWs.close();
-	clientWs = ws;
-	ws.on('message', async (message) => msgQueue.push(JSON.parse(message)));
-	ws.on('close', () => msgQueue.messageQueuesByTypes = {});
-	ws.send(JSON.stringify({ type: 'settings', data: { publicPeersCount: SIMULATION.PUBLIC_PEERS_COUNT, peersCount: SIMULATION.PEERS_COUNT } }));
-	const zeroPeers = peers.public.length + peers.standard.length === 0;
-	if (!zeroPeers) ws.send(JSON.stringify({ type: 'peersIds', data: peersIdsObj() }));
+const socketServer = new Server(17255, { cors: { origin: "*" } }); // Si besoin pour le CORS
+socketServer.on('connection', (socket) => {
+    console.log('%cSocket.io client connected', LOG_CSS.SIMULATOR);
+    if (clientWs) clientWs.disconnect();
+    clientWs = socket;
+    socket.on('message', async (message) => msgQueue.push(JSON.parse(message)));
+    socket.on('disconnect', () => msgQueue.messageQueuesByTypes = {});
+    socket.emit('message', { type: 'settings', data: { publicPeersCount: SIMULATION.PUBLIC_PEERS_COUNT, peersCount: SIMULATION.PEERS_COUNT } });
+    const zeroPeers = peers.public.length + peers.standard.length === 0;
+    if (!zeroPeers) socket.emit('message', { type: 'peersIds', data: peersIdsObj() });
 });
 
 // TWITCH TCHAT COMMANDS INTERPRETER
