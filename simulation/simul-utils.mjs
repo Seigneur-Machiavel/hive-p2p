@@ -25,7 +25,7 @@ function statsFormating(stats) {
 export class Statician { // DO NOT ADD VARIABLES, JUST COUNTERS !!
 	gossip = 0;
 	unicast = 0;
-	/** @param {Object} sVARS @param {Record<string, Record<string, import('../core/node.mjs').NodeP2P>>} peers @param {number} verbose @param {number} [delay] default: 10 seconds */
+	/** @param {Object} sVARS @param {Record<string, Record<string, import('../core/node.mjs').Node>>} peers @param {number} verbose @param {number} [delay] default: 10 seconds */
 	constructor(sVARS, peers, delay = 10_000) {
 		const verbose = NODE.DEFAULT_VERBOSE;
 		setInterval(() => {
@@ -66,7 +66,7 @@ export class TransmissionAnalyzer {
 		sendAt: 0,
 	}
 
-	/** @param {Record<string, Record<string, import('../core/node.mjs').NodeP2P>>} peers @param {number} verbose @param {number} [delay] default: 10 seconds */
+	/** @param {Record<string, Record<string, import('../core/node.mjs').Node>>} peers @param {number} verbose @param {number} [delay] default: 10 seconds */
 	constructor(sVARS, peers, verbose, delay = SIMULATION.DIFFUSION_TEST_DELAY) {
 		this.sVARS = sVARS;
 		this.peers = peers;
@@ -129,7 +129,7 @@ export class SubscriptionsManager {
 	verbose;
 	cryptoCodex;
 	/** @type {Function} */ sendFnc;
-	/** @type {Record<string, Record<string, import('../core/node.mjs').NodeP2P>} */ peers;
+	/** @type {Record<string, Record<string, import('../core/node.mjs').Node>} */ peers;
 	unicastCount = { session: 0, total: 0 };
 	gossipCount = { session: 0, total: 0 };
 	tmpTopic = {};	// Total Gossip "Msg Per Topic"
@@ -147,7 +147,7 @@ export class SubscriptionsManager {
 	onPeerMessage = null; // currently subscribed peer
 	interval;
 
-	/** @param {Function} sendFnc @param {Record<string, import('../core/node.mjs').NodeP2P>} peers @param {import('../core/crypto-codex.mjs').CryptoCodex} cryptoCodex @param {number} verbose @param {number} [delay] default: 10 seconds */
+	/** @param {Function} sendFnc @param {Record<string, import('../core/node.mjs').Node>} peers @param {import('../core/crypto-codex.mjs').CryptoCodex} cryptoCodex @param {number} verbose @param {number} [delay] default: 10 seconds */
 	constructor(sendFnc, peers, cryptoCodex, verbose, delay = 10_000) {
 		console.info('SubscriptionsManager initialized');
 		this.sendFnc = sendFnc;

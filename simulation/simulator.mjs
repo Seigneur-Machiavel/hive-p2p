@@ -43,11 +43,11 @@ const sVARS = { // SIMULATION VARIABLES
 	startTime: Date.now()
 };
 const peers = {
-	/** @type {Record<string, import('../core/node.mjs').NodeP2P>} */
+	/** @type {Record<string, import('../core/node.mjs').Node>} */
 	all: {},
-	/** @type {Array<import('../core/node.mjs').NodeP2P>} */
+	/** @type {Array<import('../core/node.mjs').Node>} */
 	public: [],
-	/** @type {Array<import('../core/node.mjs').NodeP2P>} */
+	/** @type {Array<import('../core/node.mjs').Node>} */
 	standard: [],
 }
 async function intervalsLoop(loopDelay = 8) { // OPTIMIZATION, SORRY FOR COMPLEXITY
@@ -132,7 +132,7 @@ function pickUpRandomBootstraps(count = SIMULATION.BOOTSTRAPS_PER_PEER) {
 	for (let i = 0; i < c; i++) selected.push(sVARS.publicPeersCards[shuffledIndexes[i]]);
 	return selected;
 }
-/** @param {import('../core/node.mjs').NodeP2P} peer */
+/** @param {import('../core/node.mjs').Node} peer */
 function patchPeerHandlers(peer) {
 	peer.messager.on('message_handle', () => statician.unicast++);
 	peer.gossip.on('message_handle', (serialized) => {
@@ -281,7 +281,7 @@ socketServer.on('connection', (socket) => {
 
 // TWITCH TCHAT COMMANDS INTERPRETER
 class TwitchChatCommandInterpreter {
-	/** @type {Record<string, import('./core/node.mjs').NodeP2P>} */
+	/** @type {Record<string, import('../core/node.mjs').Node>} */
 	userNodes = {};
 
 	constructor() {

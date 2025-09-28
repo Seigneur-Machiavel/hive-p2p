@@ -1,23 +1,16 @@
 {
   "name": "hive-p2p",
   "version": "1.0.8",
-  "description": "P2P networking library for browser and Node.js with WebRTC",
+  "description": "P2P networking library for Node.js with WebRTC - Full featured package",
   "type": "module",
-  "main": "./index.mjs",
-  "browser": "./browser.mjs",
-  "exports": {
-    ".": {
-      "browser": "./browser.mjs",
-      "node": "./index.mjs",
-      "default": "./index.mjs"
-    }
-  },
+  "main": "./packages/full/index.mjs",
   "files": [
     "core/",
     "libs/",
+	"rendering/",
     "services/",
-    "index.mjs",
-    "browser.mjs"
+    "simulation/",
+    "index.mjs"
   ],
   "dependencies": {
     "@noble/ed25519": "3.0.0",
@@ -39,13 +32,13 @@
     "p2p",
     "webrtc",
     "networking",
-    "browser",
     "nodejs",
     "gossip",
-    "mesh"
+    "mesh",
+    "simulation"
   ],
-  "author": "Seigneur-Machiavel",
-  "license": "MIT",
+  "author": "PinkParrot",
+  "license": "GPL-3.0",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   }

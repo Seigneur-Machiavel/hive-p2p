@@ -1,0 +1,11 @@
+{
+  "name": "@hive-p2p/server",
+  "version": "1.0.8",
+  "files": ["index.mjs", "../../core/", "../../services/"],
+  "dependencies": {
+	"@noble/ed25519": "3.0.0",
+    "@noble/hashes": "2.0.0",
+    "argon2": "~0.44.0",
+    "ws": "~8.18.3"
+  }
+}

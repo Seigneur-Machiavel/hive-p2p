@@ -8,7 +8,7 @@ import { Topologist } from './topologist.mjs';
 import { CryptoCodex } from './crypto-codex.mjs';
 import { NodeServices } from './node-services.mjs';
 
-/** Create and start a new PublicNodeP2P instance.
+/** Create and start a new PublicNode instance.
  * @param {Object} options
  * @param {Array<{id: string, publicUrl: string}>} options.bootstraps List of bootstrap nodes used as P2P network entry
  * @param {boolean} [options.autoStart] If true, the node will automatically start after creation (default: true)
@@ -22,7 +22,7 @@ export async function createPublicNode(options) {
 	const codex = options.cryptoCodex || new CryptoCodex(undefined, verbose);
 	if (!codex.publicKey) await codex.generate(domain ? true : false);
 	
-	const node = new NodeP2P(codex, options.bootstraps || [], verbose);
+	const node = new Node(codex, options.bootstraps || [], verbose);
 	if (domain) {
 		node.services = new NodeServices(codex, node.peerStore, undefined, verbose);
 		node.services.start(domain, options.port || NODE.SERVICE.PORT);
@@ -32,7 +32,7 @@ export async function createPublicNode(options) {
 	return node;
 }
 
-/** Create and start a new NodeP2P instance.
+/** Create and start a new Node instance.
  * @param {Object} options
  * @param {Array<{id: string, publicUrl: string}>} options.bootstraps List of bootstrap nodes used as P2P network entry
  * @param {CryptoCodex} [options.cryptoCodex] Identity of the node; if not provided, a new one will be generated
@@ -43,12 +43,12 @@ export async function createNode(options = {}) {
 	const codex = options.cryptoCodex || new CryptoCodex(undefined, verbose);
 	if (!codex.publicKey) await codex.generate(false);
 
-	const node = new NodeP2P(codex, options.bootstraps || [], verbose);
+	const node = new Node(codex, options.bootstraps || [], verbose);
 	if (options.autoStart !== false) await node.start();
 	return node;
 }
 
-export class NodeP2P {
+export class Node {
 	started = false;
 	id; cryptoCodex; verbose; arbiter;
 	/** class managing ICE offers */ offerManager;
@@ -88,7 +88,7 @@ export class NodeP2P {
 		// GOSSIP LISTENERS
 		gossip.on('signal_offer', (senderId, data, HOPS) => topologist.handleIncomingSignal(senderId, data, HOPS));
 
-		if (verbose > 2) console.log(`NodeP2P initialized: ${this.id}`);
+		if (verbose > 2) console.log(`Node initialized: ${this.id}`);
 	}
 
 	// PRIVATE METHODS
