@@ -1,10 +1,16 @@
 import path from 'path';
 import express from 'express';
+import { fileURLToPath } from 'url';
 import { WebSocketServer } from 'ws';
 import { io } from 'socket.io-client'; // used for twitch events only
 import { CLOCK, SIMULATION, NODE, TRANSPORTS, IDENTITY, DISCOVERY, LOG_CSS } from '../core/config.mjs';
 import { TestWsServer, TestWsConnection, TestTransport,
 	ICE_CANDIDATE_EMITTER, TEST_WS_EVENT_MANAGER, SANDBOX } from '../simulation/test-transports.mjs';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const packageRoot = path.resolve(__dirname, '..');
+console.log('Package root:', packageRoot); // debug
 
 // SETUP SIMULATION ENV -----------------------------------------------\
 SIMULATION.USE_TEST_TRANSPORTS = true; //								|
@@ -230,8 +236,8 @@ app.use('../rendering/visualizer.mjs', (req, res, next) => {
 
 app.use(express.static(path.resolve()));
 const server = app.listen(3000, () => console.log('%cServer listening on http://localhost:3000', LOG_CSS.SIMULATOR));
-app.get('/', (req, res) => res.sendFile('rendering/visualizer.html', { root: '.' }));
-app.get('/the-gossip-grail', (req, res) => res.sendFile('resources/the-gossip-grail.html', { root: '.' }));
+app.get('/', (req, res) => res.sendFile('rendering/visualizer.html', { root: packageRoot }));
+app.get('/the-gossip-grail', (req, res) => res.sendFile('resources/the-gossip-grail.html', { root: packageRoot }));
 
 /** @type {WebSocket} */
 let clientWs;
