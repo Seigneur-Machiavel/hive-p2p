@@ -12,11 +12,6 @@ export class Clock {
 	#syncing = false;
 	#lastSync = 0;
 	#sources = ['time.google.com', 'time.cloudflare.com', 'pool.ntp.org'];
-	#browserSources = [
-		'https://worldtimeapi.org/api/timezone/UTC',
-		'https://timeapi.io/api/Time/current/zone?timeZone=UTC', 
-		'https://api.github.com'
-	];
 
 	constructor(verbose = 0, mockMode = false) {
 		this.verbose = verbose;
@@ -77,9 +72,7 @@ export class Clock {
 
 	// PRIVATE METHODS
 	async #fetchTimeSamples() { // Fetch time samples from all sources in parallel
-		const sources = (typeof window !== 'undefined') ? this.#browserSources : this.#sources;
-		console.log(sources);
-		const promises = sources.map(source => this.#fetchTimeFromSource(source));
+		const promises = this.#sources.map(source => this.#fetchTimeFromSource(source));
 		const results = await Promise.allSettled(promises);
 		const samples = [];
 		for (const result of results) if (result.status === 'fulfilled') samples.push(result.value);
@@ -92,29 +85,12 @@ export class Clock {
 
 		try {
 			const startTime = Date.now();
-			const response = await fetch(`https://${source}`, { 
-				method: source.includes('api.github.com') ? 'HEAD' : 'GET',
-				signal: controller.signal, 
-				cache: 'no-cache' 
-			});
-			const networkLatency = (Date.now() - startTime) / 2;
+			const response = await fetch(`https://${source}`, { method: 'HEAD', signal: controller.signal, cache: 'no-cache' });
+			const networkLatency = (Date.now() - startTime) / 2; // Rough RTT/2
 			if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-			let serverTime;
-			
-			// Browser APIs retournent du JSON
-			if (source.includes('worldtimeapi')) {
-				const data = await response.json();
-				serverTime = new Date(data.utc_datetime).getTime();
-			} else if (source.includes('timeapi')) {
-				const data = await response.json();
-				serverTime = new Date(data.dateTime).getTime();
-			} else {
-				// GitHub ou NTP classique - header Date
-				serverTime = new Date(response.headers.get('date')).getTime();
-			}
-
-			if (isNaN(serverTime)) throw new Error('Invalid time data');
+			const serverTime = new Date(response.headers.get('date')).getTime();
+			if (isNaN(serverTime)) throw new Error('Invalid date header');
 
 			return {
 				source,
@@ -122,8 +98,6 @@ export class Clock {
 				localTime: Date.now(),
 				latency: networkLatency * 2
 			};
-		} catch (error) {
-			if (this.verbose) console.warn(`[Clock] Failed to fetch time from ${source}:`, error.message);
 		} finally { clearTimeout(timeoutId); }
 	}
 	/** @param {Array<{serverTime: number, localTime: number, latency: number}>} samples */
