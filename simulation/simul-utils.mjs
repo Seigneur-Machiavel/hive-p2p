@@ -1,4 +1,4 @@
-import { SIMULATION, NODE, UNICAST, GOSSIP, LOG_CSS } from '../core/parameters.mjs';
+import { SIMULATION, NODE, UNICAST, GOSSIP, LOG_CSS } from '../core/config.mjs';
 import { CryptoCodex } from '../core/crypto-codex.mjs';
 
 export class MessageQueue {

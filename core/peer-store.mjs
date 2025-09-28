@@ -1,4 +1,4 @@
-import { CLOCK, SIMULATION, NODE, DISCOVERY, LOG_CSS } from './parameters.mjs';
+import { CLOCK, SIMULATION, NODE, DISCOVERY, LOG_CSS } from './config.mjs';
 const { SANDBOX, ICE_CANDIDATE_EMITTER, TEST_WS_EVENT_MANAGER } = SIMULATION.ENABLED ? await import('../simulation/test-transports.mjs') : {};
 
 export class KnownPeer { // known peer, not necessarily connected

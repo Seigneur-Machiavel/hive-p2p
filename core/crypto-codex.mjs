@@ -1,4 +1,4 @@
-import { CLOCK, SIMULATION, NODE, IDENTITY, GOSSIP, UNICAST, LOG_CSS } from './parameters.mjs';
+import { CLOCK, SIMULATION, NODE, IDENTITY, GOSSIP, UNICAST, LOG_CSS } from './config.mjs';
 import { GossipMessage } from './gossip.mjs';
 import { DirectMessage, ReroutedDirectMessage } from './unicast.mjs';
 import { Converter } from '../services/converter.mjs';

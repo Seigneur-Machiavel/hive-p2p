@@ -1,4 +1,4 @@
-import { CLOCK, NODE, TRANSPORTS, LOG_CSS } from './parameters.mjs';
+import { CLOCK, NODE, TRANSPORTS, LOG_CSS } from './config.mjs';
 import { xxHash32 } from '../libs/xxhash32.mjs';
 async function getWrtc() {
     if (typeof globalThis.RTCPeerConnection !== 'undefined') return undefined;

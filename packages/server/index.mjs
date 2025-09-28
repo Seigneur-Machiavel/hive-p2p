@@ -1,7 +1,7 @@
 import { Node, createNode, createPublicNode } from "../../core/node.mjs";
 import { CryptoCodex } from "../../core/crypto-codex.mjs";
-import PARAMETERS from "../../core/parameters.mjs";
+import CONFIG from "../../core/config.mjs";
 
-const HiveP2P = { Node, createNode, createPublicNode, CryptoCodex, PARAMETERS };
-export { Node, createNode, createPublicNode, CryptoCodex, PARAMETERS };
+const HiveP2P = { Node, createNode, createPublicNode, CryptoCodex, CONFIG };
+export { Node, createNode, createPublicNode, CryptoCodex, CONFIG };
 export default HiveP2P;

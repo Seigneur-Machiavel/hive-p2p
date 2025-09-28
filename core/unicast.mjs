@@ -1,4 +1,4 @@
-import { SIMULATION, DISCOVERY, UNICAST } from "./parameters.mjs";
+import { SIMULATION, DISCOVERY, UNICAST } from "./config.mjs";
 import { TRUST_VALUES } from "./arbiter.mjs";
 import { RouteBuilder_V2 } from "./route-builder.mjs";
 const { SANDBOX, ICE_CANDIDATE_EMITTER, TEST_WS_EVENT_MANAGER } = SIMULATION.ENABLED ? await import('../simulation/test-transports.mjs') : {};

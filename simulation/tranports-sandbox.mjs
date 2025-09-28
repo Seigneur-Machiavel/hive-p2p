@@ -1,4 +1,4 @@
-import { NODE, SIMULATION } from '../core/parameters.mjs';
+import { NODE, SIMULATION } from '../core/config.mjs';
 
 /**
  * Sandbox for testing WebSocket and transport connections.

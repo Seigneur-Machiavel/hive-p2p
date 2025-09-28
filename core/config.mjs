@@ -1,7 +1,10 @@
 const isNode = (typeof window === 'undefined');
+if (!isNode && window.SimplePeer === undefined)
+	throw new Error('SimplePeer is not available in the browser, make sure to include it via a script tag or a bundler.');
 import { Clock } from '../services/clock.mjs';
-// HOLD: GLOBAL PARAMETERS FOR THE LIBRARY
-// AVOID: CIRCULAR DEPENDENCIES AND TOO MANY FUNCTION/CONSTRUCTOR PARAMETERS
+
+// HOLD: GLOBAL CONFIG FOR THE LIBRARY
+// AVOID: CIRCULAR DEPENDENCIES AND TOO MANY FUNCTION/CONSTRUCTOR CONFIG
 // SIMPLIFY: IMPORTS, SIMULATOR AND BROWSER SUPPORT
 
 /** Synchronized clock that can be used outside the library */
@@ -106,7 +109,7 @@ export const TRANSPORTS = {
 	
 	WS_CLIENT: WebSocket,
 	WS_SERVER: isNode ? (await import('ws')).WebSocketServer : null,
-	PEER: isNode ? (await import('simple-peer')).default : null
+	PEER: isNode ? (await import('simple-peer')).default : SimplePeer
 }
 
 export const DISCOVERY = {

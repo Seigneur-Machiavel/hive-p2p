@@ -1,4 +1,4 @@
-import { SERVICE } from '../core/parameters.mjs';
+import { SERVICE } from '../core/config.mjs';
 import { Sandbox, ICECandidateEmitter } from './tranports-sandbox.mjs';
 
 class TestWsEventManager { // manage init() and close() to avoid timeout usage

@@ -1,4 +1,4 @@
-import { SIMULATION, NODE, SERVICE, TRANSPORTS, DISCOVERY, LOG_CSS } from './parameters.mjs';
+import { SIMULATION, NODE, SERVICE, TRANSPORTS, DISCOVERY, LOG_CSS } from './config.mjs';
 import { PeerConnection } from './peer-store.mjs';
 import { Converter } from '../services/converter.mjs';
 const dgram = !NODE.IS_BROWSER ? await import('dgram') : null;
