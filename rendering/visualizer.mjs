@@ -4,7 +4,7 @@ window.CryptoCodex = CryptoCodex; // Expose for debugging
 
 class SimulationInterface {
 	#connectingWs = false;
-	#socket;
+	#ws;
 	currentPeerId;
 	onSettings;
 	onPeersIds;
@@ -19,23 +19,25 @@ class SimulationInterface {
 		this.onSettings = onSettings;
 		this.onPeersIds = onPeersIds;
 		this.onPeerInfo = onPeerInfo;
-		this.#setupSocketIo();
-		window.addEventListener('beforeunload', () => this.#socket ? this.#socket.disconnect() : null);
+		this.#setupWs();
+		window.addEventListener('beforeunload', () => this.#ws ? this.#ws.close() : null);
 		setInterval(() => { if (this.currentPeerId) this.getPeerInfo(this.currentPeerId) }, 300);
 		setInterval(() => { this.getPeerIds() }, 5000);
 	}
-	#setupSocketIo(url = 'http://localhost:17255') {
-		if (this.#socket) this.#socket.disconnect();
-		this.#socket = io(url);
-		this.#socket.on('message', (msg) => {
-			this.responseReceivedByType[msg.type] = true;
-			
-			if (msg.type === 'settings') return this.onSettings(msg.data);
-			if (msg.type === 'peersIds') return this.onPeersIds(msg.data);
-			if (msg.type === 'peerInfo') return this.onPeerInfo(msg.data);
-			if (msg.type === 'peerMessage' && this.onPeerMessage) return this.onPeerMessage(msg.remoteId, msg.data);
-		});
-		this.#socket.on('connect', () => console.log('%cSocket.io connected to http://localhost:17255', 'color: green; font-weight: bold;'));
+
+	#setupWs(url = 'ws://localhost:3000') {
+		if (this.#ws) this.#ws.close();
+		this.#connectingWs = true;
+		this.#ws = new WebSocket(url);
+		this.#ws.onmessage = (event) => {
+			const msg = JSON.parse(event.data);
+
+			if (msg.type === 'settings') this.onSettings(msg.data);
+			if (msg.type === 'peersIds') this.onPeersIds(msg.data);
+			if (msg.type === 'peerInfo') this.onPeerInfo(msg.data);
+			if (msg.type === 'peerMessage' && this.onPeerMessage) this.onPeerMessage(msg.remoteId, msg.data);
+		};
+		this.#connectingWs = false;
 	}
 
 	start(settings) { this.#sendWsMessage({ type: 'start', settings }); }
@@ -50,10 +52,14 @@ class SimulationInterface {
 		this.#sendWsMessage({ type: 'tryToConnectNode', fromId, targetId });
 	}
 	#sendWsMessage(msg, avoidSendingIfNotAnswered = false) {
-		if (avoidSendingIfNotAnswered && this.responseReceivedByType[msg.type] === false) return;
-		this.responseReceivedByType[msg.type] = false;
-		if (!this.#socket?.connected) return console.warn('Socket.io is not connected yet, cannot send message:', msg);
-		this.#socket.send(JSON.stringify(msg));
+		if (this.#ws?.readyState === WebSocket.OPEN) {
+			if (avoidSendingIfNotAnswered && this.responseReceivedByType[msg.type] === false) return;
+			this.responseReceivedByType[msg.type] = false;
+			this.#ws.send(JSON.stringify(msg));
+		} else {
+			console.error(`WebSocket is not connected. ${this.#connectingWs ? 'Trying to connect...' : ''}`);
+			setTimeout(() => { if (!this.#connectingWs) this.#setupWs(); }, 2000);
+		}
 	}
 }
 
