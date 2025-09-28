@@ -8,7 +8,7 @@
   "type": "module",
   "main": "./packages/full/index.mjs",
   "files": [
-    "index.mjs",
+    "packages/full/",
     "core/",
     "libs/",
     "rendering/",
