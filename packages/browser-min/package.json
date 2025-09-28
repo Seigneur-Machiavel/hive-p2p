@@ -1,6 +1,6 @@
 {
   "name": "@hive-p2p/browser.min",
-  "version": "1.0.0",
+  "version": "1.0.10",
   "main": "hive-p2p.min.js",
   "scripts": {
     "build": "esbuild ../browser/index.mjs --bundle --minify --outfile=hive-p2p.min.js --format=esm --external:dgram --external:fs --external:crypto --external:argon2 --external:wrtc --external:simple-peer"
