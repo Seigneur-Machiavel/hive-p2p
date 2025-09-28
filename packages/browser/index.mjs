@@ -5,3 +5,5 @@ import CONFIG from "../../core/config.mjs";
 const HiveP2P = { Node, createNode, CryptoCodex, CONFIG };
 export { Node, createNode, CryptoCodex, CONFIG };
 export default HiveP2P;
+
+if (typeof window !== 'undefined') window.HiveP2P = HiveP2P;

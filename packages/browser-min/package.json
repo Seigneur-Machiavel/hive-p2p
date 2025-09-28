@@ -1,0 +1,15 @@
+{
+  "name": "@hive-p2p/browser.min",
+  "version": "1.0.0",
+  "main": "hive-p2p.min.js",
+  "scripts": {
+    "build": "esbuild ../browser/index.mjs --bundle --minify --outfile=hive-p2p.min.js --format=esm --external:dgram --external:fs --external:crypto --external:argon2 --external:wrtc --external:simple-peer"
+  },
+  "files": [
+    "hive-p2p.min.js",
+    "expose.mjs"
+  ],
+  "devDependencies": {
+    "esbuild": "^0.25.10"
+  }
+}
