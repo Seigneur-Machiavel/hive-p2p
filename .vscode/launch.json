@@ -9,7 +9,7 @@
 			"request": "launch",
 			"name": "Start_Simulation",
 			"skipFiles": ["<node_internals>/**"],
-			"program": "${workspaceFolder}\\simulation\\simulator.mjs",
+			"program": "${workspaceFolder}\\simulation\\simulator.mjs"
 		},
 		{
 			"type": "node",

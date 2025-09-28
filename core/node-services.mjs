@@ -1,7 +1,10 @@
-import { NODE, SIMULATION, TRANSPORTS, DISCOVERY } from './parameters.mjs';
+import { SIMULATION, NODE, SERVICE, TRANSPORTS, DISCOVERY, LOG_CSS } from './parameters.mjs';
 import { PeerConnection } from './peer-store.mjs';
 import { Converter } from '../services/converter.mjs';
-const dgram = !NODE.IS_BROWSER ? await import('dgram') : null; // Node.js only
+const dgram = !NODE.IS_BROWSER ? await import('dgram') : null;
+/*const dgram = !NODE.IS_BROWSER ? 
+  await import('dgram').catch(() => null) : 
+  null;*/
 
 export class NodeServices {
 	id;
@@ -20,7 +23,7 @@ export class NodeServices {
 		this.cryptoCodex = cryptoCodex;
 	}
 	
-	start(domain = 'localhost', port = NODE.SERVICE.PORT) {
+	start(domain = 'localhost', port = SERVICE.PORT) {
 		this.publicUrl = `ws://${domain}:${port}`;
 		this.#startWebSocketServer(domain, port);
 		if (!SIMULATION.USE_TEST_TRANSPORTS) this.#startSTUNServer(domain, port + 1);
@@ -30,22 +33,22 @@ export class NodeServices {
 		if (maxKick <= 0) return; // nothing to do
 		
 		let kicked = 0;
-		const delay = NODE.SERVICE.AUTO_KICK_DELAY;
+		const delay = SERVICE.AUTO_KICK_DELAY;
 		for (const peerId  in this.peerStore.connected) {
 			const conn = this.peerStore.connected[peerId];
 			const nonPublicNeighborsCount = this.peerStore.getUpdatedPeerConnectionsCount(peerId, false);
 			if (nonPublicNeighborsCount > DISCOVERY.TARGET_NEIGHBORS_COUNT) { // OVER CONNECTED
-				this.peerStore.kickPeer(peerId, NODE.SERVICE.AUTO_KICK_DURATION, 'freePublicNode');
+				this.peerStore.kickPeer(peerId, SERVICE.AUTO_KICK_DURATION, 'freePublicNode');
 				if (this.peerStore.neighborsList.length <= DISCOVERY.TARGET_NEIGHBORS_COUNT) break;
 				else continue; // Don't count in maxKick
 			}
 
 			if (conn.getConnectionDuration() < (nonPublicNeighborsCount > 2 ? delay : delay * 2)) continue;
-			this.peerStore.kickPeer(peerId, NODE.SERVICE.AUTO_KICK_DURATION, 'freePublicNode');
+			this.peerStore.kickPeer(peerId, SERVICE.AUTO_KICK_DURATION, 'freePublicNode');
 			if (++kicked >= maxKick) break;
 		}
 	}
-	#startWebSocketServer(domain = 'localhost', port = NODE.SERVICE.PORT) {
+	#startWebSocketServer(domain = 'localhost', port = SERVICE.PORT) {
 		this.wsServer = new TRANSPORTS.WS_SERVER({ port, host: domain });
 		this.wsServer.on('error', (error) => console.error(`WebSocket error on Node #${this.id}:`, error));
 		this.wsServer.on('connection', (ws) => {
@@ -70,10 +73,10 @@ export class NodeServices {
 			});
 		});
 	}
-	#startSTUNServer(host = 'localhost', port = NODE.SERVICE.PORT + 1) {
+	#startSTUNServer(host = 'localhost', port = SERVICE.PORT + 1) {
 		this.stunServer = dgram.createSocket('udp4');
 		this.stunServer.on('message', (msg, rinfo) => {
-			if (this.verbose > 2) console.log(`%cSTUN message from ${rinfo.address}:${rinfo.port} - ${msg.toString('hex')}`, 'color: blue;');
+			if (this.verbose > 2) console.log(`%cSTUN message from ${rinfo.address}:${rinfo.port} - ${msg.toString('hex')}`, LOG_CSS.SERVICE);
 			if (!this.#isValidSTUNRequest(msg)) return;
 			this.stunServer.send(this.#buildSTUNResponse(msg, rinfo), rinfo.port, rinfo.address);
 		});

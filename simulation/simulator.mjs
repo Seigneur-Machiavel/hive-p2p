@@ -5,7 +5,6 @@ import { io } from 'socket.io-client'; // used for twitch events only
 import { CLOCK, SIMULATION, NODE, TRANSPORTS, IDENTITY, DISCOVERY, LOG_CSS } from '../core/parameters.mjs';
 import { TestWsServer, TestWsConnection, TestTransport,
 	ICE_CANDIDATE_EMITTER, TEST_WS_EVENT_MANAGER, SANDBOX } from '../simulation/test-transports.mjs';
-//import { MessageQueue, Statician, TransmissionAnalyzer, SubscriptionsManager } from './simulator-utils.mjs';
 
 // SETUP SIMULATION ENV -----------------------------------------------\
 SIMULATION.USE_TEST_TRANSPORTS = true; //								|
@@ -24,6 +23,7 @@ TRANSPORTS.PEER = TestTransport; 		 // default: SimplePeer			|
 const { MessageQueue, Statician, TransmissionAnalyzer, SubscriptionsManager } = await import('./simul-utils.mjs');
 const { CryptoCodex } = await import('../core/crypto-codex.mjs');
 const { createNode, createPublicNode } = await import('../core/node.mjs'); // dynamic import to allow simulation overrides
+
 // TO ACCESS THE VISUALIZER GO TO: http://localhost:3000 ------\
 // LOGS COLORS :											   |
 // BLUE:      SYSTEM									 	   |
@@ -231,6 +231,7 @@ app.use('../rendering/visualizer.mjs', (req, res, next) => {
 app.use(express.static(path.resolve()));
 const server = app.listen(3000, () => console.log('%cServer listening on http://localhost:3000', LOG_CSS.SIMULATOR));
 app.get('/', (req, res) => res.sendFile('rendering/visualizer.html', { root: '.' }));
+app.get('/the-gossip-grail', (req, res) => res.sendFile('resources/the-gossip-grail.html', { root: '.' }));
 
 /** @type {WebSocket} */
 let clientWs;
@@ -322,3 +323,5 @@ class TwitchChatCommandInterpreter {
 	}
 }
 commandInterpreter = new TwitchChatCommandInterpreter();
+
+export default { }; // to make it a module

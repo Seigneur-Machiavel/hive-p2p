@@ -1,4 +1,4 @@
-import { CLOCK, SIMULATION, NODE, DISCOVERY } from './parameters.mjs';
+import { CLOCK, SIMULATION, NODE, SERVICE, DISCOVERY } from './parameters.mjs';
 import { Arbiter } from './arbiter.mjs';
 import { OfferManager } from './ice-offer-manager.mjs';
 import { PeerStore } from './peer-store.mjs';
@@ -14,7 +14,7 @@ import { NodeServices } from './node-services.mjs';
  * @param {boolean} [options.autoStart] If true, the node will automatically start after creation (default: true)
  * @param {CryptoCodex} [options.cryptoCodex] Identity of the node; if not provided, a new one will be generated
  * @param {string} [options.domain] If provided, the node will operate as a public node and start necessary services (e.g., WebSocket server)
- * @param {number} [options.port] If provided, the node will listen on this port (default: NODE.SERVICE.PORT)
+ * @param {number} [options.port] If provided, the node will listen on this port (default: SERVICE.PORT)
  * @param {number} [options.verbose] Verbosity level for logging (default: NODE.DEFAULT_VERBOSE) */
 export async function createPublicNode(options) {		
 	const verbose = options.verbose !== undefined ? options.verbose : NODE.DEFAULT_VERBOSE;
@@ -25,7 +25,7 @@ export async function createPublicNode(options) {
 	const node = new Node(codex, options.bootstraps || [], verbose);
 	if (domain) {
 		node.services = new NodeServices(codex, node.peerStore, undefined, verbose);
-		node.services.start(domain, options.port || NODE.SERVICE.PORT);
+		node.services.start(domain, options.port || SERVICE.PORT);
 		node.topologist.services = node.services;
 	}
 	if (options.autoStart !== false) await node.start();

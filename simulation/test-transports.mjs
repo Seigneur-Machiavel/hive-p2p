@@ -1,4 +1,4 @@
-import { SIMULATION, NODE } from '../core/parameters.mjs';
+import { SERVICE } from '../core/parameters.mjs';
 import { Sandbox, ICECandidateEmitter } from './tranports-sandbox.mjs';
 
 class TestWsEventManager { // manage init() and close() to avoid timeout usage
@@ -119,7 +119,7 @@ export class TestWsConnection { // WebSocket like
 export class TestWsServer { // WebSocket like
 	url;
 	clients = new Set();
-	maxClients = NODE.SERVICE.MAX_WS_IN_CONNS || 20;
+	maxClients = SERVICE.MAX_WS_IN_CONNS || 20;
 	callbacks = {
 		connection: [],
 		close: [],

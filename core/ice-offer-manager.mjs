@@ -1,6 +1,10 @@
 import { CLOCK, NODE, TRANSPORTS, LOG_CSS } from './parameters.mjs';
 import { xxHash32 } from '../libs/xxhash32.mjs';
-import wrtc from 'wrtc';
+async function getWrtc() {
+    if (typeof globalThis.RTCPeerConnection !== 'undefined') return undefined;
+    return (await import('wrtc')).default;
+}
+const wrtc = await getWrtc();
 
 /** - 'OfferObj' Definition
  * @typedef {Object} OfferObj
