@@ -2,5 +2,8 @@ node_modules
 package-lock.json
 not_published
 disabled.prettierrc
-dist
+
 resources/build-prepare.mjs
+packages
+dist
+publish-all.bat

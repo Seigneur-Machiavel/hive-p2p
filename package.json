@@ -10,7 +10,7 @@
   "scripts": {
     "build:server": "node resources/build-prepare.mjs server",
     "build:browser": "node resources/build-prepare.mjs browser",
-	"build:min": "esbuild ../browser/index.mjs --bundle --minify --outfile=hive-p2p.min.js --format=esm --external:dgram --external:fs --external:crypto --external:argon2 --external:wrtc --external:simple-peer"
+    "build:min": "cd packages/browser-min && npm run build"
   },
   "files": [
     "packages/full/",
