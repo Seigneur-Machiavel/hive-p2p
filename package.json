@@ -1,12 +1,17 @@
 {
   "name": "hive-p2p",
-  "version": "1.0.12",
+  "version": "1.0.14",
   "publishConfig": {
     "access": "public"
   },
   "description": "P2P networking library for Node.js with WebRTC - Full featured package",
   "type": "module",
   "main": "./packages/full/index.mjs",
+  "scripts": {
+    "build:server": "node resources/build-prepare.mjs server",
+    "build:browser": "node resources/build-prepare.mjs browser",
+	"build:min": "esbuild ../browser/index.mjs --bundle --minify --outfile=hive-p2p.min.js --format=esm --external:dgram --external:fs --external:crypto --external:argon2 --external:wrtc --external:simple-peer"
+  },
   "files": [
     "packages/full/",
     "core/",
@@ -27,6 +32,9 @@
     "wrtc": "~0.4.7",
     "ws": "~8.18.3"
   },
+  "devDependencies": {
+    "esbuild": "^0.25.10"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/Seigneur-Machiavel/hive-p2p.git"
@@ -41,8 +49,5 @@
     "simulation"
   ],
   "author": "PinkParrot",
-  "license": "GPL-3.0",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  }
+  "license": "GPL-3.0"
 }
