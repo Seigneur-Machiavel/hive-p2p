@@ -1,6 +1,5 @@
 const isNode = (typeof window === 'undefined');
-if (!isNode && window.SimplePeer === undefined)
-	throw new Error('SimplePeer is not available in the browser, make sure to include it via a script tag or a bundler.');
+if (!isNode) (await import('../libs/simplepeer-9.11.1.min.js')).default;
 import { Clock } from '../services/clock.mjs';
 
 // HOLD: GLOBAL CONFIG FOR THE LIBRARY
