@@ -1,6 +1,5 @@
 import { CLOCK, SIMULATION, TRANSPORTS, NODE, DISCOVERY, GOSSIP } from './config.mjs';
 import { PeerConnection } from './peer-store.mjs';
-import { CryptoCodex } from './crypto-codex.mjs';
 const { SANDBOX, ICE_CANDIDATE_EMITTER, TEST_WS_EVENT_MANAGER } = SIMULATION.ENABLED ? await import('../simulation/test-transports.mjs') : {};
 
 /**
@@ -47,10 +46,11 @@ class OfferQueue {
 }
 
 export class Topologist {
-	id; gossip; messager; peerStore; bootstraps;
+	id; cryptoCodex; gossip; messager; peerStore; bootstraps;
 	halfTarget = Math.ceil(DISCOVERY.TARGET_NEIGHBORS_COUNT / 2);
 	twiceTarget = DISCOVERY.TARGET_NEIGHBORS_COUNT * 2;
-	/** @type {Set<string>} */ bootstrapsIds = new Set();
+	/** @type {Map<string, boolean>} */ bootstrapsConnectionState = new Map();
+
 	get isPublicNode() { return this.services?.publicUrl ? true : false; }
 	/** @type {import('./node-services.mjs').NodeServices | undefined} */ services;
 	
@@ -59,12 +59,12 @@ export class Topologist {
 	offersQueue = new OfferQueue();
 	maxBonus = NODE.CONNECTION_UPGRADE_TIMEOUT * .2; // 20% of 15sec: 3sec max
 
-	/** @param {string} selfId @param {import('./gossip.mjs').Gossip} gossip @param {import('./unicast.mjs').UnicastMessager} messager @param {import('./peer-store.mjs').PeerStore} peerStore @param {Array<{id: string, publicUrl: string}>} bootstraps */
-	constructor(selfId, gossip, messager, peerStore, bootstraps) {
-		this.id = selfId; this.gossip = gossip; this.messager = messager; this.peerStore = peerStore;
-		for (const bootstrap of bootstraps) this.bootstrapsIds.add(bootstrap.id);
+	/** @param {string} selfId @param {import('./crypto-codex.mjs').CryptoCodex} cryptoCodex @param {import('./gossip.mjs').Gossip} gossip @param {import('./unicast.mjs').UnicastMessager} messager @param {import('./peer-store.mjs').PeerStore} peerStore @param {string[]} bootstraps */
+	constructor(selfId, cryptoCodex, gossip, messager, peerStore, bootstraps) {
+		this.id = selfId; this.cryptoCodex = cryptoCodex; this.gossip = gossip; this.messager = messager; this.peerStore = peerStore;
+		for (const url of bootstraps) this.bootstrapsConnectionState.set(url, false);
 		this.bootstraps = [...bootstraps].sort(() => Math.random() - 0.5); // shuffle
-		this.nextBootstrapIndex = Math.random() * this.bootstrapsIds.size | 0;
+		this.nextBootstrapIndex = Math.random() * this.bootstraps.length | 0;
 	}
 
 	// PUBLIC METHODS
@@ -109,21 +109,19 @@ export class Topologist {
 		this.offersQueue.pushSortTrim(offerItem);
 	}
 	tryConnectNextBootstrap(neighborsCount = 0, nonPublicNeighborsCount = 0) {
-		if (this.bootstrapsIds.size === 0) return;
+		if (this.bootstraps.length === 0) return;
 		const publicConnectedCount = neighborsCount - nonPublicNeighborsCount;
-		let [connectingCount, publicConnectingCount] = [0, 0];
-		for (const id in this.peerStore.connecting)
-			if (this.bootstrapsIds.has(id)) publicConnectingCount++;
-			else connectingCount++;
+		let connectingCount = 0;
+		for (const id in this.peerStore.connecting) connectingCount++;
 
 		// MINIMIZE BOOTSTRAP CONNECTIONS DEPENDING ON HOW MANY NEIGHBORS WE HAVE
-		if (publicConnectedCount + publicConnectingCount >= this.halfTarget) return; // already connected to enough bootstraps
+		if (publicConnectedCount >= this.halfTarget) return; // already connected to enough bootstraps
 		if (neighborsCount >= DISCOVERY.TARGET_NEIGHBORS_COUNT) return; // no more bootstrap needed
 		if (connectingCount + nonPublicNeighborsCount > this.twiceTarget) return; // no more bootstrap needed
 
-		const { id, publicUrl } = this.bootstraps[this.nextBootstrapIndex++ % this.bootstrapsIds.size];
-		if (id && publicUrl && (this.peerStore.connected[id] || this.peerStore.connecting[id])) return;
-		this.#connectToPublicNode(id, publicUrl);
+		const publicUrl = this.bootstraps[this.nextBootstrapIndex++ % this.bootstraps.length];
+		if (this.bootstrapsConnectionState.get(publicUrl)) return; // already connecting/connected
+		this.#connectToPublicNode(publicUrl);
 	}
 	
 	// INTERNAL METHODS
@@ -140,25 +138,49 @@ export class Topologist {
 	#getOverlap(peerId1 = 'toto') {
 		const p1n = this.peerStore.known[peerId1]?.neighbors || {};
 		const result = { overlap: 0, nonPublicCount: 0, p1nCount: this.peerStore.getUpdatedPeerConnectionsCount(peerId1) };
-		for (const id in p1n) if (!CryptoCodex.isPublicNode(id)) result.nonPublicCount++;
+		for (const id in p1n) if (!this.cryptoCodex.isPublicNode(id)) result.nonPublicCount++;
 		for (const id of this.peerStore.standardNeighborsList) if (p1n[id]) result.overlap++;
 		return result;
 	}
 	/** Get overlap information for multiple peers @param {string[]} peerIds */
 	#getOverlaps(peerIds = []) { return peerIds.map(id => ({ id, ...this.#getOverlap(id) })); }
-	#connectToPublicNode(remoteId = 'toto', publicUrl = 'localhost:8080') {
-		if (!CryptoCodex.isPublicNode(remoteId)) return this.verbose < 1 ? null : console.warn(`Topologist: trying to connect to a non-public node (${remoteId})`);
+	#connectToPublicNode(publicUrl = 'localhost:8080') {
+		let remoteId = null;
 		const ws = new TRANSPORTS.WS_CLIENT(publicUrl); ws.binaryType = 'arraybuffer';
-		if (!this.peerStore.connecting[remoteId]) this.peerStore.connecting[remoteId] = {};
-		this.peerStore.connecting[remoteId].out = new PeerConnection(remoteId, ws, 'out', true);
 		ws.onerror = (error) => console.error(`WebSocket error:`, error.stack);
 		ws.onopen = () => {
-			ws.onclose = () => { for (const cb of this.peerStore.callbacks.disconnect) cb(remoteId, 'out'); }
-			ws.onmessage = (data) => { for (const cb of this.peerStore.callbacks.data) cb(remoteId, data.data); };
-			for (const cb of this.peerStore.callbacks.connect) cb(remoteId, 'out');
-		};
+			this.bootstrapsConnectionState.set(publicUrl, true);
+			ws.onclose = () => {
+				this.bootstrapsConnectionState.set(publicUrl, false);
+				for (const cb of this.peerStore.callbacks.disconnect) cb(remoteId, 'out');
+			}
+			ws.onmessage = (data) => {
+				if (remoteId) for (const cb of this.peerStore.callbacks.data) cb(remoteId, data.data);
+				else { // FIRST MESSAGE SHOULD BE HANDSHAKE WITH ID
+					const d = new Uint8Array(data.data); if (d[0] > 127) return; // not unicast, ignore
+					const message = this.cryptoCodex.readUnicastMessage(d);
+					if (!message) return; // invalid unicast message, ignore
+
+					const { route, type, neighborsList } = message;
+					if (type !== 'handshake' || route.length !== 2) return;
+
+					const { signatureStart, pubkey, signature } = message;
+					const signedData = d.subarray(0, signatureStart);
+					if (!this.cryptoCodex.verifySignature(pubkey, signature, signedData)) return;
+
+					remoteId = route[0];
+					this.peerStore.digestPeerNeighbors(remoteId, neighborsList); // Update known store
+					this.peerStore.connecting[remoteId]?.in?.close(); // close incoming connection if any
+					if (!this.peerStore.connecting[remoteId]) this.peerStore.connecting[remoteId] = {};
+					this.peerStore.connecting[remoteId].out = new PeerConnection(remoteId, ws, 'out', true);
+					for (const cb of this.peerStore.callbacks.connect) cb(remoteId, 'out');
+				}
+			};
+			ws.send(this.cryptoCodex.createUnicastMessage('handshake', null, [this.id, this.id], this.peerStore.neighborsList));
+		};		
 	}
 	#tryToSpreadSDP(nonPublicNeighborsCount = 0, isHalfReached = false) { // LOOP TO SELECT ONE UNSEND READY OFFER AND BROADCAST IT
+		if (!this.peerStore.neighborsList.length) return; // no neighbors, no need to spread offers
 		// LIMIT OFFER SPREADING IF WE ARE CONNECTING TO MANY PEERS, LOWER GOSSIP TRAFFIC
 		const connectingCount = Object.keys(this.peerStore.connecting).length;
 		const ingPlusEd = connectingCount + nonPublicNeighborsCount;
@@ -198,7 +220,7 @@ export class Topologist {
 		for (const id in this.peerStore.known) {
 			if (Math.random() > r) continue; // randomize a bit the search
 			if (--maxSearch <= 0) break;
-			if (id === this.id || CryptoCodex.isPublicNode(id) || this.peerStore.isKicked(id)) continue;
+			if (id === this.id || this.cryptoCodex.isPublicNode(id) || this.peerStore.isKicked(id)) continue;
 			else if (this.peerStore.connected[id] || this.peerStore.connecting[id]) continue;
 			
 			const { overlap, nonPublicCount } = this.#getOverlap(id);

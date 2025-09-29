@@ -160,7 +160,7 @@ async function addPeer(type, i = 0, bootstraps = [], init = false, setPublic = f
 		: await createNode({ bootstraps: selectedBootstraps, cryptoCodex, autoStart: init, verbose: NODE.DEFAULT_VERBOSE });
 	peers.all[peer.id] = peer;
 	peers[type === 'STANDARD_NODE' ? 'standard' : 'public'].push(peer);
-	if (setPublic) sVARS.publicPeersCards.push({ id: peer.id, publicUrl: peer.publicUrl });
+	if (setPublic) sVARS.publicPeersCards.push(peer.publicUrl);
 	patchPeerHandlers(peer);
 }
 async function initPeers() {

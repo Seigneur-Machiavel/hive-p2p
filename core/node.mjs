@@ -10,7 +10,7 @@ import { NodeServices } from './node-services.mjs';
 
 /** Create and start a new PublicNode instance.
  * @param {Object} options
- * @param {Array<{id: string, publicUrl: string}>} options.bootstraps List of bootstrap nodes used as P2P network entry
+ * @param {string[]} options.bootstraps List of bootstrap nodes used as P2P network entry
  * @param {boolean} [options.autoStart] If true, the node will automatically start after creation (default: true)
  * @param {CryptoCodex} [options.cryptoCodex] Identity of the node; if not provided, a new one will be generated
  * @param {string} [options.domain] If provided, the node will operate as a public node and start necessary services (e.g., WebSocket server)
@@ -34,7 +34,7 @@ export async function createPublicNode(options) {
 
 /** Create and start a new Node instance.
  * @param {Object} options
- * @param {Array<{id: string, publicUrl: string}>} options.bootstraps List of bootstrap nodes used as P2P network entry
+ * @param {string[]} options.bootstraps List of bootstrap nodes used as P2P network entry
  * @param {CryptoCodex} [options.cryptoCodex] Identity of the node; if not provided, a new one will be generated
  * @param {boolean} [options.autoStart] If true, the node will automatically start after creation (default: true)
  * @param {number} [options.verbose] Verbosity level for logging (default: NODE.DEFAULT_VERBOSE) */
@@ -60,7 +60,7 @@ export class Node {
 
 	/** Initialize a new P2P node instance, use .start() to init topologist
 	 * @param {CryptoCodex} cryptoCodex - Identity of the node.
-	 * @param {Array<Record<string, string>>} bootstraps List of bootstrap nodes used as P2P network entry */
+	 * @param {string[]} bootstraps List of bootstrap nodes used as P2P network entry */
 	constructor(cryptoCodex, bootstraps = [], verbose = NODE.DEFAULT_VERBOSE) {
 		this.verbose = verbose;
 		if (this.topologist?.services) this.topologist.services.verbose = verbose;
@@ -72,7 +72,7 @@ export class Node {
 		this.peerStore = new PeerStore(this.id, this.cryptoCodex, this.offerManager, this.arbiter, verbose);
 		this.messager = new UnicastMessager(this.id, this.cryptoCodex, this.arbiter, this.peerStore, verbose);
 		this.gossip = new Gossip(this.id, this.cryptoCodex, this.arbiter, this.peerStore, verbose);
-		this.topologist = new Topologist(this.id, this.gossip, this.messager, this.peerStore, bootstraps || []);
+		this.topologist = new Topologist(this.id, this.cryptoCodex, this.gossip, this.messager, this.peerStore, bootstraps || []);
 		const { arbiter, peerStore, messager, gossip, topologist } = this;
 
 		// SETUP TRANSPORTS LISTENERS
@@ -97,8 +97,8 @@ export class Node {
 		const remoteIsPublic = this.cryptoCodex.isPublicNode(peerId);
 		if (this.publicUrl) return; // public node do not need to do anything special on connect
 		if (this.verbose > ((this.publicUrl || remoteIsPublic) ? 3 : 2)) console.log(`(${this.id}) ${direction === 'in' ? 'Incoming' : 'Outgoing'} connection established with peer ${peerId}`);
-		const isHandshakeInitiator = remoteIsPublic || direction === 'in';
-		if (isHandshakeInitiator) this.sendMessage(peerId, this.id, 'handshake'); // send it in both case, no doubt...
+		const bothAreNotPublic = !remoteIsPublic && !this.cryptoCodex.isPublicNode(this.id);
+		if (bothAreNotPublic || direction === 'in') this.sendMessage(peerId, this.id, 'handshake'); // send it in both case, no doubt...
 		
 		const isHoverNeighbored = this.peerStore.neighborsList.length >= DISCOVERY.TARGET_NEIGHBORS_COUNT + this.halfTarget;
 		const dispatchEvents = () => {
@@ -136,7 +136,6 @@ export class Node {
 
 	// PUBLIC API
 	get publicUrl() { return this.services?.publicUrl; }
-	get publicIdentity() { return { id: this.id, publicUrl: this.publicUrl }; }
 
 	onMessageData(callback) { this.messager.on('message', callback); }
 	onGossipData(callback) { this.gossip.on('gossip', callback); }

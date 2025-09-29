@@ -60,8 +60,15 @@ export class NodeServices {
 				if (remoteId) for (const cb of this.peerStore.callbacks.data) cb(remoteId, data);
 				else { // FIRST MESSAGE SHOULD BE HANDSHAKE WITH ID
 					const d = new Uint8Array(data); if (d[0] > 127) return; // not unicast, ignore
-					const { route, type, neighborsList } = this.cryptoCodex.readUnicastMessage(d) || {};
-					if (type !== 'handshake' || route.length !== 2 || route[1] !== this.id) return;
+					const message = this.cryptoCodex.readUnicastMessage(d);
+					if (!message) return; // invalid unicast message, ignore
+
+					const { route, type, neighborsList } = message;
+					if (type !== 'handshake' || route.length !== 2) return;
+
+					const { signatureStart, pubkey, signature } = message;
+					const signedData = d.subarray(0, signatureStart);
+					if (!this.cryptoCodex.verifySignature(pubkey, signature, signedData)) return;
 
 					remoteId = route[0];
 					this.peerStore.digestPeerNeighbors(remoteId, neighborsList); // Update known store
@@ -71,6 +78,7 @@ export class NodeServices {
 					for (const cb of this.peerStore.callbacks.connect) cb(remoteId, 'in');
 				}
 			});
+			ws.send(this.cryptoCodex.createUnicastMessage('handshake', null, [this.id, this.id], this.peerStore.neighborsList));
 		});
 	}
 	#startSTUNServer(host = 'localhost', port = SERVICE.PORT + 1) {
@@ -108,13 +116,13 @@ export class NodeServices {
 		if (this.verbose > 2) console.log(`%cSTUN Response: client will discover IP ${rinfo.address}:${rinfo.port}`, 'color: green;');
 		return response;
 	}
-	/** @param {Array<{id: string, publicUrl: string}>} bootstraps */
+	/** @param {string[]} bootstraps */
 	static deriveSTUNServers(bootstraps, includesCentralized = false) {
 		/** @type {Array<{urls: string}>} */
 		const stunUrls = [];
 		for (const b of bootstraps) {
-			const domain = b.publicUrl.split(':')[1].replace('//', '');
-			const port = parseInt(b.publicUrl.split(':')[2]) + 1;
+			const domain = b.split(':')[1].replace('//', '');
+			const port = parseInt(b.split(':')[2]) + 1;
 			stunUrls.push({ urls: `stun:${domain}:${port}` });
 		}
 		if (!includesCentralized) return stunUrls;
