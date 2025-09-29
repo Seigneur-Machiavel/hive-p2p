@@ -45,7 +45,7 @@ let isRestarting = false;
 const sVARS = { // SIMULATION VARIABLES
 	publicInit: 0,
 	nextPeerToInit: null,
-	publicPeersCards: [],
+	publicUrls: [],
 	startTime: Date.now()
 };
 const peers = {
@@ -129,13 +129,13 @@ async function destroyAllExistingPeers(pauseDuration = 2000) {
 	isRestarting = false;
 }
 function pickUpRandomBootstraps(count = SIMULATION.BOOTSTRAPS_PER_PEER) {
-	if (count === null) return sVARS.publicPeersCards; // all of them
+	if (count === null) return sVARS.publicUrls; // all of them
 
 	const selected = [];
-	const t = sVARS.publicPeersCards.length;
+	const t = sVARS.publicUrls.length;
 	const c = Math.min(count, t);
 	const shuffledIndexes = [...Array(t).keys()].sort(() => Math.random() - 0.5);
-	for (let i = 0; i < c; i++) selected.push(sVARS.publicPeersCards[shuffledIndexes[i]]);
+	for (let i = 0; i < c; i++) selected.push(sVARS.publicUrls[shuffledIndexes[i]]);
 	return selected;
 }
 /** @param {import('../core/node.mjs').Node} peer */
@@ -160,7 +160,7 @@ async function addPeer(type, i = 0, bootstraps = [], init = false, setPublic = f
 		: await createNode({ bootstraps: selectedBootstraps, cryptoCodex, autoStart: init, verbose: NODE.DEFAULT_VERBOSE });
 	peers.all[peer.id] = peer;
 	peers[type === 'STANDARD_NODE' ? 'standard' : 'public'].push(peer);
-	if (setPublic) sVARS.publicPeersCards.push(peer.publicUrl);
+	if (setPublic) sVARS.publicUrls.push(peer.publicUrl);
 	patchPeerHandlers(peer);
 }
 async function initPeers() {
@@ -168,10 +168,10 @@ async function initPeers() {
 	//sVARS.nextPeerToInit = null;
 	await destroyAllExistingPeers();
 	peers.public = []; peers.standard = []; peers.all = {};
-	sVARS.publicPeersCards = []; sVARS.nextPeerToInit = 0; sVARS.publicInit = 0;
+	sVARS.publicUrls = []; sVARS.nextPeerToInit = 0; sVARS.publicInit = 0;
 	const d = SIMULATION.DELAY_BETWEEN_INIT;
 	for (sVARS.publicInit; sVARS.publicInit < SIMULATION.PUBLIC_PEERS_COUNT; sVARS.publicInit++) await addPeer('PUBLIC_NODE', sVARS.publicInit, [], true, true);
-	for (let i = 0; i < SIMULATION.PEERS_COUNT; i++) await addPeer('STANDARD_NODE', i, sVARS.publicPeersCards, d === 0);
+	for (let i = 0; i < SIMULATION.PEERS_COUNT; i++) await addPeer('STANDARD_NODE', i, sVARS.publicUrls, d === 0);
 
 	console.log(`%c| PEERS CREATED: { Public: ${peers.public.length}, Standard: ${peers.standard.length} } |`, LOG_CSS.SIMULATOR);
 	if (d === 0) return sVARS.nextPeerToInit = SIMULATION.PEERS_COUNT; // already initialized

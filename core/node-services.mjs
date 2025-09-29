@@ -59,23 +59,27 @@ export class NodeServices {
 			ws.on('message', (data) => { // When peer proves his id, we can handle data normally
 				if (remoteId) for (const cb of this.peerStore.callbacks.data) cb(remoteId, data);
 				else { // FIRST MESSAGE SHOULD BE HANDSHAKE WITH ID
-					const d = new Uint8Array(data); if (d[0] > 127) return; // not unicast, ignore
-					const message = this.cryptoCodex.readUnicastMessage(d);
-					if (!message) return; // invalid unicast message, ignore
-
-					const { route, type, neighborsList } = message;
-					if (type !== 'handshake' || route.length !== 2) return;
-
-					const { signatureStart, pubkey, signature } = message;
-					const signedData = d.subarray(0, signatureStart);
-					if (!this.cryptoCodex.verifySignature(pubkey, signature, signedData)) return;
-
-					remoteId = route[0];
-					this.peerStore.digestPeerNeighbors(remoteId, neighborsList); // Update known store
-					this.peerStore.connecting[remoteId]?.out?.close(); // close outgoing connection if any
-					if (!this.peerStore.connecting[remoteId]) this.peerStore.connecting[remoteId] = {};
-					this.peerStore.connecting[remoteId].in = new PeerConnection(remoteId, ws, 'in', true);
-					for (const cb of this.peerStore.callbacks.connect) cb(remoteId, 'in');
+					try {
+						const d = new Uint8Array(data); if (d[0] > 127) return; // not unicast, ignore
+						const message = this.cryptoCodex.readUnicastMessage(d);
+						if (!message) return; // invalid unicast message, ignore
+	
+						const { route, type, neighborsList } = message;
+						if (type !== 'handshake' || route.length !== 2) return;
+	
+						const { signatureStart, pubkey, signature } = message;
+						const signedData = d.subarray(0, signatureStart);
+						if (!this.cryptoCodex.verifySignature(pubkey, signature, signedData)) return;
+	
+						remoteId = route[0];
+						this.peerStore.digestPeerNeighbors(remoteId, neighborsList); // Update known store
+						this.peerStore.connecting[remoteId]?.out?.close(); // close outgoing connection if any
+						if (!this.peerStore.connecting[remoteId]) this.peerStore.connecting[remoteId] = {};
+						this.peerStore.connecting[remoteId].in = new PeerConnection(remoteId, ws, 'in', true);
+						for (const cb of this.peerStore.callbacks.connect) cb(remoteId, 'in');
+					} catch (error) {
+						console.error(`Error handling WebSocket message on Node #${this.id}:`, error);
+					}
 				}
 			});
 			ws.send(this.cryptoCodex.createUnicastMessage('handshake', null, [this.id, this.id], this.peerStore.neighborsList));
