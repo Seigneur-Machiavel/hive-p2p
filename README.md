@@ -280,10 +280,9 @@ HiveP2P embodies this principle - simple components (gossip, routing, topology a
 GNU General Public License v3.0 - See [LICENSE](LICENSE) for details.
 
 ## Links
-
-- **Repository:** [github.com/Seigneur-Machiavel/hive-p2p](https://github.com/Seigneur-Machiavel/hive-p2p)
 - **NPM:** [npmjs.com/package/hive-p2p](https://www.npmjs.com/package/hive-p2p)
 - **Stats:** [ghloc.vercel.app/Seigneur-Machiavel/hive-p2p](https://ghloc.vercel.app/Seigneur-Machiavel/hive-p2p?branch=main)
+- **DEMO-REPO :** [github.com/Seigneur-Machiavel/hive-p2p-demo](https://github.com/Seigneur-Machiavel/hive-p2p-demo)
 
 ---
 
@@ -573,10 +572,9 @@ HiveP2P incarne ce principe - des composants simples (gossip, routage, conscienc
 GNU General Public License v3.0 - Voir [LICENSE](LICENSE) pour les détails.
 
 ## Liens
-
-- **Dépôt :** [github.com/Seigneur-Machiavel/hive-p2p](https://github.com/Seigneur-Machiavel/hive-p2p)
 - **NPM :** [npmjs.com/package/hive-p2p](https://www.npmjs.com/package/hive-p2p)
 - **Stats :** [ghloc.vercel.app/Seigneur-Machiavel/hive-p2p](https://ghloc.vercel.app/Seigneur-Machiavel/hive-p2p?branch=main)
+- **DEMO-REPO :** [github.com/Seigneur-Machiavel/hive-p2p-demo](https://github.com/Seigneur-Machiavel/hive-p2p-demo)
 
 ---
 
