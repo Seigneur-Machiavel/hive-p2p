@@ -3,9 +3,11 @@
 > A self-optimizing P2P network that achieves maximum entropy through global topology awareness
 
 ## Links
-- **NPM:** [npmjs.com/package/hive-p2p](https://www.npmjs.com/package/hive-p2p)
-- **MIN (unpkg):** [unpkg.com/@hive-p2p/browser@latest/hive-p2p.min.js](https://unpkg.com/@hive-p2p/browser@1.0.19/hive-p2p.min.js)
-- **MIN (cdn):** [cdn.jsdelivr.net/npm/@hive-p2p/browser@latest/hive-p2p.min.js](https://cdn.jsdelivr.net/npm/@hive-p2p/browser@latest/hive-p2p.min.js)
+- **NPM (full with simulator):** [npmjs.com/package/hive-p2p](https://www.npmjs.com/package/hive-p2p)
+- **NPM (server only):** [npmjs.com/package/@hive-p2p/server](https://www.npmjs.com/package/@hive-p2p/server)
+- **NPM (browser only):** [npmjs.com/package/@hive-p2p/browser](https://www.npmjs.com/package/@hive-p2p/browser)
+- **.min (unpkg):** [unpkg.com/@hive-p2p/browser@latest/hive-p2p.min.js](https://unpkg.com/@hive-p2p/browser@1.0.19/hive-p2p.min.js)
+- **.min (cdn):** [cdn.jsdelivr.net/npm/@hive-p2p/browser@latest/hive-p2p.min.js](https://cdn.jsdelivr.net/npm/@hive-p2p/browser@latest/hive-p2p.min.js)
 - **Stats:** [ghloc.vercel.app/Seigneur-Machiavel/hive-p2p](https://ghloc.vercel.app/Seigneur-Machiavel/hive-p2p?branch=main)
 - **DEMO-REPO :** [github.com/Seigneur-Machiavel/hive-p2p-demo](https://github.com/Seigneur-Machiavel/hive-p2p-demo)
 
