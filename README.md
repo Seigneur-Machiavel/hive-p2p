@@ -2,6 +2,13 @@
 
 > A self-optimizing P2P network that achieves maximum entropy through global topology awareness
 
+## Links
+- **NPM:** [npmjs.com/package/hive-p2p](https://www.npmjs.com/package/hive-p2p)
+- **MIN (unpkg):** [unpkg.com/@hive-p2p/browser@latest/hive-p2p.min.js](https://unpkg.com/@hive-p2p/browser@1.0.19/hive-p2p.min.js)
+- **MIN (cdn):** [cdn.jsdelivr.net/npm/@hive-p2p/browser@latest/hive-p2p.min.js](https://cdn.jsdelivr.net/npm/@hive-p2p/browser@latest/hive-p2p.min.js)
+- **Stats:** [ghloc.vercel.app/Seigneur-Machiavel/hive-p2p](https://ghloc.vercel.app/Seigneur-Machiavel/hive-p2p?branch=main)
+- **DEMO-REPO :** [github.com/Seigneur-Machiavel/hive-p2p-demo](https://github.com/Seigneur-Machiavel/hive-p2p-demo)
+
 ## What is HiveP2P?
 
 HiveP2P is a revolutionary peer-to-peer protocol that solves the fundamental entropy limitations of traditional DHTs like Kademlia. Instead of hoping for good network distribution, each peer actively participates in global topology optimization.
@@ -278,11 +285,6 @@ HiveP2P embodies this principle - simple components (gossip, routing, topology a
 ## License
 
 GNU General Public License v3.0 - See [LICENSE](LICENSE) for details.
-
-## Links
-- **NPM:** [npmjs.com/package/hive-p2p](https://www.npmjs.com/package/hive-p2p)
-- **Stats:** [ghloc.vercel.app/Seigneur-Machiavel/hive-p2p](https://ghloc.vercel.app/Seigneur-Machiavel/hive-p2p?branch=main)
-- **DEMO-REPO :** [github.com/Seigneur-Machiavel/hive-p2p-demo](https://github.com/Seigneur-Machiavel/hive-p2p-demo)
 
 ---
 
@@ -570,11 +572,6 @@ HiveP2P incarne ce principe - des composants simples (gossip, routage, conscienc
 ## Licence
 
 GNU General Public License v3.0 - Voir [LICENSE](LICENSE) pour les détails.
-
-## Liens
-- **NPM :** [npmjs.com/package/hive-p2p](https://www.npmjs.com/package/hive-p2p)
-- **Stats :** [ghloc.vercel.app/Seigneur-Machiavel/hive-p2p](https://ghloc.vercel.app/Seigneur-Machiavel/hive-p2p?branch=main)
-- **DEMO-REPO :** [github.com/Seigneur-Machiavel/hive-p2p-demo](https://github.com/Seigneur-Machiavel/hive-p2p-demo)
 
 ---
 
