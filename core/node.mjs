@@ -16,7 +16,8 @@ import { NodeServices } from './node-services.mjs';
  * @param {string} [options.domain] If provided, the node will operate as a public node and start necessary services (e.g., WebSocket server)
  * @param {number} [options.port] If provided, the node will listen on this port (default: SERVICE.PORT)
  * @param {number} [options.verbose] Verbosity level for logging (default: NODE.DEFAULT_VERBOSE) */
-export async function createPublicNode(options) {		
+export async function createPublicNode(options) {
+	await CLOCK.sync(this.verbose);
 	const verbose = options.verbose !== undefined ? options.verbose : NODE.DEFAULT_VERBOSE;
 	const domain = options.domain || undefined;
 	const codex = options.cryptoCodex || new CryptoCodex(undefined, verbose);
