@@ -1,512 +1,290 @@
-GNU GENERAL PUBLIC LICENSE
-Version 3, 29 June 2007
+# HiveP2P 🐝
 
-[EN] (Scroll down to read [FR] version)
+> A self-optimizing P2P network that achieves maximum entropy through global topology awareness
 
-# P2P Network with Dynamic Global Mapping
-## A New Paradigm for Decentralization
+## What is HiveP2P?
 
-### Executive Summary
+HiveP2P is a revolutionary peer-to-peer protocol that solves the fundamental entropy limitations of traditional DHTs like Kademlia. Instead of hoping for good network distribution, each peer actively participates in global topology optimization.
 
-This document presents a novel peer-to-peer network approach that solves the entropy limitations of classical DHTs like Kademlia. By sharing connection events through gossip, each peer builds a global network map enabling optimal neighbor selection and maximum network uniformity.
+**Key Innovation:** Every message carries neighbor information, allowing peers to build a real-time network map and select connections that maximize uniformity.
 
----
+### Why Another P2P Protocol?
 
-## 1. The Problem with Current DHTs
+Traditional DHTs suffer from:
+- **Geographic clustering** - Peers in the same region get grouped together
+- **Correlated failures** - Power outages can isolate entire network sections  
+- **Bootstrap bias** - New nodes discover the same initial clusters
+- **Blind topology** - No visibility into global network structure
 
-### 1.1 Kademlia Limitations
+HiveP2P solves these through **continuous topology awareness and optimization**.
 
-Kademlia, used in BitTorrent, Ethereum, and IPFS, has a fundamental weakness: **it doesn't guarantee maximum entropy**. It's essentially "hoping things work out" with some heuristics.
+## Quick Start
 
-**Identified problems:**
-- **Geographic clustering**: physically close peers end up in the same buckets
-- **Correlated failures**: power outages, software updates, shared vulnerabilities
-- **Bootstrap bias**: new nodes often discover the same clusters
-- **Blind neighborhood**: no visibility into global topology
+### Installation
 
-### 1.2 Real-World Consequences
+```bash
+# Full package (Node.js)
+npm install hive-p2p@latest
 
-```
-Ideal Kademlia network:    Real Kademlia network:
-                          
-    A---B---C                A---B---C
-    |   |   |                |   |   |
-    D---E---F                D---E---F
-    |   |   |                 \  |  /
-    G---H---I                  \ | /
-                                \|/
-                                 X
-                            (isolated cluster)
+# Server-optimized (lighter)
+npm install @hive-p2p/server
+
+# Browser bundle
+npm install @hive-p2p/browser
 ```
 
-Correlated failures can isolate entire network regions.
+### Basic Usage
 
----
+```javascript
+import { Node } from 'hive-p2p';
 
-## 2. Our Solution: Global Mapping Through Gossip
+// Create a node
+const node = new Node();
 
-### 2.1 Core Principle
+// Start with bootstrap nodes
+await node.start([
+  { id: '0abc...', publicUrl: 'ws://seed1.example.com:8080' },
+  { id: '0def...', publicUrl: 'ws://seed2.example.com:8080' }
+]);
 
-**Simple idea:** If every peer knows who's connected to whom, it can choose neighbors to maximize network uniformity.
+// Send messages
+node.on('message', (senderId, data) => {
+  console.log(`Message from ${senderId}:`, data);
+});
 
-**Mechanism:**
-1. Peers share their connection/disconnection events via gossip
-2. Each peer builds its own network map
-3. New neighbor selection based on minimal overlap
-4. Network converges toward optimized topology
+// Broadcast to network
+node.gossip.broadcastToAll({ type: 'announcement', value: 'Hello Hive!' });
 
-### 2.2 General Architecture
-
-```
-Peer A                    Peer B                    Peer C
-┌─────────────┐          ┌─────────────┐          ┌─────────────┐
-│ PeerStore   │◄────────►│ PeerStore   │◄────────►│ PeerStore   │
-│ (map)       │   Gossip │ (map)       │   Gossip │ (map)       │
-├─────────────┤          ├─────────────┤          ├─────────────┤
-│ Neighbor    │          │ Neighbor    │          │ Neighbor    │
-│ Selection   │          │ Selection   │          │ Selection   │
-└─────────────┘          └─────────────┘          └─────────────┘
-       │                        │                        │
-       └────────────────────────┼────────────────────────┘
-                    Direct Messages
-                     (with routing)
+// Direct message
+node.messager.sendUnicast(targetId, { type: 'private', content: 'Direct message' });
 ```
 
----
+## How It Works
 
-## 3. Technical Components
+### 1. Continuous Neighbor Discovery
 
-### 3.1 PeerStore - The Global Map
+Every protocol message includes the sender's neighbor list. This passive information sharing allows the network to maintain an up-to-date topology map without dedicated discovery messages.
 
-**Minimalist structure:**
-```js
-knownPeers: {
-  "peer123": {
-    peerId: "peer123",           // 32 bytes
-    neighbors: ["peer456", ...] // 12 IDs max × 32 bytes
-  }
+```
+Node A sends message → [neighbors: B,C,D]
+Node E receives it  → Updates its map
+Node E calculates   → "I should connect to A for better distribution"
+```
+
+### 2. Smart Connection Selection
+
+Nodes optimize connections based on two factors:
+- **Overlap minimization** - Connect to peers with different neighbors
+- **Wealth balancing** - Poor nodes seek rich nodes, rich nodes accept poor nodes
+
+This creates a self-balancing network that naturally converges toward maximum entropy.
+
+### 3. Gossip Protocol with Bloom Filters
+
+Messages propagate through the network via gossip with intelligent deduplication:
+- Each node maintains a lightweight bloom filter
+- Messages include hop count for TTL management
+- Transmission rate adapts to neighbor count
+
+### 4. Direct Messaging with Routing
+
+Point-to-point communication using source routing:
+- BFS algorithm finds optimal paths
+- Failed routes trigger automatic rerouting  
+- Routes are cryptographically signed to prevent tampering
+
+## Network Convergence
+
+Real simulation results with 2000 nodes:
+
+```
+┌──────────────────────────────────────────────────────────┐
+│ 10 minutes (600s)                                        │
+├──────────────────────────────────────────────────────────┤
+│ Active nodes:    2002/2002 (1902 established)           │
+│ Avg neighbors:   4.7                                     │
+│ Network coverage: 100% (T: 10571)                        │
+│ Avg latency:     169ms                                   │
+│ Gossip rate:     0.4 msg/s                              │
+│ Bandwidth:       856 bytes/s                            │
+└──────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────┐
+│ 1 hour (602s - continued sim)                           │
+├──────────────────────────────────────────────────────────┤
+│ Active nodes:    2003/2003 (1903 established)           │
+│ Avg neighbors:   4.8                                     │
+│ Network coverage: 100% (T: 8225)                        │
+│ Avg latency:     223ms                                   │
+│ Gossip rate:     0.2 msg/s                              │
+│ Bandwidth:       396 bytes/s                            │
+└──────────────────────────────────────────────────────────┘
+```
+
+The network continuously improves its topology, approaching theoretical maximum entropy.
+
+## Anti-Sybil Protection
+
+### Proof of Work Identity
+
+Nodes must solve an Argon2id puzzle to generate valid identities:
+- Configurable difficulty (0-10+)
+- Memory-hard algorithm prevents ASIC optimization
+- Cost scales exponentially with security requirements
+- IDs are hex-encoded for simplicity (no complex base64 needed)
+
+### Intelligent Rate Limiting
+
+The Arbiter class manages peer reputation:
+- Automatic ban for flooding behavior
+- Trust scoring system
+- Optional ban propagation with cryptographic proof
+
+## Architecture
+
+### Core Components (~1890 lines of code)
+
+```
+hive-p2p/core/
+├── node.mjs         (160) - Main entry point & orchestration
+├── config.mjs       (211) - Global configuration
+├── crypto-codex.mjs (240) - Identity, serialization, signatures
+├── peer-store.mjs   (227) - Connection & topology management
+├── gossip.mjs       (141) - Broadcast messaging
+├── unicast.mjs      (138) - Direct messaging & routing
+├── topologist.mjs   (227) - Connection optimization
+├── arbiter.mjs      (112) - Security & rate limiting
+├── node-services.mjs(118) - WebSocket/STUN servers
+├── ice-offer-manager.mjs(161) - WebRTC offer handling
+└── route-builder.mjs(155) - BFS pathfinding
+
+Total: 1890 lines of pure P2P logic
+```
+
+## Configuration
+
+Key parameters in `config.mjs`:
+
+```javascript
+DISCOVERY: {
+  TARGET_NEIGHBORS_COUNT: 5,  // Optimal: 4-8
+  PEER_LINK_DELAY: 10_000,    // Connection sharing interval
+  LOOP_DELAY: 2_500            // Topology optimization frequency
+}
+
+GOSSIP: {
+  HOPS: { default: 20 },       // Message propagation depth
+  TRANSMISSION_RATE: { ... }   // Adaptive forwarding
+}
+
+IDENTITY: {
+  DIFFICULTY: 7,               // PoW difficulty (0=disabled)
+  ARE_IDS_HEX: true           // Hex for simplicity
 }
 ```
 
-**Memory cost:** 416 bytes per known peer
-**Capacity:** 100k peers = 41.6 MB (Raspberry Pi compatible)
+## Use Cases
 
-### 3.2 Event Gossip
+### Decentralized Applications
+- Censorship-resistant messaging
+- Distributed storage networks
+- P2P content delivery
+- Decentralized social networks
 
-**Event messages:**
-```js
-{
-  event: 'connect',
-  peerId: 'ABC123',
-  direction: 'in',      // 'in' = I accept, 'out' = I propose  
-  timestamp: 1682345678
-}
+### Blockchain Networks
+- Transaction propagation layer
+- Mempool synchronization
+- Block distribution
+- Light client support
+
+### Real-time Systems
+- Multiplayer gaming infrastructure
+- Collaborative editing
+- Live streaming mesh networks
+- IoT device coordination
+
+## Performance
+
+Tested with up to 5000 simultaneous nodes:
+- **Memory:** ~10MB for complete network map (100k peers)
+- **CPU:** Raspberry Pi compatible  
+- **Bandwidth:** ~1KB/s baseline overhead
+- **Convergence:** 50% discovery within minutes
+
+## Development
+
+### Run Simulation
+
+```bash
+git clone https://github.com/Seigneur-Machiavel/hive-p2p
+cd hive-p2p
+npm install
+npm run simulation
 ```
 
-**Anti-spam filter:**
-- Buffer of recent message hashes (few seconds)
-- "I forward the message to neighbors only if absent from my buffer"
-- No complex anti-flood, just non-repetition
+### Browser Development
 
-**Propagation:**
-- Based on six degrees of separation theory
-- Configurable HOPS to limit map size
-- ~10 messages/second in steady state
-
-### 3.3 Optimized Neighbor Selection
-
-**Selection algorithm:**
-1. Analyze potential connection candidates
-2. Calculate overlap with current neighbors
-3. Favor peers with minimal overlap
-4. Maintain max 12 neighbors by default
-
-```
-Peer A wants to connect:
-Current neighbors: [B, C, D]
-
-Candidate X: neighbors [E, F, G] → overlap = 0 → EXCELLENT
-Candidate Y: neighbors [B, C, H] → overlap = 2 → AVERAGE  
-Candidate Z: neighbors [B, C, D] → overlap = 3 → POOR
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <script type="module">
+    import * as HiveP2P from './browser-min/hive-p2p.min.js';
+    const node = new HiveP2P.Node();
+    // Your code here
+  </script>
+</head>
+</html>
 ```
 
-### 3.4 Direct Messages with Routing
+## Roadmap
 
-**Connection establishment:**
-- SDP messages (WebRTC) relayed peer-to-peer
-- Complete route specified by sender
-- `enableReRouting` option: consumable flag for route optimization
-- Failure tolerance: more lightweight messages rather than delivery guarantee
-
-**Routing example:**
-```
-A wants to contact D:
-Planned route: A → B → C → D
-If C discovers shortcut A → C → E → D:
-C can re-route ONCE with signature
-```
-
----
-
-## 4. Robustness Mechanisms
-
-### 4.1 Correlated Failure Management
-
-**Early detection:**
-- Global map reveals partitions before they isolate the network
-- Dynamic neighborhood adjustment based on detected threats
-
-**Self-healing:**
-- Adaptive neighborhood: a peer can temporarily exceed 12 neighbors
-- Kick "problematic" neighbors if better candidates are discovered
-
-### 4.2 Attack Resistance
-
-**Against malicious peers:**
-- Ban/ignore system for excessive or inconsistent info
-- Hard-to-generate PubKey (PoW) to limit Sybil attacks
-- Cross-validation of events ('in' + 'out' directions)
-
-**Against pollution:**
-- Timeout for bidirectional connection confirmation
-- Preference for confirmed vs phantom connections
-
----
-
-## 5. Advantages Over Existing Solutions
-
-### 5.1 Vs Kademlia
-
-| Aspect | Kademlia | Our Solution |
-|--------|----------|--------------|
-| **Network visibility** | Blind | Global map |
-| **Neighbor selection** | XOR distance | Minimal overlap |
-| **Correlated failures** | Vulnerable | Early detection |
-| **Adaptability** | Static | Dynamic |
-| **Memory cost** | ~200 peers | ~100k peers |
-
-### 5.2 Observed Metrics
-
-**Tests with 2500 peers:**
-- **Convergence:** >50% discovery within minutes
-- **Traffic:** ~10 messages/second steady state  
-- **Memory:** <50 MB for complete map
-- **CPU:** Raspberry Pi compatible (dual-core 1.5GHz)
-
----
-
-## 6. Applications
-
-### 6.1 Decentralized Blockchain
-
-**Primary use case:** blockchain network with:
-- Fair distribution (like Bitcoin, no fundraising)
-- All nodes are "full" and equal
-- PoW + PoS to stabilize blocktime (1-4 minutes)
-- Optimized propagation of validated blocks
-
-**Specific advantages:**
-- **Eclipse resistance:** impossible to isolate a node
-- **Smart propagation:** optimal route selection
-- **Maximum decentralization:** greater than Bitcoin through uniformity
-
-### 6.2 Other Applications
-
-- **Decentralized CDN** with optimized routing
-- **Censorship-resistant messaging**  
-- **Distributed storage** with intelligent replication
-
----
-
-## 7. Roadmap and Limitations
-
-### 7.1 Current Limitations
-
-**Dependencies:**
-- External time service (NTP) for synchronization
-- Bootstrap nodes for initial seeding
-
-**Scalability:**
-- Tested up to 2500 simultaneous peers
-- Theoretical extrapolation to 100k+ peers
-
-### 7.2 Planned Improvements
-
-**Short term:**
+### Completed ✅
+- Core protocol implementation
+- WebRTC + WebSocket transports
+- Anti-sybil PoW (Argon2)
+- Bloom filter optimization
+- npm packages release
+- Clock synchronization
 - Bidirectional connection confirmation
-- Timestamps for automatic garbage collection  
-- Partition robustness testing
+- Arbiter security system
 
-**Long term:**
-- Distributed clock to eliminate NTP dependency
-- Virtual zones for scaling
-- Integrated network quality metrics
+### In Progress 🔧
+- Production testing
+- Real-world deployment
+- Documentation improvements
 
----
+### Under Consideration 🤔
+- Performance optimizations
+- Additional transport protocols
+- Extended security features
 
-## 8. Conclusion
+## Contributing
 
-This P2P system represents a paradigm shift: moving from a blind network to a **topology-aware network**. Global mapping through gossip enables continuous optimization and unmatched resilience.
+The protocol is young and full of possibilities. We're focusing on:
+- Documentation and tutorials
+- Real-world testing
+- Building example applications
+- Performance benchmarking
 
-**Philosophy:** Each component is individually simple, but their synergy creates a complex and robust system. The "minimalist yet complementary" approach avoids over-engineering while solving fundamental DHT problems.
+Check our [contribution guide](CONTRIBUTING.md) to get started.
 
-**Vision:** A decentralized internet where every node contributes to global network optimization, without central coordination or single points of failure.
+## Philosophy
 
----
+> "Complexity emerges from organized simplicity, not from complication."
 
-*"Complexity emerges from organized simplicity, not from complication."*
+HiveP2P embodies this principle - simple components (gossip, routing, topology awareness) combine to create a complex, self-organizing system that surpasses traditional approaches.
 
-[FR] ------------------------------------------------ [FR]
+## License
 
-# Réseau P2P avec Cartographie Globale Dynamique
-## Un nouveau paradigme pour la décentralisation
+GNU General Public License v3.0 - See [LICENSE](LICENSE) for details.
 
-### Résumé Exécutif
+## Links
 
-Ce document présente une nouvelle approche des réseaux pair-à-pair qui résout les limitations d'entropie des DHT classiques comme Kademlia. En partageant les événements de connexion via gossip, chaque peer construit une carte globale du réseau permettant une sélection optimale des voisins et une maximisation de l'uniformité du réseau.
-
----
-
-## 1. Le Problème des DHT Actuels
-
-### 1.1 Limitations de Kademlia
-
-Kademlia, utilisé dans BitTorrent, Ethereum et IPFS, présente une faiblesse fondamentale : **il n'offre pas d'entropie maximale garantie**. C'est du "on espère que ça se passe bien" avec quelques heuristiques.
-
-**Problèmes identifiés :**
-- **Clustering géographique** : peers physiquement proches finissent dans les mêmes buckets
-- **Pannes corrélées** : coupures électriques, mises à jour, mêmes vulnérabilités logicielles
-- **Biais de bootstrap** : nouveaux nœuds découvrent souvent les mêmes clusters
-- **Voisinage aveugle** : aucune visibilité sur la topologie globale
-
-### 1.2 Conséquences Pratiques
-
-```
-Réseau Kademlia idéal :    Réseau Kademlia réel :
-                          
-    A---B---C                A---B---C
-    |   |   |                |   |   |
-    D---E---F                D---E---F
-    |   |   |                 \  |  /
-    G---H---I                  \ | /
-                                \|/
-                                 X
-                            (cluster isolé)
-```
-
-Les pannes corrélées peuvent isoler des zones entières du réseau.
+- **Repository:** [github.com/Seigneur-Machiavel/hive-p2p](https://github.com/Seigneur-Machiavel/hive-p2p)
+- **NPM:** [npmjs.com/package/hive-p2p](https://www.npmjs.com/package/hive-p2p)
+- **Stats:** [ghloc.vercel.app/Seigneur-Machiavel/hive-p2p](https://ghloc.vercel.app/Seigneur-Machiavel/hive-p2p?branch=main)
 
 ---
 
-## 2. Notre Solution : Cartographie Globale par Gossip
-
-### 2.1 Principe Fondamental
-
-**Idée simple :** Si chaque peer connaît qui est connecté à qui, il peut choisir ses voisins pour maximiser l'uniformité du réseau.
-
-**Mécanisme :**
-1. Les peers partagent leurs événements de connexion/déconnexion via gossip
-2. Chaque peer construit sa propre carte du réseau  
-3. La sélection de nouveaux voisins se base sur l'overlap minimal
-4. Le réseau converge vers une topologie optimisée
-
-### 2.2 Architecture Générale
-
-```
-Peer A                    Peer B                    Peer C
-┌─────────────┐          ┌─────────────┐          ┌─────────────┐
-│ PeerStore   │◄────────►│ PeerStore   │◄────────►│ PeerStore   │
-│ (carte)     │   Gossip │ (carte)     │   Gossip │ (carte)     │
-├─────────────┤          ├─────────────┤          ├─────────────┤
-│ Neighbors   │          │ Neighbors   │          │ Neighbors   │
-│ Selection   │          │ Selection   │          │ Selection   │
-└─────────────┘          └─────────────┘          └─────────────┘
-       │                        │                        │
-       └────────────────────────┼────────────────────────┘
-                    Messages Directs
-                   (avec routage)
-```
-
----
-
-## 3. Composants Techniques
-
-### 3.1 PeerStore - La Carte Globale
-
-**Structure minimaliste :**
-```js
-knownPeers: {
-  "peer123": {
-    peerId: "peer123",           // 32 octets
-    neighbors: ["peer456", ...] // 12 IDs max × 32 octets
-  }
-}
-```
-
-**Coût mémoire :** 416 octets par peer connu
-**Capacité :** 100k peers = 41.6 Mo (compatible Raspberry Pi)
-
-### 3.2 Gossip des Événements
-
-**Messages d'événements :**
-```js
-{
-  event: 'connect',
-  peerId: 'ABC123',
-  direction: 'in',      // 'in' = j'accepte, 'out' = je propose  
-  timestamp: 1682345678
-}
-```
-
-**Filtre anti-spam :**
-- Tampon de hashes des messages récents (quelques secondes)
-- "Je transmets le message à mes voisins que s'il est absent de mon tampon"
-- Pas d'anti-flood complexe, juste la non-répétition
-
-**Propagation :**
-- Basée sur la théorie des 6 degrés de séparation
-- HOPS configurable pour limiter la taille de la carte
-- ~10 messages/seconde en régime stable
-
-### 3.3 Sélection de Voisins Optimisée
-
-**Algorithme de sélection :**
-1. Analyser les candidats potentiels de connexion
-2. Calculer l'overlap avec les voisins actuels
-3. Privilégier les peers avec overlap minimal
-4. Maintenir un voisinage de 12 peers max par défaut
-
-```
-Peer A veut se connecter :
-Voisins actuels : [B, C, D]
-
-Candidat X : voisins [E, F, G] → overlap = 0 → EXCELLENT
-Candidat Y : voisins [B, C, H] → overlap = 2 → MOYEN  
-Candidat Z : voisins [B, C, D] → overlap = 3 → MAUVAIS
-```
-
-### 3.4 Messages Directs avec Routage
-
-**Établissement de connexions :**
-- Messages SDP (WebRTC) relayés de peer en peer
-- Route complète spécifiée par l'expéditeur
-- Option `enableReRouting` : flag consommable pour optimisation de route
-- Tolérance aux échecs : plus de messages légers plutôt que garantie de livraison
-
-**Exemple de routage :**
-```
-A veut contacter D :
-Route prévue : A → B → C → D
-Si C découvre un raccourci A → C → E → D :
-C peut re-router UNE FOIS avec signature
-```
-
----
-
-## 4. Mécanismes de Robustesse
-
-### 4.1 Gestion des Pannes Corrélées
-
-**Détection précoce :**
-- La carte globale révèle les partitions avant qu'elles n'isolent le réseau
-- Ajustement dynamique du voisinage selon les menaces détectées
-
-**Auto-guérison :**
-- Voisinage adaptatif : un peer peut temporairement dépasser 12 voisins
-- Kick des voisins "gênants" si de meilleurs candidats sont découverts
-
-### 4.2 Résistance aux Attaques
-
-**Contre les peers malveillants :**
-- Système de ban/ignore pour infos excessives ou incohérentes
-- PubKey difficile à générer (POW) pour limiter les Sybil
-- Validation croisée des événements (direction 'in' + 'out')
-
-**Contre la pollution :**
-- Timeout pour confirmation bidirectionnelle des connexions
-- Préférence pour les connexions confirmées vs fantômes
-
----
-
-## 5. Avantages par Rapport aux Solutions Existantes
-
-### 5.1 Vs Kademlia
-
-| Aspect | Kademlia | Notre Solution |
-|--------|----------|----------------|
-| **Visibilité réseau** | Aveugle | Carte globale |
-| **Sélection voisins** | Distance XOR | Overlap minimal |
-| **Pannes corrélées** | Vulnérable | Détection précoce |
-| **Adaptabilité** | Statique | Dynamique |
-| **Coût mémoire** | ~200 peers | ~100k peers |
-
-### 5.2 Métriques Observées
-
-**Tests avec 2500 peers :**
-- **Convergence :** >50% de discovery en quelques minutes
-- **Trafic :** ~10 messages/seconde en régime stable  
-- **Mémoire :** <50 Mo pour la carte complète
-- **CPU :** Compatible Raspberry Pi (dual-core 1.5GHz)
-
----
-
-## 6. Applications
-
-### 6.1 Blockchain Décentralisée
-
-**Cas d'usage principal :** réseau blockchain avec :
-- Distribution équitable (comme Bitcoin, pas de levée de fonds)
-- Tous les nœuds sont "complets" et égaux
-- POW + POS pour stabiliser le blocktime (1-4 minutes)
-- Propagation optimisée des blocs validés
-
-**Avantages spécifiques :**
-- **Résistance aux éclipses** : impossible d'isoler un nœud
-- **Propagation intelligente** : choix de routes optimales
-- **Décentralisation maximale** : plus grande que Bitcoin grâce à l'uniformité
-
-### 6.2 Autres Applications
-
-- **CDN décentralisé** avec routage optimisé
-- **Messagerie résistante à la censure**  
-- **Stockage distribué** avec réplication intelligente
-
----
-
-## 7. Roadmap et Limitations
-
-### 7.1 Limitations Actuelles
-
-**Dépendances :**
-- Service d'horloge externe (NTP) pour synchronisation
-- Bootstrap nodes pour amorçage initial
-
-**Scalabilité :**
-- Testé jusqu'à 2500 peers simultanés
-- Extrapolation théorique à 100k+ peers
-
-### 7.2 Améliorations Prévues
-
-**Court terme :**
-- Confirmation bidirectionnelle des connexions
-- Timestamps pour garbage collection automatique  
-- Tests de robustesse aux partitions
-
-**Long terme :**
-- Horloge distribuée pour éliminer la dépendance NTP
-- Zones virtuelles pour passage à l'échelle
-- Métriques de qualité réseau intégrées
-
----
-
-## 8. Conclusion
-
-Ce système P2P représente un changement de paradigme : passer d'un réseau aveugle à un **réseau conscient** de sa propre topologie. La cartographie globale par gossip permet une optimisation continue et une résilience inégalée.
-
-**Philosophie :** Chaque composant est simple individuellement, mais leur synergie crée un système complexe et robuste. L'approche "minimaliste mais complémentaire" évite la sur-ingénierie tout en résolvant les problèmes fondamentaux des DHT actuels.
-
-**Vision :** Un internet décentralisé où chaque nœud contribue à l'optimisation globale du réseau, sans coordination centrale ni point de défaillance unique.
-
----
-
-*"La complexité émerge de la simplicité organisée, pas de la complication."*
+*HiveP2P - Because the internet deserves better than client-server*

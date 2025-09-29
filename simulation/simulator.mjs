@@ -234,7 +234,6 @@ app.use('../rendering/visualizer.mjs', (req, res, next) => {
     next();
 });
 
-//app.use(express.static(path.resolve()));
 app.use(express.static(packageRoot));
 const server = app.listen(3000, () => console.log('%cServer listening on http://localhost:3000', LOG_CSS.SIMULATOR));
 app.get('/', (req, res) => res.sendFile('rendering/visualizer.html', { root: packageRoot }));
