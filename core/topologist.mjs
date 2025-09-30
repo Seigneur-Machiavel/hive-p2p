@@ -152,7 +152,7 @@ export class Topologist {
 		const host = isBrowser ? window.location.host : url; // Récupère le host du browser
 		
 		// Build full URL if not already prefixed
-		return url.startsWith('ws') ? url : `${protocol}${urlhost}`;
+		return url.startsWith('ws') ? url : `${protocol}${host}`;
 	}
 	#connectToPublicNode(publicUrl = 'localhost:8080') {
 		let remoteId = null;
