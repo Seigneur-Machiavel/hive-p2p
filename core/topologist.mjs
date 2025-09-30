@@ -149,8 +149,9 @@ export class Topologist {
 		const isBrowser = typeof window !== 'undefined';
 		const isSecure = isBrowser && window.location.protocol === 'https:';
 		const protocol = isSecure ? 'wss://' : 'ws://';
-		const host = isBrowser ? window.location.host : url; // Récupère le host du browser
-		
+		const hasWsSuffix = url.endsWith('/ws');
+		const host = isBrowser && !hasWsSuffix ? window.location.host : url;
+
 		// Build full URL if not already prefixed
 		return url.startsWith('ws') ? url : `${protocol}${host}`;
 	}
