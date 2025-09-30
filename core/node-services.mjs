@@ -122,7 +122,7 @@ export class NodeServices {
 		/** @type {Array<{urls: string}>} */
 		const stunUrls = [];
 		for (const b of bootstraps) {
-			const domain = b.split(':')[1] ? b : b.split(':')[1].replace('//', '');
+			const domain = b.includes(':') ? b.split(':')[1].replace('//', '') : b;
 			domain.replace('/ws', '/signal'); // in case someone put domain/ws
 			const port = parseInt(b.split(':')[2]) + 1;
 			stunUrls.push({ urls: `stun:${domain}:${port}` });
