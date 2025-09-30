@@ -121,11 +121,14 @@ export class NodeServices {
 	static deriveSTUNServers(bootstraps) {
 		/** @type {Array<{urls: string}>} */
 		const stunUrls = [];
-		for (const b of bootstraps) {
+		for (const b of bootstraps) { // {urls: 'stun:42312:NaN'}
 			if (!b.includes(':')) continue;
-			const domain = b.split(':')[1].replace('//', '');
-			const port = parseInt(b.split(':')[2]) + 1;
-			stunUrls.push({ urls: `stun:${domain}:${port}` });
+			const url = b.replace('/ws', '/signal'); // in case someone put domain/ws
+			url.replace('/wss', '/signal'); // in case someone put domain/wss
+			url.replace('ws://', 'stun:');
+			url.replace('wss://', 'stun:');
+			if (!url.includes('stun:')) continue;
+			stunUrls.push({ urls: url });
 		}
 		if (!TRANSPORTS.CENTRALIZED_STUN_SERVERS) return stunUrls;
 
