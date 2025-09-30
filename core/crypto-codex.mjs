@@ -188,7 +188,7 @@ export class CryptoCodex {
 	/** @param {Uint8Array | ArrayBuffer} serialized @return {GossipMessage | null } */
 	readGossipMessage(serialized) {
 		if (this.verbose > 3) console.log(`%creadGossipMessage ${serialized.byteLength} bytes`, LOG_CSS.CRYPTO_CODEX);
-		if (this.verbose > 3) console.log(`%c${serialized}`, LOG_CSS.CRYPTO_CODEX);
+		if (this.verbose > 4) console.log(`%c${serialized}`, LOG_CSS.CRYPTO_CODEX);
 		try { // 1, 1, 1, 8, 4, 32, X, 64, 1
 			const { marker, dataCode, neighLength, timestamp, dataLength, pubkey, associatedId } = this.readBufferHeader(serialized);
 			const topic = GOSSIP.MARKERS_BYTES[marker];
@@ -208,7 +208,7 @@ export class CryptoCodex {
 	/** @param {Uint8Array | ArrayBuffer} serialized @return {DirectMessage | ReroutedDirectMessage | null} */
 	readUnicastMessage(serialized) {
 		if (this.verbose > 3) console.log(`%creadUnicastMessage ${serialized.byteLength} bytes`, LOG_CSS.CRYPTO_CODEX);
-		if (this.verbose > 3) console.log(`%c${serialized}`, LOG_CSS.CRYPTO_CODEX);
+		if (this.verbose > 4) console.log(`%c${serialized}`, LOG_CSS.CRYPTO_CODEX);
 		try { // 1, 1, 1, 8, 4, 32, X, 1, X, 64
 			const { marker, dataCode, neighLength, timestamp, dataLength, pubkey } = this.readBufferHeader(serialized, false);
 			const type = UNICAST.MARKERS_BYTES[marker];

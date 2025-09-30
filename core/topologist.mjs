@@ -144,9 +144,18 @@ export class Topologist {
 	}
 	/** Get overlap information for multiple peers @param {string[]} peerIds */
 	#getOverlaps(peerIds = []) { return peerIds.map(id => ({ id, ...this.#getOverlap(id) })); }
+	#getFullWsUrl(url) {
+		// Auto-detect protocol: use wss:// if in browser + HTTPS
+		const isBrowser = typeof window !== 'undefined';
+		const isSecure = isBrowser && window.location.protocol === 'https:';
+		const protocol = isSecure ? 'wss://' : 'ws://';
+		
+		// Build full URL if not already prefixed
+		return url.startsWith('ws') ? url : `${protocol}${url}`;
+	}
 	#connectToPublicNode(publicUrl = 'localhost:8080') {
 		let remoteId = null;
-		const ws = new TRANSPORTS.WS_CLIENT(publicUrl); ws.binaryType = 'arraybuffer';
+		const ws = new TRANSPORTS.WS_CLIENT(this.#getFullWsUrl(publicUrl)); ws.binaryType = 'arraybuffer';
 		ws.onerror = (error) => console.error(`WebSocket error:`, error.stack);
 		ws.onopen = () => {
 			this.bootstrapsConnectionState.set(publicUrl, true);

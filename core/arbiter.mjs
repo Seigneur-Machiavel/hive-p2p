@@ -67,7 +67,7 @@ export class Arbiter {
 	adjustTrust(peerId, delta, reason = 'na') { // Internal and API use - return true if peer isn't banished
 		if (peerId === this.id) return; // self
 		if (delta) this.trustBalances[peerId] = Math.min(MAX_TRUST, (this.trustBalances[peerId] || 0) + delta);
-		if (delta && this.verbose > 2) console.log(`%c(Arbiter: ${this.id}) ${peerId} +${delta}ms (${reason}). Updated: ${this.trustBalances[peerId]}ms.`, LOG_CSS.ARBITER);
+		if (delta && this.verbose > 3) console.log(`%c(Arbiter: ${this.id}) ${peerId} +${delta}ms (${reason}). Updated: ${this.trustBalances[peerId]}ms.`, LOG_CSS.ARBITER);
 		if (this.isBanished(peerId) && this.verbose > 1) console.log(`%c(Arbiter: ${this.id}) Peer ${peerId} is now banished.`, LOG_CSS.ARBITER);
 	}
 	isBanished(peerId = 'toto') { return (this.trustBalances[peerId] || 0) < 0; }

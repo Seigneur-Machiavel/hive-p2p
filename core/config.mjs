@@ -104,7 +104,7 @@ export const TRANSPORTS = {
 	/** Time to wait for signal before destroying WTRC connection | Default: 8_000 (8 seconds) */
 	SIGNAL_CREATION_TIMEOUT: 8_000,
 	/** Time to consider an SDP offer as valid | Default: 40_000 (40 seconds) */
-	SDP_OFFER_EXPIRATION: 40_000, 
+	SDP_OFFER_EXPIRATION: 40_000,
 	
 	WS_CLIENT: WebSocket,
 	WS_SERVER: isNode ? (await import('ws')).WebSocketServer : null,

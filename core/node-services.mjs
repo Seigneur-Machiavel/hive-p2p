@@ -89,6 +89,7 @@ export class NodeServices {
 			this.stunServer.send(this.#buildSTUNResponse(msg, rinfo), rinfo.port, rinfo.address);
 		});
 		this.stunServer.bind(port, host);
+		if (this.verbose > 2) console.log(`%cSTUN server listening on ${host}:${port}`, LOG_CSS.SERVICE);
 	}
 	#isValidSTUNRequest(msg) {
 		if (msg.length < 20) return false;
