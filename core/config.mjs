@@ -97,6 +97,8 @@ export const IDENTITY = {
 }
 
 export const TRANSPORTS = {
+	/** If true, we always add centralized STUN servers (Google) to the STUN URLs list */
+	CENTRALIZED_STUN_SERVERS: false,
 	/** Maximum SDP offers to create in advance to be ready for new connections | Default: 2 */
 	MAX_SDP_OFFERS: 2,
 	/** Time to wait for ICE gathering to complete | Default: 1_000 (1 second) */

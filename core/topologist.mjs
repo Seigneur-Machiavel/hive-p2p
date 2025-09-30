@@ -149,9 +149,10 @@ export class Topologist {
 		const isBrowser = typeof window !== 'undefined';
 		const isSecure = isBrowser && window.location.protocol === 'https:';
 		const protocol = isSecure ? 'wss://' : 'ws://';
+		const host = isBrowser ? window.location.host : url; // Récupère le host du browser
 		
 		// Build full URL if not already prefixed
-		return url.startsWith('ws') ? url : `${protocol}${url}`;
+		return url.startsWith('ws') ? url : `${protocol}${urlhost}`;
 	}
 	#connectToPublicNode(publicUrl = 'localhost:8080') {
 		let remoteId = null;

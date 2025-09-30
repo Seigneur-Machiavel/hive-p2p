@@ -118,7 +118,7 @@ export class NodeServices {
 		return response;
 	}
 	/** @param {string[]} bootstraps */
-	static deriveSTUNServers(bootstraps, includesCentralized = false) {
+	static deriveSTUNServers(bootstraps) {
 		/** @type {Array<{urls: string}>} */
 		const stunUrls = [];
 		for (const b of bootstraps) {
@@ -126,13 +126,13 @@ export class NodeServices {
 			const port = parseInt(b.split(':')[2]) + 1;
 			stunUrls.push({ urls: `stun:${domain}:${port}` });
 		}
-		if (!includesCentralized) return stunUrls;
+		if (!TRANSPORTS.CENTRALIZED_STUN_SERVERS) return stunUrls;
 
 		// CENTRALIZED STUN SERVERS FALLBACK (GOOGLE) - OPTIONAL
-		this.stunUrls.push({ urls: 'stun:stun.l.google.com:5349' });
-		this.stunUrls.push({ urls: 'stun:stun.l.google.com:19302' });
-		this.stunUrls.push({ urls: 'stun:stun1.l.google.com:3478' });
-		this.stunUrls.push({ urls: 'stun:stun1.l.google.com:5349' });
+		stunUrls.push({ urls: 'stun:stun.l.google.com:5349' });
+		stunUrls.push({ urls: 'stun:stun.l.google.com:19302' });
+		stunUrls.push({ urls: 'stun:stun1.l.google.com:3478' });
+		stunUrls.push({ urls: 'stun:stun1.l.google.com:5349' });
 		return stunUrls;
 	}
 }
