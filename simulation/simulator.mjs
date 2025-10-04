@@ -1,5 +1,7 @@
 import path from 'path';
+import { join } from 'path';
 import express from 'express';
+import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { WebSocketServer } from 'ws';
 import { io } from 'socket.io-client'; // used for twitch events only
@@ -229,13 +231,19 @@ if (SIMULATION.RANDOM_UNICAST_PER_SEC) randomMessagesLoop('U', SIMULATION.RANDOM
 if (SIMULATION.RANDOM_GOSSIP_PER_SEC) randomMessagesLoop('G', SIMULATION.RANDOM_GOSSIP_PER_SEC);
 
 const app = express(); // simple server to serve texts/p2p_simulator.html
-app.use('../rendering/visualizer.mjs', (req, res, next) => {
-    res.set({ 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache', 'Expires': '0' });
-    next();
-});
-
-app.use(express.static(packageRoot));
 const server = app.listen(3000, () => console.log('%cServer listening on http://localhost:3000', LOG_CSS.SIMULATOR));
+app.get('/core/config.mjs', (req, res) => { // CONFIG PATCH FOR SIMULATOR
+    const configPath = join(packageRoot, 'core/config.mjs');
+    let content = readFileSync(configPath, 'utf8');
+    content = content // Patch the values
+	.replace(/ARE_IDS_HEX:\s*true/g, 'ARE_IDS_HEX: false')
+	.replace(/PUBLIC_PREFIX:\s*'0'/g, "PUBLIC_PREFIX: 'P_'")
+	.replace(/STANDARD_PREFIX:\s*'1'/g, "STANDARD_PREFIX: 'N_'");
+    
+    res.set({ 'Content-Type': 'application/javascript', 'Cache-Control': 'no-cache, no-store, must-revalidate'});
+    res.send(content);
+});
+app.use(express.static(packageRoot));
 app.get('/', (req, res) => res.sendFile('rendering/visualizer.html', { root: packageRoot }));
 app.get('/the-gossip-grail', (req, res) => res.sendFile('resources/the-gossip-grail.html', { root: packageRoot }));
 
@@ -316,7 +324,7 @@ class TwitchChatCommandInterpreter {
 			.replace(/[^\w-]/g, '_')             // remplacer chars spéciaux par _
 
 		const cryptoCodex = IDENTITY.ARE_IDS_HEX ? new CryptoCodex() : new CryptoCodex(`F_${cleanUser}`);
-		const peer = await createPublicNode({ bootstraps: pickUpRandomBootstraps(), cryptoCodex, domain: 'localhost', port: 9000 + Object.keys(this.userNodes).length * 2, verbose: 2 });
+		const peer = await createNode({ bootstraps: pickUpRandomBootstraps(), cryptoCodex, verbose: 2 });
 		this.userNodes[user] = peer;
 		peers.all[peer.id] = peer;
 		peers.standard.unshift(peer);

@@ -17,12 +17,13 @@ import { NodeServices } from './node-services.mjs';
  * @param {number} [options.port] If provided, the node will listen on this port (default: SERVICE.PORT)
  * @param {number} [options.verbose] Verbosity level for logging (default: NODE.DEFAULT_VERBOSE) */
 export async function createPublicNode(options) {
-	await CLOCK.sync(this.verbose);
 	const verbose = options.verbose !== undefined ? options.verbose : NODE.DEFAULT_VERBOSE;
 	const domain = options.domain || undefined;
 	const codex = options.cryptoCodex || new CryptoCodex(undefined, verbose);
+	const clockSync = CLOCK.sync(verbose);
 	if (!codex.publicKey) await codex.generate(domain ? true : false);
 	
+	await clockSync;
 	const node = new Node(codex, options.bootstraps || [], verbose);
 	if (domain) {
 		node.services = new NodeServices(codex, node.peerStore, undefined, verbose);
@@ -42,8 +43,10 @@ export async function createPublicNode(options) {
 export async function createNode(options = {}) {
 	const verbose = options.verbose !== undefined ? options.verbose : NODE.DEFAULT_VERBOSE;
 	const codex = options.cryptoCodex || new CryptoCodex(undefined, verbose);
+	const clockSync = CLOCK.sync(verbose);
 	if (!codex.publicKey) await codex.generate(false);
 
+	await clockSync;
 	const node = new Node(codex, options.bootstraps || [], verbose);
 	if (options.autoStart !== false) await node.start();
 	return node;
@@ -145,10 +148,13 @@ export class Node {
 		await CLOCK.sync(this.verbose);
 		this.started = true;
 		if (SIMULATION.AVOID_INTERVALS) return true; // SIMULATOR CASE
-		this.topologist.tryConnectNextBootstrap(); // first shot ASAP
+
 		this.arbiterInterval = setInterval(() => this.arbiter.tick(), 1000);
-		this.enhancerInterval = setInterval(() => this.topologist.tick(), DISCOVERY.LOOP_DELAY);
 		this.peerStoreInterval = setInterval(() => { this.peerStore.cleanupExpired(); this.peerStore.offerManager.tick(); }, 2500);
+		if (this.publicUrl) return true;
+		
+		this.enhancerInterval = setInterval(() => this.topologist.tick(), DISCOVERY.LOOP_DELAY);
+		this.topologist.tryConnectNextBootstrap(); // first shot ASAP
 		return true;
 	}
 	/** Broadcast a message to all connected peers or to a specified peer

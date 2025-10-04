@@ -9,7 +9,7 @@
 - **.min (unpkg):** [unpkg.com/@hive-p2p/browser@latest/hive-p2p.min.js](https://unpkg.com/@hive-p2p/browser@1.0.19/hive-p2p.min.js)
 - **.min (cdn):** [cdn.jsdelivr.net/npm/@hive-p2p/browser@latest/hive-p2p.min.js](https://cdn.jsdelivr.net/npm/@hive-p2p/browser@latest/hive-p2p.min.js)
 - **Stats:** [ghloc.vercel.app/Seigneur-Machiavel/hive-p2p](https://ghloc.vercel.app/Seigneur-Machiavel/hive-p2p?branch=main)
-- **DEMO-REPO :** [github.com/Seigneur-Machiavel/hive-p2p-demo](https://github.com/Seigneur-Machiavel/hive-p2p-demo)
+- **demos-repo :** [github.com/Seigneur-Machiavel/hive-p2p-demo](https://github.com/Seigneur-Machiavel/hive-p2p-demo)
 
 ## What is HiveP2P?
 
@@ -276,10 +276,6 @@ Check our [contribution guide](CONTRIBUTING.md) to get started.
 > "Complexity emerges from organized simplicity, not from complication."
 
 HiveP2P embodies this principle - simple components (gossip, routing, topology awareness) combine to create a complex, self-organizing system that surpasses traditional approaches.
-
-## License
-
-GNU General Public License v3.0 - See [LICENSE](LICENSE) for details.
 
 ---
 
@@ -563,10 +559,6 @@ Consultez notre [guide de contribution](CONTRIBUTING.md) pour commencer.
 > "La complexité émerge de la simplicité organisée, pas de la complication."
 
 HiveP2P incarne ce principe - des composants simples (gossip, routage, conscience topologique) se combinent pour créer un système complexe et auto-organisant qui surpasse les approches traditionnelles.
-
-## Licence
-
-GNU General Public License v3.0 - Voir [LICENSE](LICENSE) pour les détails.
 
 ---
 
