@@ -114,23 +114,12 @@ Real simulation results with 2000 nodes:
 ┌──────────────────────────────────────────────────────────┐
 │ 10 minutes (600s)                                        │
 ├──────────────────────────────────────────────────────────┤
-│ Active nodes:    2002/2002 (1902 established)           │
+│ Active nodes:    2002/2002 (1902 established)            │
 │ Avg neighbors:   4.7                                     │
 │ Network coverage: 100% (T: 10571)                        │
 │ Avg latency:     169ms                                   │
-│ Gossip rate:     0.4 msg/s                              │
-│ Bandwidth:       856 bytes/s                            │
-└──────────────────────────────────────────────────────────┘
-
-┌──────────────────────────────────────────────────────────┐
-│ 1 hour (602s - continued sim)                           │
-├──────────────────────────────────────────────────────────┤
-│ Active nodes:    2003/2003 (1903 established)           │
-│ Avg neighbors:   4.8                                     │
-│ Network coverage: 100% (T: 8225)                        │
-│ Avg latency:     223ms                                   │
-│ Gossip rate:     0.2 msg/s                              │
-│ Bandwidth:       396 bytes/s                            │
+│ Gossip rate:     0.4 msg/s                               │
+│ Bandwidth:       856 bytes/s                             │
 └──────────────────────────────────────────────────────────┘
 ```
 
