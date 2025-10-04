@@ -45,27 +45,31 @@ npm install @hive-p2p/browser
 ### Basic Usage
 
 ```javascript
-import { Node } from 'hive-p2p';
+import HiveP2P from "hive-p2p"; // using full lib (server + client)
 
-// Create a node
-const node = new Node();
+// Create a public node
+const publicNode = await HiveP2P.createPublicNode({ domain: 'localhost', port: 12345 });
 
-// Start with bootstrap nodes
-await node.start([
-  { id: '0abc...', publicUrl: 'ws://seed1.example.com:8080' },
-  { id: '0def...', publicUrl: 'ws://seed2.example.com:8080' }
-]);
+// Use public node as bootstrap by extracting its url
+const bootstraps = [publicNode.publicUrl];
 
-// Send messages
-node.on('message', (senderId, data) => {
-  console.log(`Message from ${senderId}:`, data);
-});
+// Create nodes with bootstrap node
+const bee1 = await HiveP2P.createNode({ bootstraps });
+const bee2 = await HiveP2P.createNode({ bootstraps });
 
-// Broadcast to network
-node.gossip.broadcastToAll({ type: 'announcement', value: 'Hello Hive!' });
+// Listen for unicast messages (target id)
+for (const node of [publicNode, bee1, bee2])
+	node.onMessageData((fromId, message) => console.log(`[${node.id}] from [${fromId}]: ${message}`));
 
-// Direct message
-node.messager.sendUnicast(targetId, { type: 'private', content: 'Direct message' });
+// Listen for gossip messages (broadcast to all)
+for (const node of [publicNode, bee1, bee2])
+	node.onGossipData((fromId, message) => console.log(`[${node.id}]: from [${fromId}]: ${message}`));
+
+while (true) {
+	bee1.sendMessage(bee2.id, `Hello bee2!`); 			// Send direct unicast message
+	bee2.broadcast("Hello everyone! I'm bee bee2"); 	// Broadcast message to all
+	await new Promise((resolve) => setTimeout(resolve, 1_000));
+}
 ```
 
 ## How It Works
