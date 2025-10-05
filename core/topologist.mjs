@@ -47,21 +47,25 @@ class OfferQueue {
 }
 
 export class Topologist {
-	id; cryptoCodex; gossip; messager; peerStore; bootstraps;
-	halfTarget = Math.ceil(DISCOVERY.TARGET_NEIGHBORS_COUNT / 2);
-	twiceTarget = DISCOVERY.TARGET_NEIGHBORS_COUNT * 2;
+	id; cryptoCodex; gossip; messager; peerStore; bootstraps; offersQueue = new OfferQueue();
 	/** @type {Map<string, boolean>} */ bootstrapsConnectionState = new Map();
-
-	get isPublicNode() { return this.services?.publicUrl ? true : false; }
 	/** @type {import('./node-services.mjs').NodeServices | undefined} */ services;
-	
-	phase = 0;
-	nextBootstrapIndex = 0;
-	offersQueue = new OfferQueue();
+	/** @type {number} */ NEIGHBORS_TARGET;
+	/** @type {number} */ HALF_TARGET;
+	/** @type {number} */ TWICE_TARGET;
+	setNeighborsTarget(count = DISCOVERY.TARGET_NEIGHBORS_COUNT) { // Setter for hot swapping
+		this.NEIGHBORS_TARGET = count;
+		this.HALF_TARGET = Math.ceil(this.NEIGHBORS_TARGET / 2);
+		this.TWICE_TARGET = this.NEIGHBORS_TARGET * 2;
+	}
+
+	phase = 0; nextBootstrapIndex = 0;
 	maxBonus = NODE.CONNECTION_UPGRADE_TIMEOUT * .2; // 20% of 15sec: 3sec max
+	get isPublicNode() { return this.services?.publicUrl ? true : false; }
 
 	/** @param {string} selfId @param {import('./crypto-codex.mjs').CryptoCodex} cryptoCodex @param {import('./gossip.mjs').Gossip} gossip @param {import('./unicast.mjs').UnicastMessager} messager @param {import('./peer-store.mjs').PeerStore} peerStore @param {string[]} bootstraps */
 	constructor(selfId, cryptoCodex, gossip, messager, peerStore, bootstraps) {
+		this.setNeighborsTarget(DISCOVERY.TARGET_NEIGHBORS_COUNT);
 		this.id = selfId; this.cryptoCodex = cryptoCodex; this.gossip = gossip; this.messager = messager; this.peerStore = peerStore;
 		for (const url of bootstraps) this.bootstrapsConnectionState.set(url, false);
 		this.bootstraps = [...bootstraps].sort(() => Math.random() - 0.5); // shuffle
@@ -71,7 +75,7 @@ export class Topologist {
 	// PUBLIC METHODS
 	tick() {
 		const { neighborsCount, nonPublicNeighborsCount, isEnough, isTooMany, isHalfReached } = this.#localTopologyInfo;
-		const offersToCreate = nonPublicNeighborsCount >= DISCOVERY.TARGET_NEIGHBORS_COUNT / 3 ? 1 : TRANSPORTS.MAX_SDP_OFFERS;
+		const offersToCreate = nonPublicNeighborsCount >= this.NEIGHBORS_TARGET / 3 ? 1 : TRANSPORTS.MAX_SDP_OFFERS;
 		this.peerStore.offerManager.offersToCreate = isEnough ? 0 : offersToCreate;
 		if (this.isPublicNode) { this.services.freePublicNodeByKickingPeers(); return; } // public nodes don't need more connections
 		if (isTooMany) return Math.random() > .05 ? this.#improveTopologyByKickingPeers() : null;
@@ -95,15 +99,15 @@ export class Topologist {
 		if (signal.type === 'answer') { // ANSWER SHORT CIRCUIT => Rich should connect poor, and poor should connect rich.
 			if (this.peerStore.addConnectingPeer(senderId, signal, offerHash) !== true) return;
 			const delta = Math.abs(nonPublicNeighborsCount - this.#getOverlap(senderId).nonPublicCount);
-			const bonusPerDeltaPoint = this.maxBonus / DISCOVERY.TARGET_NEIGHBORS_COUNT; // from 0 to maxBonus
+			const bonusPerDeltaPoint = this.maxBonus / this.NEIGHBORS_TARGET; // from 0 to maxBonus
 			const bonus = Math.round(Math.min(this.maxBonus, delta * bonusPerDeltaPoint));
 			return this.peerStore.assignSignal(senderId, signal, offerHash, CLOCK.time + bonus);
 		}
 
 		// OFFER
-		if (nonPublicNeighborsCount > this.twiceTarget) return; // we are over connected, ignore the offer
+		if (nonPublicNeighborsCount > this.TWICE_TARGET) return; // we are over connected, ignore the offer
 		const { overlap, nonPublicCount } = this.#getOverlap(senderId);
-		if (nonPublicCount > this.twiceTarget) return; // the sender is over connected, ignore the offer
+		if (nonPublicCount > this.TWICE_TARGET) return; // the sender is over connected, ignore the offer
 		
 		const offerItem = { senderId, data, overlap, neighborsCount: nonPublicCount, timestamp: CLOCK.time };
 		this.offersQueue.updateOrderingBy(isHalfReached);
@@ -116,9 +120,10 @@ export class Topologist {
 		for (const id in this.peerStore.connecting) connectingCount++;
 
 		// MINIMIZE BOOTSTRAP CONNECTIONS DEPENDING ON HOW MANY NEIGHBORS WE HAVE
-		if (publicConnectedCount >= this.halfTarget) return; // already connected to enough bootstraps
-		if (neighborsCount >= DISCOVERY.TARGET_NEIGHBORS_COUNT) return; // no more bootstrap needed
-		if (connectingCount + nonPublicNeighborsCount > this.twiceTarget) return; // no more bootstrap needed
+		if (this.NEIGHBORS_TARGET || neighborsCount) // BYPASS IF NO TARGET => AUTHORIZE BOOTSTRAP CONNECTION
+			if (publicConnectedCount >= this.HALF_TARGET) return; // already connected to enough bootstraps
+			else if (neighborsCount >= this.NEIGHBORS_TARGET) return; // no more bootstrap needed
+			else if (connectingCount + nonPublicNeighborsCount > this.TWICE_TARGET) return; // no more bootstrap needed
 
 		const publicUrl = this.bootstraps[this.nextBootstrapIndex++ % this.bootstraps.length];
 		if (this.bootstrapsConnectionState.get(publicUrl)) return; // already connecting/connected
@@ -131,9 +136,9 @@ export class Topologist {
 			connected: this.peerStore.connected,
 			neighborsCount: this.peerStore.neighborsList.length,
 			nonPublicNeighborsCount: this.peerStore.standardNeighborsList.length,
-			isEnough: this.peerStore.standardNeighborsList.length >= DISCOVERY.TARGET_NEIGHBORS_COUNT,
-			isTooMany: this.peerStore.standardNeighborsList.length > DISCOVERY.TARGET_NEIGHBORS_COUNT,
-			isHalfReached: this.peerStore.standardNeighborsList.length >= this.halfTarget,
+			isEnough: this.peerStore.standardNeighborsList.length >= this.NEIGHBORS_TARGET,
+			isTooMany: this.peerStore.standardNeighborsList.length > this.NEIGHBORS_TARGET,
+			isHalfReached: this.peerStore.standardNeighborsList.length >= this.HALF_TARGET,
 		}
 	}
 	#getOverlap(peerId1 = 'toto') {
@@ -212,7 +217,7 @@ export class Topologist {
 		if (!offerHash || !readyOffer) return; // no ready offer to spread
 
 		// IF WE ARE CONNECTED TO LESS 2 (WRTC) AND NOT TO MUCH CONNECTING, WE CAN BROADCAST IT TO ALL
-		if (!isHalfReached && ingPlusEd <= this.twiceTarget) {
+		if (!isHalfReached && ingPlusEd <= this.TWICE_TARGET) {
 			this.gossip.broadcastToAll({ signal: readyOffer.signal, offerHash }, 'signal_offer');
 			readyOffer.sentCounter++; // avoid sending it again
 			return; // limit to one per loop
@@ -236,7 +241,7 @@ export class Topologist {
 			else if (this.peerStore.connected[id] || this.peerStore.connecting[id]) continue;
 			
 			const { overlap, nonPublicCount } = this.#getOverlap(id);
-			if (nonPublicCount > DISCOVERY.TARGET_NEIGHBORS_COUNT) continue; // the peer is over connected, ignore it
+			if (nonPublicCount > this.NEIGHBORS_TARGET) continue; // the peer is over connected, ignore it
 			if (bestValue === null) bestValue = isHalfReached ? overlap : nonPublicCount;
 			if (isHalfReached && overlap > bestValue) continue; // only target lowest overlap
 			if (!isHalfReached && nonPublicCount < bestValue) continue; // only target highest neighbors count
@@ -264,7 +269,7 @@ export class Topologist {
 		this.offersQueue.updateOrderingBy(this.#localTopologyInfo.isHalfReached);
 		this.offersQueue.removeOlderThan(TRANSPORTS.SDP_OFFER_EXPIRATION / 2); // remove close to expiration offers
 		for (let i = 0; i < this.offersQueue.size; i++) {
-			//if (connectingCount > this.twiceTarget * 2) break; // stop if we are over connecting
+			//if (connectingCount > this.TWICE_TARGET * 2) break; // stop if we are over connecting
 			const { senderId, data, timestamp, value } = this.offersQueue.bestOfferInfo;
 			if (!senderId || !data || !timestamp) break;
 			if (this.peerStore.connected[senderId] || this.peerStore.isKicked(senderId)) continue;
@@ -277,7 +282,6 @@ export class Topologist {
 			connectingCount++;
 		}
 	}
-	
 	/** Kick the peer with the biggest overlap (any round of 2.5sec is isTooMany)
 	 * - If all peers have the same overlap, kick the one with the most non-public neighbors */
 	#improveTopologyByKickingPeers() {
