@@ -139,6 +139,7 @@ export class Node {
 	}
 
 	// PUBLIC API
+	/** @returns {string | undefined} */
 	get publicUrl() { return this.services?.publicUrl; }
 
 	onMessageData(callback) { this.messager.on('message', callback); }
