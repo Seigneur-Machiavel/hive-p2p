@@ -1,4 +1,5 @@
-import { CLOCK, GOSSIP, DISCOVERY } from './config.mjs';
+import { CLOCK } from '../services/clock.mjs';
+import { GOSSIP } from './config.mjs';
 import { xxHash32 } from '../libs/xxhash32.mjs';
 
 export class GossipMessage { // TYPE DEFINITION

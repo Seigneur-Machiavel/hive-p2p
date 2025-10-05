@@ -126,7 +126,7 @@ export class Clock {
 		} catch (error) { if (this.verbose) console.warn('[Clock] Background refine failed:', error); }
 	}
 }
-
+export const CLOCK = Clock.instance; // Singleton instance
 
 export async function CLOCK_TEST() { // DEBUG TEST WHILE RUNNING AS STANDALONE
 	const startTime = Date.now();

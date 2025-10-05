@@ -5,7 +5,8 @@ import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { WebSocketServer } from 'ws';
 import { io } from 'socket.io-client'; // used for twitch events only
-import { CLOCK, SIMULATION, NODE, TRANSPORTS, IDENTITY, DISCOVERY, LOG_CSS } from '../core/config.mjs';
+import { CLOCK } from '../services/clock.mjs';
+import { SIMULATION, NODE, TRANSPORTS, IDENTITY, DISCOVERY, LOG_CSS } from '../core/config.mjs';
 import { TestWsServer, TestWsConnection, TestTransport,
 	ICE_CANDIDATE_EMITTER, TEST_WS_EVENT_MANAGER, SANDBOX } from '../simulation/test-transports.mjs';
 

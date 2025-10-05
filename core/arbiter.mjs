@@ -1,4 +1,5 @@
-import { CLOCK, NODE, GOSSIP, UNICAST, LOG_CSS } from './config.mjs';
+import { CLOCK } from '../services/clock.mjs';
+import { GOSSIP, UNICAST, LOG_CSS } from './config.mjs';
 
 // TRUST_BALANCE = seconds of ban if negative - never exceed MAX_TRUST if positive
 // Growing each second by 1000ms until 0

@@ -1,13 +1,9 @@
 const isNode = (typeof window === 'undefined');
 if (!isNode) (await import('../libs/simplepeer-9.11.1.min.js')).default;
-import { Clock } from '../services/clock.mjs';
 
 // HOLD: GLOBAL CONFIG FOR THE LIBRARY
 // AVOID: CIRCULAR DEPENDENCIES AND TOO MANY FUNCTION/CONSTRUCTOR CONFIG
 // SIMPLIFY: IMPORTS, SIMULATOR AND BROWSER SUPPORT
-
-/** Synchronized clock that can be used outside the library */
-export const CLOCK = Clock.instance;
 
 export const SIMULATION = {
 	/** Specify setInterval() avoidance for faster simulation (true = avoid intervals) | Default: true */
@@ -223,6 +219,4 @@ export const LOG_CSS = {
 	PUNISHER: { BAN: 'color: red; font-weight: bold;', KICK: 'color: darkorange; font-weight: bold;' },
 }
 
-export default {
-	CLOCK, SIMULATION, NODE, TRANSPORTS, DISCOVERY, IDENTITY, UNICAST, GOSSIP, LOG_CSS
-};
+export default { SIMULATION, NODE, TRANSPORTS, DISCOVERY, IDENTITY, UNICAST, GOSSIP, LOG_CSS };

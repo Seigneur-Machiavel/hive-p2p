@@ -1,4 +1,5 @@
-import { CLOCK, SIMULATION, NODE, SERVICE, DISCOVERY } from './config.mjs';
+import { CLOCK } from '../services/clock.mjs';
+import { SIMULATION, NODE, SERVICE, DISCOVERY } from './config.mjs';
 import { Arbiter } from './arbiter.mjs';
 import { OfferManager } from './ice-offer-manager.mjs';
 import { PeerStore } from './peer-store.mjs';
