@@ -1,6 +1,6 @@
 {
   "name": "hive-p2p",
-  "version": "1.0.37",
+  "version": "1.0.38",
   "publishConfig": {
     "access": "public"
   },
@@ -15,7 +15,7 @@
   "files": [
     "packages/full/",
     "core/",
-	"dist/browser/hive-p2p.min.js",
+    "dist/browser/hive-p2p.min.js",
     "libs/",
     "rendering/",
     "services/",
