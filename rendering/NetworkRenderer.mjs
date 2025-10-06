@@ -1,6 +1,6 @@
 import { NetworkRendererElements, NetworkRendererOptions } from './renderer-options.mjs';
 import { Node, NodesStore, ConnectionsStore } from './renderer-stores.mjs';
-import { NODE, DISCOVERY } from '../core/config.mjs';
+import { DISCOVERY } from '../core/config.mjs';
 
 export class NetworkRenderer {
 	initCameraZ = 1400;

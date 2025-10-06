@@ -15,6 +15,7 @@
   "files": [
     "packages/full/",
     "core/",
+	"dist/browser/hive-p2p.min.js",
     "libs/",
     "rendering/",
     "services/",
