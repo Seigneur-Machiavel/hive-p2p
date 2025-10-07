@@ -19,7 +19,7 @@ const { SANDBOX, ICE_CANDIDATE_EMITTER, TEST_WS_EVENT_MANAGER } = SIMULATION.ENA
  * @property {number} timestamp
  * */
 
-class OfferQueue {
+export class OfferQueue {
 	maxOffers = 30;
 	/** @type {Array<OfferQueueItem>} */ offers = [];
 	/** @type {'overlap' | 'neighborsCount'} */ orderingBy = 'neighborsCount';
