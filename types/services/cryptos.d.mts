@@ -19,5 +19,6 @@ export class Argon2Unified {
     #private;
 }
 /** @type {import('@noble/ed25519')} */
-export const ed25519: typeof import("@noble/ed25519");
+export const ed25519: typeof ed_;
 import { Converter } from './converter.mjs';
+import * as ed_ from '@noble/ed25519';
