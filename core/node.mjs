@@ -56,8 +56,10 @@ export async function createNode(options = {}) {
 export class Node {
 	started = false;
 	id; cryptoCodex; verbose;
-	/** @type {OfferManager} */ 	offerManager;
-	/** @type {Arbiter} */ 			arbiter;
+	/** @type {import('./ice-offer-manager.mjs').OfferManager} */
+	offerManager;
+	/** @type {import('./arbiter.mjs').Arbiter} */
+	arbiter;
 	/** @type {PeerStore} */ 		peerStore;
 	/** @type {UnicastMessager} */ 	messager;
 	/** @type {Gossip} */ 			gossip;
