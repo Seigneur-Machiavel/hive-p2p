@@ -55,12 +55,13 @@ export async function createNode(options = {}) {
 
 export class Node {
 	started = false;
-	id; cryptoCodex; verbose; arbiter;
-	/** class managing ICE offers */ offerManager;
-	/** class managing network connections */ peerStore;
-	/** class who manage direct messages */ messager;
-	/** class who manage gossip messages */ gossip;
-	/** class managing network connections */ topologist;
+	id; cryptoCodex; verbose;
+	/** @type {OfferManager} */ 	offerManager;
+	/** @type {Arbiter} */ 			arbiter;
+	/** @type {PeerStore} */ 		peerStore;
+	/** @type {UnicastMessager} */ 	messager;
+	/** @type {Gossip} */ 			gossip;
+	/** @type {Topologist} */ 		topologist;
 	/** @type {NodeServices | undefined} */ services;
 
 	/** Initialize a new P2P node instance, use .start() to init topologist
@@ -142,6 +143,7 @@ export class Node {
 	// PUBLIC API
 	/** @returns {string | undefined} */
 	get publicUrl() { return this.services?.publicUrl; }
+	get time() { return CLOCK.time; }
 
 	onMessageData(callback) { this.messager.on('message', callback); }
 	onGossipData(callback) { this.gossip.on('gossip', callback); }

@@ -156,10 +156,10 @@ class NetworkVisualizer {
 		const previousIndex = (currentIndex - 1 + peerIds.length) % peerIds.length;
 		this.#setSelectedPeer(peerIds[previousIndex]);
 	}
-	#setCurrentPeer(id, clearNetworkOneChange = true) {
+	#setCurrentPeer(id, clearNetworkOnChange = true) {
 		this.currentPeerId = id;
 		this.simulationInterface.currentPeerId = id;
-		this.networkRenderer.setCurrentPeer(id, clearNetworkOneChange);
+		this.networkRenderer.setCurrentPeer(id, clearNetworkOnChange);
 	}
 	#getSimulatorSettings() {
 		return {
