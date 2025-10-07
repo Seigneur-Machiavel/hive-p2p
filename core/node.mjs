@@ -145,9 +145,16 @@ export class Node {
 	get publicUrl() { return this.services?.publicUrl; }
 	get time() { return CLOCK.time; }
 
-	/** @param {function} callback can use arguments: (peerId:string, direction:string) */
+	/** Triggered when a new peer connection is established.
+	 *  @param {function} callback can use arguments: (peerId:string, direction:string) */
 	onPeerConnect(callback) { this.peerStore.on('connect', callback); }
+	
+	/** Triggered when a new message is received.
+	 *  @param {function} callback can use arguments: (senderId:string, data:any) */
 	onMessageData(callback) { this.messager.on('message', callback); }
+
+	/** Triggered when a new gossip message is received.
+	 * @param {function} callback can use arguments: (senderId:string, topic:string, data:any) */
 	onGossipData(callback) { this.gossip.on('gossip', callback); }
 	
 	async start() {
