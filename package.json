@@ -22,6 +22,29 @@
     "simulation/",
     "resources/the-gossip-grail.html"
   ],
+  "types": "./types/packages/full/index.d.mts",
+  "exports": {
+    ".": {
+      "types": "./types/index.d.mts",
+      "import": "./index.mjs"
+    },
+    "./core/*": {
+      "types": "./types/core/*.d.mts",
+      "import": "./core/*.mjs"
+    },
+    "./services/*": {
+      "types": "./types/services/*.d.mts",
+      "import": "./services/*.mjs"
+    },
+	"./resources/*": {
+      "types": "./types/resources/*.d.mts",
+      "import": "./resources/*.mjs"
+    },
+    "./simulation/*": {
+      "types": "./types/simulation/*.d.mts",
+      "import": "./simulation/*.mjs"
+    }
+  },
   "dependencies": {
     "@noble/ed25519": "3.0.0",
     "@noble/hashes": "2.0.0",
@@ -35,7 +58,9 @@
     "ws": "~8.18.3"
   },
   "devDependencies": {
-    "esbuild": "^0.25.10"
+    "@types/node": "^24.7.0",
+    "esbuild": "^0.25.10",
+    "typescript": "^5.9.3"
   },
   "repository": {
     "type": "git",

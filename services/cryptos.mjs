@@ -3,8 +3,8 @@ const IS_BROWSER = typeof window !== 'undefined';
 
 // ED25519 EXPOSURE NODEJS/BROWSER COMPATIBLE ---------------------------------
 const [ed_, {sha512}] = await Promise.all([
-    import(IS_BROWSER ? 'https://unpkg.com/@noble/ed25519@3.0.0/index.js' : '@noble/ed25519'),
-    import(IS_BROWSER ? 'https://unpkg.com/@noble/hashes@2.0.0/sha2.js' : '@noble/hashes/sha2.js')
+    import(IS_BROWSER ? '../libs/ed25519-3.0.0.js' : '@noble/ed25519'),
+    import(IS_BROWSER ? '../libs/hashes-2.0.0.js' : '@noble/hashes/sha2.js')
 ]);
 
 /** @type {import('@noble/ed25519')} */
