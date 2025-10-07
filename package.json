@@ -1,6 +1,6 @@
 {
   "name": "hive-p2p",
-  "version": "1.0.39",
+  "version": "1.0.40",
   "publishConfig": {
     "access": "public"
   },
@@ -36,7 +36,7 @@
       "types": "./types/services/*.d.mts",
       "import": "./services/*.mjs"
     },
-	"./resources/*": {
+    "./resources/*": {
       "types": "./types/resources/*.d.mts",
       "import": "./resources/*.mjs"
     },
