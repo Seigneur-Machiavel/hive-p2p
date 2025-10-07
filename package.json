@@ -27,6 +27,7 @@
     "@noble/hashes": "2.0.0",
     "argon2": "~0.44.0",
     "express": "~5.1.0",
+    "hive-p2p": "^1.0.38",
     "node-pre-gyp": "~0.17.0",
     "simple-peer": "~9.11.1",
     "socket.io-client": "~4.8.1",
