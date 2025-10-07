@@ -56,12 +56,12 @@ export async function createNode(options = {}) {
 export class Node {
 	started = false;
 	id; cryptoCodex; verbose;
-	/** @type {OfferManager} */ 	offerManager;
-	/** @type {Arbiter} */ 			arbiter;
-	/** @type {PeerStore} */ 		peerStore;
-	/** @type {UnicastMessager} */ 	messager;
-	/** @type {Gossip} */ 			gossip;
-	/** @type {Topologist} */ 		topologist;
+	offerManager;
+	arbiter;
+	peerStore;
+	messager;
+	gossip;
+	topologist;
 	/** @type {NodeServices | undefined} */ services;
 
 	/** Initialize a new P2P node instance, use .start() to init topologist
