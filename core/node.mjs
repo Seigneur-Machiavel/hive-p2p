@@ -145,6 +145,8 @@ export class Node {
 	get publicUrl() { return this.services?.publicUrl; }
 	get time() { return CLOCK.time; }
 
+	/** @param {function} callback can use arguments: (peerId:string, direction:string) */
+	onPeerConnect(callback) { this.peerStore.on('connect', callback); }
 	onMessageData(callback) { this.messager.on('message', callback); }
 	onGossipData(callback) { this.gossip.on('gossip', callback); }
 	
