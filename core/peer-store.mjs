@@ -219,8 +219,8 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 		this.connecting[remoteId][direction] = new PeerConnection(remoteId, instance, direction);
 		return true;
 	}
-	/** @param {string} remoteId @param {{type: 'offer' | 'answer', sdp: Record<string, string>}} signal @param {string} [offerHash] answer only @param {number} timestamp Answer reception timestamp */
-	assignSignal(remoteId, signal, offerHash, timestamp) {
+	/** @param {string} remoteId @param {{type: 'offer' | 'answer', sdp: Record<string, string>}} signal @param {string} [offerHash] answer only @param {number} [timestamp] Answer reception timestamp */
+	assignSignal(remoteId, signal, offerHash, timestamp = CLOCK.time) {
 		const peerConn = this.connecting[remoteId]?.[signal.type === 'offer' ? 'in' : 'out'];
 		try {
 			if (peerConn?.isWebSocket) throw new Error(`Cannot assign signal for ID ${remoteId}. (WebSocket)`);

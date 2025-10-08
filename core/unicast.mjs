@@ -114,7 +114,8 @@ export class UnicastMessager {
 
 		const message = this.cryptoCodex.readUnicastMessage(serialized);
 		if (!message) return this.arbiter.countPeerAction(from, 'WRONG_SERIALIZATION');
-		await this.arbiter.digestMessage(from, message, serialized);
+		const isOk = await this.arbiter.digestMessage(from, message, serialized);
+		if (!isOk) return; // invalid message or from banished peer
 		if (this.arbiter.isBanished(from)) return; // ignore messages from banished peers
 		if (this.arbiter.isBanished(message.senderId)) return; // ignore messages from banished peers
 

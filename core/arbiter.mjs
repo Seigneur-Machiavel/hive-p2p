@@ -84,8 +84,8 @@ export class Arbiter {
 	/** Call from HiveP2P module only! @param {string} from @param {any} message @param {Uint8Array} serialized @param {number} [powCheckFactor] default: 0.01 (1%) */
 	async digestMessage(from, message, serialized, powCheckFactor = .01) {
 		const { senderId, pubkey, topic, expectedEnd } = message; // avoid powControl() on banished peers
-		this.#signatureControl(from, message, serialized);
-		if (!this.#lengthControl(topic ? 'gossip' : 'unicast', serialized, expectedEnd)) return;
+		if (!this.#signatureControl(from, message, serialized)) return;
+		if (!this.#lengthControl(from, topic ? 'gossip' : 'unicast', serialized, expectedEnd)) return;
 
 		if (topic) this.#hopsControl(from, message);
 		else this.#routeLengthControl(from, message);
@@ -93,9 +93,10 @@ export class Arbiter {
 		if (this.isBanished(from) || this.isBanished(senderId)) return;
 		if (this.trustBalances[senderId] > TRUST_VALUES.VALID_POW) return;
 		if (Math.random() < powCheckFactor) await this.#powControl(senderId, pubkey);
+		return true;
 	}
-	/** @param {'gossip' | 'unicast'} type */
-	#lengthControl(type, serialized, expectedEnd) {
+	/** @param {string} from @param {'gossip' | 'unicast'} type */
+	#lengthControl(from, type, serialized, expectedEnd) {
 		if (!expectedEnd || serialized.length === expectedEnd) return true;
 		this.adjustTrust(from, TRUST_VALUES.WRONG_LENGTH, `${type} message length mismatch`);
 	}
@@ -105,9 +106,11 @@ export class Arbiter {
 			const { pubkey, signature, signatureStart } = message;
 			const signedData = serialized.subarray(0, signatureStart);
 			const signatureValid = this.cryptoCodex.verifySignature(pubkey, signature, signedData);
-			if (signatureValid) return this.adjustTrust(from, TRUST_VALUES.VALID_SIGNATURE, 'Gossip signature valid');
+			if (!signatureValid) throw new Error('Gossip signature invalid');
+			this.adjustTrust(from, TRUST_VALUES.VALID_SIGNATURE, 'Gossip signature valid');
+			return true;
 		} catch (error) {
-			if (this.verbose > 1) console.error(`%c(Arbiter: ${this.id}) Error during signature verification from ${from}:`, LOG_CSS.ARBITER, error);
+			if (this.verbose > 1) console.error(`%c(Arbiter: ${this.id}) Error during signature verification from ${from}: ${error.stack}`, LOG_CSS.ARBITER);
 			if (this.verbose > 2) console.log(`%c(Arbiter) signatureControl() error details: ${message}`, LOG_CSS.ARBITER);
 		}
 		this.adjustTrust(from, TRUST_VALUES.WRONG_SIGNATURE, 'Gossip signature invalid');

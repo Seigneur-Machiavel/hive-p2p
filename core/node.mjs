@@ -211,4 +211,13 @@ export class Node {
 	/** Triggered when a new signal answer is received from another peer.
 	 * @param {function} callback can use arguments: (senderId:string, data:SignalData) */
 	onSignalAnswer(callback) { this.messager.on('signal_answer', callback); }
+
+	/** Kick a peer.  @param {string} peerId @param {string} [reason] */
+	kickPeer(peerId, reason = 'kicked_by_node') { this.peerStore.kickPeer(peerId, 0, reason); }
+
+	/** Ban a peer for a certain duration (ms).  @param {string} peerId @param {number} [duration] default: 60_000ms @param {string} [reason] */
+	banPeer(peerId, duration = 60_000, reason = 'banished_by_node') {
+		this.arbiter.trustBalances[peerId] = 0; // reset trust balance
+		this.arbiter.adjustTrust(peerId, -duration, reason);
+	}
 }
