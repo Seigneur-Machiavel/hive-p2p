@@ -101,11 +101,16 @@ export class Arbiter {
 	}
 	/** @param {string} from @param {import('./gossip.mjs').GossipMessage} message @param {Uint8Array} serialized */
 	#signatureControl(from, message, serialized) {
-		const { pubkey, signature, signatureStart } = message;
-		const signedData = serialized.subarray(0, signatureStart);
-		const signatureValid = this.cryptoCodex.verifySignature(pubkey, signature, signedData);
-		if (signatureValid) this.adjustTrust(from, TRUST_VALUES.VALID_SIGNATURE, 'Gossip signature valid');
-		else this.adjustTrust(from, TRUST_VALUES.WRONG_SIGNATURE, 'Gossip signature invalid');
+		try {
+			const { pubkey, signature, signatureStart } = message;
+			const signedData = serialized.subarray(0, signatureStart);
+			const signatureValid = this.cryptoCodex.verifySignature(pubkey, signature, signedData);
+			if (signatureValid) return this.adjustTrust(from, TRUST_VALUES.VALID_SIGNATURE, 'Gossip signature valid');
+		} catch (error) {
+			if (this.verbose > 1) console.error(`%c(Arbiter: ${this.id}) Error during signature verification from ${from}:`, LOG_CSS.ARBITER, error);
+			if (this.verbose > 2) console.log(`%c(Arbiter) signatureControl() error details: ${message}`, LOG_CSS.ARBITER);
+		}
+		this.adjustTrust(from, TRUST_VALUES.WRONG_SIGNATURE, 'Gossip signature invalid');
 	}
 	/** GOSSIP only @param {string} from @param {import('./gossip.mjs').GossipMessage} message */
 	#hopsControl(from, message) {
