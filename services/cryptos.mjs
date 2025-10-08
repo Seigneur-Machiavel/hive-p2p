@@ -2,17 +2,14 @@ import { Converter } from './converter.mjs';
 const IS_BROWSER = typeof window !== 'undefined';
 
 // ED25519 EXPOSURE NODEJS/BROWSER COMPATIBLE ---------------------------------
-/*const [ed_, {sha512}] = await Promise.all([
-    import(IS_BROWSER ? '../libs/ed25519-3.0.0.js' : '@noble/ed25519'),
-    import(IS_BROWSER ? '../libs/hashes-2.0.0.js' : '@noble/hashes/sha2.js')
-]);*/
-import * as ed_ from '@noble/ed25519';
-import { sha512 } from '@noble/hashes/sha2.js';
-
+const [ed_, {sha512}] = await Promise.all([
+    import(IS_BROWSER ? '../libs/ed25519-custom.js' : '@noble/ed25519'),
+    import(IS_BROWSER ? '../libs/ed25519-custom.js' : '@noble/hashes/sha2.js')
+]);
 /** @type {import('@noble/ed25519')} */
 const ed25519 = ed_;
-ed25519.hashes.sha512 = sha512;
-export { ed25519 };
+export { ed25519, sha512 };
+
 //-----------------------------------------------------------------------------
 
 // ARGON2 EXPOSURE NODEJS/BROWSER COMPATIBLE ----------------------------------
