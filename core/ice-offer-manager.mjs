@@ -139,6 +139,24 @@ export class OfferManager { // Manages the creation of SDP offers and handling o
 
 		if (this.verbose > 0) console.error(`transportInstance ERROR => `, error.stack);
 	};
+
+	bestReadyOffer(maxSent = 0, avoidCloseExpiration = true) { // the most recent offer that is not used
+		/** @type {OfferObj | null} */ let readyOffer = null;
+		/** @type {string | null} */ let offerHash = null;
+		/** @type {number | null} */ let since = null;
+		for (const hash in this.offers) {
+			const offer = this.offers[hash];
+			const { isUsed, sentCounter, signal, timestamp } = offer;
+			if (isUsed || sentCounter > maxSent) continue; // already used or already sent at least once
+			const createdSince = CLOCK.time - timestamp;
+			if (avoidCloseExpiration && createdSince > TRANSPORTS.SDP_OFFER_EXPIRATION / 2) continue; // old, don't spread
+			if (since && createdSince > since) continue; // already have a better (more recent) offer
+			readyOffer = offer; offerHash = hash; since = createdSince;
+			break;
+		}
+
+		return { offerHash, readyOffer, since };
+	}
 	/** @param {string} remoteId @param {{type: 'answer', sdp: Record<string, string>}} signal @param {string} offerHash @param {number} timestamp receptionTimestamp */
 	addSignalAnswer(remoteId, signal, offerHash, timestamp) {
 		if (!signal || signal.type !== 'answer' || !offerHash) return; // ignore non-answers or missing offerHash

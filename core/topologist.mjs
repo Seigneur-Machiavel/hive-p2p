@@ -59,6 +59,7 @@ export class Topologist {
 		this.TWICE_TARGET = this.NEIGHBORS_TARGET * 2;
 	}
 
+	automation = { incomingOffer: true, incomingAnswer: true, spreadOffers: true, connectBootstraps: true };
 	phase = 0; nextBootstrapIndex = 0;
 	maxBonus = NODE.CONNECTION_UPGRADE_TIMEOUT * .2; // 20% of 15sec: 3sec max
 	get isPublicNode() { return this.services?.publicUrl ? true : false; }
@@ -97,6 +98,7 @@ export class Topologist {
 		if (isTooMany || connected[senderId]) return;
 
 		if (signal.type === 'answer') { // ANSWER SHORT CIRCUIT => Rich should connect poor, and poor should connect rich.
+			if (!this.automation.incomingAnswer) return;
 			if (this.peerStore.addConnectingPeer(senderId, signal, offerHash) !== true) return;
 			const delta = Math.abs(nonPublicNeighborsCount - this.#getOverlap(senderId).nonPublicCount);
 			const bonusPerDeltaPoint = this.maxBonus / this.NEIGHBORS_TARGET; // from 0 to maxBonus
@@ -105,6 +107,7 @@ export class Topologist {
 		}
 
 		// OFFER
+		if (!this.automation.incomingOffer) return;
 		if (nonPublicNeighborsCount > this.TWICE_TARGET) return; // we are over connected, ignore the offer
 		const { overlap, nonPublicCount } = this.#getOverlap(senderId);
 		if (nonPublicCount > this.TWICE_TARGET) return; // the sender is over connected, ignore the offer
@@ -114,6 +117,7 @@ export class Topologist {
 		this.offersQueue.pushSortTrim(offerItem);
 	}
 	tryConnectNextBootstrap(neighborsCount = 0, nonPublicNeighborsCount = 0) {
+		if (!this.automation.connectBootstraps) return;
 		if (this.bootstraps.length === 0) return;
 		const publicConnectedCount = neighborsCount - nonPublicNeighborsCount;
 		let connectingCount = 0;
@@ -197,13 +201,14 @@ export class Topologist {
 		};		
 	}
 	#tryToSpreadSDP(nonPublicNeighborsCount = 0, isHalfReached = false) { // LOOP TO SELECT ONE UNSEND READY OFFER AND BROADCAST IT
+		if (!this.automation.spreadOffers) return;
 		if (!this.peerStore.neighborsList.length) return; // no neighbors, no need to spread offers
 		// LIMIT OFFER SPREADING IF WE ARE CONNECTING TO MANY PEERS, LOWER GOSSIP TRAFFIC
 		const connectingCount = Object.keys(this.peerStore.connecting).length;
 		const ingPlusEd = connectingCount + nonPublicNeighborsCount;
 		
 		// SELECT BEST READY OFFER BASED ON TIMESTAMP
-		let [ offerHash, readyOffer, since ] = [ null, null, null ];
+		/*let [ offerHash, readyOffer, since ] = [ null, null, null ];
 		for (const hash in this.peerStore.offerManager.offers) {
 			const offer = this.peerStore.offerManager.offers[hash];
 			const { isUsed, sentCounter, signal, timestamp } = offer;
@@ -213,7 +218,8 @@ export class Topologist {
 			if (since && createdSince > since) continue; // already have a better (more recent) offer
 			readyOffer = offer; offerHash = hash; since = createdSince;
 			break;
-		}
+		}*/
+		const { offerHash, readyOffer } = this.peerStore.offerManager.bestReadyOffer(0, true);
 		if (!offerHash || !readyOffer) return; // no ready offer to spread
 
 		// IF WE ARE CONNECTED TO LESS 2 (WRTC) AND NOT TO MUCH CONNECTING, WE CAN BROADCAST IT TO ALL

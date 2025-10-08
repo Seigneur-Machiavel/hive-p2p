@@ -140,23 +140,11 @@ export class Node {
 		else this.messager.handleDirectMessage(peerId, d);
 	}
 
-	// PUBLIC API
+	// PUBLIC API -------------------------------------------------------------
 	/** @returns {string | undefined} */
 	get publicUrl() { return this.services?.publicUrl; }
 	get time() { return CLOCK.time; }
 
-	/** Triggered when a new peer connection is established.
-	 *  @param {function} callback can use arguments: (peerId:string, direction:string) */
-	onPeerConnect(callback) { this.peerStore.on('connect', callback); }
-	
-	/** Triggered when a new message is received.
-	 *  @param {function} callback can use arguments: (senderId:string, data:any) */
-	onMessageData(callback) { this.messager.on('message', callback); }
-
-	/** Triggered when a new gossip message is received.
-	 * @param {function} callback can use arguments: (senderId:string, topic:string, data:any) */
-	onGossipData(callback) { this.gossip.on('gossip', callback); }
-	
 	async start() {
 		await CLOCK.sync(this.verbose);
 		this.started = true;
@@ -170,19 +158,23 @@ export class Node {
 		this.topologist.tryConnectNextBootstrap(); // first shot ASAP
 		return true;
 	}
+	
 	/** Broadcast a message to all connected peers or to a specified peer
 	 * @param {string | Uint8Array | Object} data @param {string} topic  @param {string} [targetId] default: broadcast to all
 	 * @param {number} [timestamp] default: CLOCK.time @param {number} [HOPS] default: GOSSIP.HOPS[topic] || GOSSIP.HOPS.default */
 	broadcast(data, topic, HOPS) { this.gossip.broadcastToAll(data, topic, HOPS); }
+	
 	/** @param {string} remoteId @param {string | Uint8Array | Object} data @param {string} type */
 	sendMessage(remoteId, data, type, spread = 1) { this.messager.sendUnicast(remoteId, data, type, spread); }
-	async tryConnectToPeer(targetId = 'toto', retry = 5) { // TO REFACTO
-		console.info('FUNCTION DISABLED FOR NOW');
-		/*if (this.peerStore.connected[targetId]) return; // already connected
+
+	/** Send a connection request to a peer */
+	async tryConnectToPeer(targetId = 'toto', retry = 5) {
+		if (this.peerStore.connected[targetId]) return; // already connected
 		do {
-			if (this.peerStore.offerManager.readyOffer) break;
-			else await new Promise(r => setTimeout(r, 1000)); // build in progress...
-		} while (retry-- > 0);*/
+			const { offerHash, readyOffer } = this.peerStore.offerManager.bestReadyOffer(100, false);
+			if (!offerHash || !readyOffer) await new Promise(r => setTimeout(r, 1000)); // build in progress...
+			else this.messager.sendUnicast(targetId, { signal: readyOffer.signal, offerHash }, 'signal_offer', 1);
+		} while (retry-- > 0);
 	}
 	destroy() {
 		if (this.enhancerInterval) clearInterval(this.enhancerInterval);
@@ -193,4 +185,30 @@ export class Node {
 		if (this.wsServer) this.wsServer.close();
 		if (this.stunServer) this.stunServer.close();
 	}
+
+	// HANDLERS REGISTRATION --------------------------------------------------
+
+	/** Triggered when a new peer connection is established.
+	 *  @param {function} callback can use arguments: (peerId:string, direction:string) */
+	onPeerConnect(callback) { this.peerStore.on('connect', callback); }
+	
+	/** Triggered when a peer connection is closed.
+	 *  @param {function} callback can use arguments: (peerId:string, direction:string) */
+	onPeerDisconnect(callback) { this.peerStore.on('disconnect', callback); }
+
+	/** Triggered when a new message is received.
+	 *  @param {function} callback can use arguments: (senderId:string, data:any) */
+	onMessageData(callback) { this.messager.on('message', callback); }
+
+	/** Triggered when a new gossip message is received.
+	 * @param {function} callback can use arguments: (senderId:string, topic:string, data:any) */
+	onGossipData(callback) { this.gossip.on('gossip', callback); }
+
+	/** Triggered when a new signal offer is received from another peer.
+	 *  @param {function} callback can use arguments: (senderId:string, data:SignalData) */
+	onSignalOffer(callback) { this.messager.on('signal_offer', callback); this.gossip.on('signal_offer', callback); }
+
+	/** Triggered when a new signal answer is received from another peer.
+	 * @param {function} callback can use arguments: (senderId:string, data:SignalData) */
+	onSignalAnswer(callback) { this.messager.on('signal_answer', callback); }
 }
