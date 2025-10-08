@@ -7,7 +7,8 @@ const [ed_, {sha512}] = await Promise.all([
     import(IS_BROWSER ? '../libs/ed25519-custom.js' : '@noble/hashes/sha2.js')
 ]);
 /** @type {import('@noble/ed25519')} */
-const ed25519 = ed_;
+const ed25519 = ed_.default || ed_;
+ed25519.hashes.sha512 = sha512;
 export { ed25519, sha512 };
 
 //-----------------------------------------------------------------------------

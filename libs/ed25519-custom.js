@@ -948,9 +948,10 @@ var sha512 = /* @__PURE__ */ createHasher(
   /* @__PURE__ */ oidNist(3)
 );
 
-// build-crypto.js
-hashes.sha512 = sha512;
+// build-ed25519-custom.js
+var build_ed25519_custom_default = ed25519_exports;
 export {
+  build_ed25519_custom_default as default,
   ed25519_exports as ed25519,
   sha512
 };

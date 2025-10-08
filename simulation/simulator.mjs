@@ -17,15 +17,14 @@ console.log('Package root:', packageRoot); // debug
 
 // SETUP SIMULATION ENV -----------------------------------------------\
 SIMULATION.USE_TEST_TRANSPORTS = true; //								|
-IDENTITY.ARE_IDS_HEX = false;		// FOR SIMULATOR STRING IDS			|
-IDENTITY.PUBLIC_PREFIX = 'P_'; //										|
+IDENTITY.ARE_IDS_HEX = true;		// FOR SIMULATOR STRING IDS			|
+IDENTITY.DIFFICULTY = 2;
+//IDENTITY.PUBLIC_PREFIX = 'P_'; //										|
 SIMULATION.AVOID_INTERVALS = true; //									|
 CLOCK.mockMode = SIMULATION.USE_TEST_TRANSPORTS; //						|
-//																		|
 TRANSPORTS.WS_SERVER = TestWsServer;	 // default: WebSocketServer	|
 TRANSPORTS.WS_CLIENT = TestWsConnection; // default: WebSocket			|
 TRANSPORTS.PEER = TestTransport; 		 // default: SimplePeer			|
-//																		|
 //---------------------------------------------------------------------/
 
 // IMPORT NODE AFTER SIMULATION ENV SETUP
