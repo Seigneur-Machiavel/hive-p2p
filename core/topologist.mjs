@@ -208,17 +208,6 @@ export class Topologist {
 		const ingPlusEd = connectingCount + nonPublicNeighborsCount;
 		
 		// SELECT BEST READY OFFER BASED ON TIMESTAMP
-		/*let [ offerHash, readyOffer, since ] = [ null, null, null ];
-		for (const hash in this.peerStore.offerManager.offers) {
-			const offer = this.peerStore.offerManager.offers[hash];
-			const { isUsed, sentCounter, signal, timestamp } = offer;
-			if (isUsed || sentCounter > 0) continue; // already used or already sent at least once
-			const createdSince = CLOCK.time - timestamp;
-			if (createdSince > TRANSPORTS.SDP_OFFER_EXPIRATION / 2) continue; // old, don't spread
-			if (since && createdSince > since) continue; // already have a better (more recent) offer
-			readyOffer = offer; offerHash = hash; since = createdSince;
-			break;
-		}*/
 		const { offerHash, readyOffer } = this.peerStore.offerManager.bestReadyOffer(0, true);
 		if (!offerHash || !readyOffer) return; // no ready offer to spread
 
