@@ -1,6 +1,6 @@
 {
   "name": "hive-p2p",
-  "version": "1.0.54",
+  "version": "1.0.55",
   "publishConfig": {
     "access": "public"
   },
@@ -8,7 +8,7 @@
   "type": "module",
   "main": "./packages/full/index.mjs",
   "scripts": {
-	"build:ed25519-custom": "esbuild libs/build-ed25519-custom.js --bundle --minify --format=esm --outfile=libs/ed25519-custom.min.js --platform=browser",
+    "build:ed25519-custom": "esbuild libs/build-ed25519-custom.js --bundle --minify --format=esm --outfile=libs/ed25519-custom.min.js --platform=browser",
     "build:server": "node resources/build-prepare.mjs server",
     "build:browser": "node resources/build-prepare.mjs browser",
     "build:min": "cd packages/browser-min && npm run build"
