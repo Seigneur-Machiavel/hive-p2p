@@ -87,18 +87,13 @@ export class Arbiter {
 		if (!this.#signatureControl(from, message, serialized)) return;
 		if (!this.#lengthControl(from, topic ? 'gossip' : 'unicast', serialized, expectedEnd)) return;
 
-		if (topic) this.#hopsControl(from, message);
-		else this.#routeLengthControl(from, message);
+		const routeOrHopsOk = topic ? this.#hopsControl(from, message) : this.#routeLengthControl(from, message);
+		if (!routeOrHopsOk) return;
 		
 		if (this.isBanished(from) || this.isBanished(senderId)) return;
-		if (this.trustBalances[senderId] > TRUST_VALUES.VALID_POW) return;
+		if (this.trustBalances[senderId] > TRUST_VALUES.VALID_POW) return true; // we check only low trust balances
 		if (Math.random() < powCheckFactor) await this.#powControl(senderId, pubkey);
 		return true;
-	}
-	/** @param {string} from @param {'gossip' | 'unicast'} type */
-	#lengthControl(from, type, serialized, expectedEnd) {
-		if (!expectedEnd || serialized.length === expectedEnd) return true;
-		this.adjustTrust(from, TRUST_VALUES.WRONG_LENGTH, `${type} message length mismatch`);
 	}
 	/** @param {string} from @param {import('./gossip.mjs').GossipMessage} message @param {Uint8Array} serialized */
 	#signatureControl(from, message, serialized) {
@@ -115,14 +110,19 @@ export class Arbiter {
 		}
 		this.adjustTrust(from, TRUST_VALUES.WRONG_SIGNATURE, 'Gossip signature invalid');
 	}
+	/** @param {string} from @param {'gossip' | 'unicast'} type */
+	#lengthControl(from, type, serialized, expectedEnd) {
+		if (!expectedEnd || serialized.length === expectedEnd) return true;
+		this.adjustTrust(from, TRUST_VALUES.WRONG_LENGTH, `${type} message length mismatch`);
+	}
 	/** GOSSIP only @param {string} from @param {import('./gossip.mjs').GossipMessage} message */
 	#hopsControl(from, message) {
-		if (message.HOPS <= (GOSSIP.HOPS[message.topic] || GOSSIP.HOPS.default)) return;
+		if (message.HOPS <= (GOSSIP.HOPS[message.topic] || GOSSIP.HOPS.default)) return true;
 		this.adjustTrust(from, TRUST_VALUES.HOPS_EXCEEDED, 'Gossip HOPS exceeded');
 	}
 	/** UNICAST only @param {string} from @param {import('./unicast.mjs').DirectMessage} message */
 	#routeLengthControl(from, message) {
-		if (message.route.length <= UNICAST.MAX_HOPS) return;
+		if (message.route.length <= UNICAST.MAX_HOPS) return true;
 		this.adjustTrust(from, TRUST_VALUES.HOPS_EXCEEDED, 'Unicast HOPS exceeded');
 	}
 	/** ONLY APPLY AFTER #signatureControl() - @param {string} senderId @param {Uint8Array} pubkey */

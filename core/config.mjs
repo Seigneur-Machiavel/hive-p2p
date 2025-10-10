@@ -45,7 +45,7 @@ export const SIMULATION = {
 
 export const NODE = {
 	/** 0: none, 1: errors, 2: +important info, 3: +debug, 4: +everything | Can be bypass by some constructors */
-	DEFAULT_VERBOSE: 1,
+	DEFAULT_VERBOSE: 2,
 	/** Timeout for upgrading a "connecting" peer to "connected" | Default: 15_000 (15 seconds) */
 	CONNECTION_UPGRADE_TIMEOUT: 15_000,
 	/** Flag to indicate if we are running in a browser environment | DON'T MODIFY THIS VALUE */

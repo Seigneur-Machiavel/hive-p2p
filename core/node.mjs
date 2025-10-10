@@ -160,7 +160,7 @@ export class Node {
 	}
 	
 	/** Broadcast a message to all connected peers or to a specified peer
-	 * @param {string | Uint8Array | Object} data @param {string} topic  @param {string} [targetId] default: broadcast to all
+	 * @param {string | Uint8Array | Object} data @param {string} topic default: 'gossip' @param {string} [targetId] default: broadcast to all
 	 * @param {number} [timestamp] default: CLOCK.time @param {number} [HOPS] default: GOSSIP.HOPS[topic] || GOSSIP.HOPS.default */
 	broadcast(data, topic, HOPS) { this.gossip.broadcastToAll(data, topic, HOPS); }
 	
@@ -201,7 +201,7 @@ export class Node {
 	onMessageData(callback) { this.messager.on('message', callback); }
 
 	/** Triggered when a new gossip message is received.
-	 * @param {function} callback can use arguments: (senderId:string, topic:string, data:any) */
+	 * @param {function} callback can use arguments: (senderId:string, data:any, HOPS:number) */
 	onGossipData(callback) { this.gossip.on('gossip', callback); }
 
 	/** Triggered when a new signal offer is received from another peer.

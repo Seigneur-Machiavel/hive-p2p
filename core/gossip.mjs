@@ -102,7 +102,7 @@ export class Gossip {
 		else this.callbacks[callbackType].push(callback);
 	}
 	/** Gossip a message to all connected peers > will be forwarded to all peers
-	 * @param {string | Uint8Array | Object} data @param {string} topic @param {number} [HOPS] */
+	 * @param {string | Uint8Array | Object} data @param {string} topic default: 'gossip' @param {number} [HOPS] */
 	broadcastToAll(data, topic = 'gossip', HOPS) {
 		const hops = HOPS || GOSSIP.HOPS[topic] || GOSSIP.HOPS.default;
 		const serializedMessage = this.cryptoCodex.createGossipMessage(topic, data, hops, this.peerStore.neighborsList);
