@@ -6,7 +6,8 @@ import { GOSSIP, UNICAST, LOG_CSS } from './config.mjs';
 // Lowered each second by 100ms until 0 (avoid attacker growing balances on multiple disconnected peers)
 
 const BYTES_COUNT_PERIOD 			= 10_000; 		// 10 seconds
-const MAX_BYTES_PER_PERIOD 			= 1_000_000; 	// 1MB per period
+const MAX_UNICAST_BYTES_PER_PERIOD 	= 1_000_000; 	// 1MB per period
+const MAX_GOSSIP_BYTES_PER_PERIOD 	= 100_000; 		// 100KB per period
 
 const MAX_TRUST 	= 		3_600_000; 		// +3600 seconds = 1 hour of good behavior
 export const TRUST_VALUES = {
@@ -37,7 +38,7 @@ export class Arbiter {
 	 * - trustBalance = milliseconds of ban if negative
 	 * @type {Record<string, number>} */
 	trustBalances = {};
-	bytesCounters = { gossip: 0, unicast: 0 };
+	bytesCounters = { gossip: {}, unicast: {} };
 	bytesCounterResetIn = 0;
 
 	/** @param {string} selfId @param {import('./crypto-codex.mjs').CryptoCodex} cryptoCodex @param {number} verbose */
@@ -55,7 +56,7 @@ export class Arbiter {
 		// RESET GOSSIP BYTES COUNTER
 		if (this.bytesCounterResetIn - 1_000 > 0) return;
 		this.bytesCounterResetIn = BYTES_COUNT_PERIOD;
-		this.bytesCounters = { gossip: 0, unicast: 0 };
+		this.bytesCounters = { gossip: {}, unicast: {} };
 	}
 
 	/** Call from HiveP2P module only!
@@ -76,10 +77,14 @@ export class Arbiter {
 	// MESSAGE VERIFICATION
 	/** @param {string} peerId @param {number} byteLength @param {'gossip' | 'unicast'} type */
 	countMessageBytes(peerId, byteLength, type) {
-		if (!this.bytesCounters[type]) this.bytesCounters[type] = 0;
-		this.bytesCounters[type] += byteLength;
-		if (this.bytesCounters[type] < MAX_BYTES_PER_PERIOD) return true;
-		return this.adjustTrust(peerId, type === 'gossip' ? TRUST_VALUES.GOSSIP_FLOOD : TRUST_VALUES.UNICAST_FLOOD, 'Message flood detected');
+		if (!this.bytesCounters[type][peerId]) this.bytesCounters[type][peerId] = 0;
+		this.bytesCounters[type][peerId] += byteLength;
+		const [maxByte, penality] = type === 'gossip'
+		? [MAX_GOSSIP_BYTES_PER_PERIOD, TRUST_VALUES.GOSSIP_FLOOD]
+		: [MAX_UNICAST_BYTES_PER_PERIOD, TRUST_VALUES.UNICAST_FLOOD];
+		// If under the limit, return true -> else apply penality and return undefined
+		if (this.bytesCounters[type][peerId] < maxByte) return true;
+		return this.adjustTrust(peerId, penality, `Message ${type} flood detected`);
 	}
 	/** Call from HiveP2P module only! @param {string} from @param {any} message @param {Uint8Array} serialized @param {number} [powCheckFactor] default: 0.01 (1%) */
 	async digestMessage(from, message, serialized, powCheckFactor = .01) {
