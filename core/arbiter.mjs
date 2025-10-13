@@ -54,7 +54,8 @@ export class Arbiter {
 		}
 	
 		// RESET GOSSIP BYTES COUNTER
-		if (this.bytesCounterResetIn - 1_000 > 0) return;
+		this.bytesCounterResetIn -= 1000;
+		if (this.bytesCounterResetIn > 0) return;
 		this.bytesCounterResetIn = BYTES_COUNT_PERIOD;
 		this.bytesCounters = { gossip: {}, unicast: {} };
 	}
