@@ -168,12 +168,15 @@ export class Node {
 	sendMessage(remoteId, data, type, spread = 1) { this.messager.sendUnicast(remoteId, data, type, spread); }
 
 	/** Send a connection request to a peer */
-	async tryConnectToPeer(targetId = 'toto', retry = 5) {
+	async tryConnectToPeer(targetId = 'toto', retry = 10) {
 		if (this.peerStore.connected[targetId]) return; // already connected
 		do {
 			const { offerHash, readyOffer } = this.peerStore.offerManager.bestReadyOffer(100, false);
 			if (!offerHash || !readyOffer) await new Promise(r => setTimeout(r, 1000)); // build in progress...
-			else this.messager.sendUnicast(targetId, { signal: readyOffer.signal, offerHash }, 'signal_offer', 1);
+			else {
+				this.messager.sendUnicast(targetId, { signal: readyOffer.signal, offerHash }, 'signal_offer', 1);
+				return;
+			}
 		} while (retry-- > 0);
 	}
 	destroy() {
