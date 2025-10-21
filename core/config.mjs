@@ -50,6 +50,8 @@ export const NODE = {
 	CONNECTION_UPGRADE_TIMEOUT: 15_000,
 	/** Flag to indicate if we are running in a browser environment | DON'T MODIFY THIS VALUE */
 	IS_BROWSER: isNode ? false : true,
+	/** Enable manual banning of peers through the Arbiter module | Default: false (useful for consensus based ban, arbiter.trustBalances remain accessible) */
+	MANUAL_BAN_MODE: false
 }
 
 export const SERVICE = {

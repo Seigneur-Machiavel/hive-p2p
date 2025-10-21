@@ -1,5 +1,5 @@
 import { CLOCK } from '../services/clock.mjs';
-import { GOSSIP, UNICAST, LOG_CSS } from './config.mjs';
+import { NODE, GOSSIP, UNICAST, LOG_CSS } from './config.mjs';
 
 // TRUST_BALANCE = seconds of ban if negative - never exceed MAX_TRUST if positive
 // Growing each second by 1000ms until 0
@@ -38,6 +38,7 @@ export class Arbiter {
 	 * - trustBalance = milliseconds of ban if negative
 	 * @type {Record<string, number>} */
 	trustBalances = {};
+	manualBanList = new Set();
 	bytesCounters = { gossip: {}, unicast: {} };
 	bytesCounterResetIn = 0;
 
@@ -73,7 +74,15 @@ export class Arbiter {
 		if (delta && this.verbose > 3) console.log(`%c(Arbiter: ${this.id}) ${peerId} +${delta}ms (${reason}). Updated: ${this.trustBalances[peerId]}ms.`, LOG_CSS.ARBITER);
 		if (this.isBanished(peerId) && this.verbose > 1) console.log(`%c(Arbiter: ${this.id}) Peer ${peerId} is now banished.`, LOG_CSS.ARBITER);
 	}
-	isBanished(peerId = 'toto') { return (this.trustBalances[peerId] || 0) < 0; }
+	/** MANUAL BAN (if enabled) @param {string} peerId */
+	setBanished(peerId) {
+		if (!this.manualBanList.has(peerId)) this.manualBanList.add(peerId);
+	}
+	/** Check if a peer is banished | based on trustBalances or manualBanList @param {string} peerId */
+	isBanished(peerId) {
+		if (!NODE.MANUAL_BAN_MODE) return (this.trustBalances[peerId] || 0) < 0;
+		else return this.manualBanList.has(peerId);
+	}
 
 	// MESSAGE VERIFICATION
 	/** @param {string} peerId @param {number} byteLength @param {'gossip' | 'unicast'} type */
