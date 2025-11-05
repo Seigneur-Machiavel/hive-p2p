@@ -187,7 +187,7 @@ export class Topologist {
 
 					const { signatureStart, pubkey, signature } = message;
 					const signedData = d.subarray(0, signatureStart);
-					if (!await this.cryptoCodex.verifySignature(pubkey, signature, signedData)) return;
+					if (!await this.cryptoCodex.verifySignature(pubkey, signedData, signature)) return;
 
 					remoteId = route[0];
 					this.peerStore.digestPeerNeighbors(remoteId, neighborsList); // Update known store

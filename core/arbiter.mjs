@@ -115,7 +115,7 @@ export class Arbiter {
 		try {
 			const { pubkey, signature, signatureStart } = message;
 			const signedData = serialized.subarray(0, signatureStart);
-			const signatureValid = await this.cryptoCodex.verifySignature(pubkey, signature, signedData);
+			const signatureValid = await this.cryptoCodex.verifySignature(pubkey, signedData, signature);
 			if (!signatureValid) throw new Error('Gossip signature invalid');
 			this.adjustTrust(from, TRUST_VALUES.VALID_SIGNATURE, 'Gossip signature valid');
 			return true;

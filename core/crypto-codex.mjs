@@ -170,7 +170,7 @@ export class CryptoCodex {
 	/** @param {Uint8Array} publicKey @param {Uint8Array} dataToVerify @param {Uint8Array} signature */
 	async verifySignature(publicKey, dataToVerify, signature) {
 		if (this.AVOID_CRYPTO) return true;
-		return ed25519.verifyAsync(dataToVerify, signature, publicKey);
+		return ed25519.verifyAsync(signature, dataToVerify, publicKey);
 	}
 	/** @param {Uint8Array} bufferView */
 	readBufferHeader(bufferView, readAssociatedId = true) {
