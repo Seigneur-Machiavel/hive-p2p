@@ -5,10 +5,54 @@ import { DirectMessage, ReroutedDirectMessage } from './unicast.mjs';
 import { Converter } from '../services/converter.mjs';
 import { ed25519, Argon2Unified } from '../services/cryptos.mjs'; // now exposed in full and browser builds
 
+class Ed25519BatchVerifier {
+	#verifyQueue = [];
+	#verifyResolvers = new Map();
+	#batchTimer = null;
+	#nextId = 0;
+	#BATCH_SIZE = 10;
+	#BATCH_TIMEOUT = 5;
+
+	verifySignature(publicKey, dataToVerify, signature) {
+		return new Promise((resolve) => {
+			const id = this.#nextId++;
+			this.#verifyQueue.push({ id, publicKey, dataToVerify, signature });
+			this.#verifyResolvers.set(id, resolve);
+
+			// Flush immediately if batch full
+			if (this.#verifyQueue.length >= this.#BATCH_SIZE) {
+				this.#flushBatch();
+				return;
+			}
+
+			// Otherwise schedule flush
+			if (!this.#batchTimer)
+				this.#batchTimer = setTimeout(() => this.#flushBatch(), this.#BATCH_TIMEOUT);
+		});
+	}
+
+	async #flushBatch() {
+		if (this.#batchTimer) clearTimeout(this.#batchTimer), this.#batchTimer = null;
+		if (this.#verifyQueue.length === 0) return;
+
+		const batch = this.#verifyQueue.splice(0);
+		const results = await Promise.all(
+			batch.map(item => ed25519.verifyAsync(item.signature, item.dataToVerify, item.publicKey))
+		);
+
+		for (let i = 0; i < batch.length; i++) {
+			this.#verifyResolvers.get(batch[i].id)(results[i]);
+			this.#verifyResolvers.delete(batch[i].id);
+		}
+	}
+}
+
 export class CryptoCodex {
 	argon2 = new Argon2Unified();
 	converter = new Converter();
 	AVOID_CRYPTO = false;
+	/** @type {Ed25519BatchVerifier} only if "AVOID_CRYPTO" is disabled*/
+	verifier;
 	verbose = NODE.DEFAULT_VERBOSE;
 	/** @type {string} */ id;
     /** @type {Uint8Array} */ publicKey;
@@ -17,8 +61,9 @@ export class CryptoCodex {
 	/** @param {string} [nodeId] If provided: used to generate a fake keypair > disable crypto operations */
 	constructor(nodeId, verbose = NODE.DEFAULT_VERBOSE) {
 		this.verbose = verbose;
+		//this.AVOID_CRYPTO = IDENTITY.ARE_IDS_HEX ? false : true; // disable crypto if string ids are used
 		if (!nodeId) return; // IF NOT PROVIDED: generate() should be called.
-		this.AVOID_CRYPTO = true;
+
 		this.id = nodeId.padEnd(IDENTITY.ID_LENGTH, ' ').slice(0, IDENTITY.ID_LENGTH);
 		this.privateKey = new Uint8Array(32).fill(0); this.publicKey = new Uint8Array(32).fill(0);
 		const idBytes = new TextEncoder().encode(this.id); // use nodeId to create a fake public key
@@ -42,6 +87,8 @@ export class CryptoCodex {
 	async generate(asPublicNode, seed) { // Generate Ed25519 keypair cross-platform | set id only for simulator
 		if (this.nodeId) return;
 		await this.#generateAntiSybilIdentity(seed, asPublicNode);
+		this.AVOID_CRYPTO = false; // enable crypto operations
+		this.verifier = new Ed25519BatchVerifier();
 		if (!this.id) throw new Error('Failed to generate identity');
     }
 	/** Check if the pubKey meets the difficulty using Argon2 derivation @param {Uint8Array} publicKey */
@@ -170,7 +217,9 @@ export class CryptoCodex {
 	/** @param {Uint8Array} publicKey @param {Uint8Array} dataToVerify @param {Uint8Array} signature */
 	async verifySignature(publicKey, dataToVerify, signature) {
 		if (this.AVOID_CRYPTO) return true;
-		return ed25519.verifyAsync(signature, dataToVerify, publicKey);
+		//return ed25519.verifyAsync(signature, dataToVerify, publicKey);
+		// new version with batching to optimize timings using ed25519 async.
+		return this.verifier.verifySignature(publicKey, dataToVerify, signature);
 	}
 	/** @param {Uint8Array} bufferView */
 	readBufferHeader(bufferView, readAssociatedId = true) {
