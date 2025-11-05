@@ -2,14 +2,21 @@ import { Converter } from './converter.mjs';
 const IS_BROWSER = typeof window !== 'undefined';
 
 // ED25519 EXPOSURE NODEJS/BROWSER COMPATIBLE ---------------------------------
-const [ed_, {sha512}] = await Promise.all([
+/*const [ed_, {sha512}] = await Promise.all([
     import(IS_BROWSER ? '../libs/ed25519-custom.min.js' : '@noble/ed25519'),
     import(IS_BROWSER ? '../libs/ed25519-custom.min.js' : '@noble/hashes/sha2.js')
+]);*/
+/** @type {import('@noble/ed25519')} */
+//const ed25519 = ed_.default || ed_;
+//ed25519.hashes.sha512 = sha512;
+//export { ed25519, sha512 };
+
+const [ed_] = await Promise.all([
+    import(IS_BROWSER ? '../libs/ed25519-custom.min.js' : '@noble/ed25519'),
 ]);
 /** @type {import('@noble/ed25519')} */
 const ed25519 = ed_.default || ed_;
-ed25519.hashes.sha512 = sha512;
-export { ed25519, sha512 };
+export { ed25519 };
 
 //-----------------------------------------------------------------------------
 
