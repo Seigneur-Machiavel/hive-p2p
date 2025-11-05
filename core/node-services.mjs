@@ -56,7 +56,7 @@ export class NodeServices {
 			ws.on('error', (error) => console.error(`WebSocket error on Node #${this.id} with peer ${remoteId}:`, error.stack));
 
 			let remoteId;
-			ws.on('message', (data) => { // When peer proves his id, we can handle data normally
+			ws.on('message', async (data) => { // When peer proves his id, we can handle data normally
 				if (remoteId) for (const cb of this.peerStore.callbacks.data) cb(remoteId, data);
 				else { // FIRST MESSAGE SHOULD BE HANDSHAKE WITH ID
 					const d = new Uint8Array(data); if (d[0] > 127) return; // not unicast, ignore
@@ -68,7 +68,7 @@ export class NodeServices {
 
 					const { signatureStart, pubkey, signature } = message;
 					const signedData = d.subarray(0, signatureStart);
-					if (!this.cryptoCodex.verifySignature(pubkey, signature, signedData)) return;
+					if (!await this.cryptoCodex.verifySignature(pubkey, signature, signedData)) return;
 
 					remoteId = route[0];
 					this.peerStore.digestPeerNeighbors(remoteId, neighborsList); // Update known store

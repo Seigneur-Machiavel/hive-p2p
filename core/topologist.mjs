@@ -175,7 +175,7 @@ export class Topologist {
 				this.bootstrapsConnectionState.set(publicUrl, false);
 				for (const cb of this.peerStore.callbacks.disconnect) cb(remoteId, 'out');
 			}
-			ws.onmessage = (data) => {
+			ws.onmessage = async (data) => {
 				if (remoteId) for (const cb of this.peerStore.callbacks.data) cb(remoteId, data.data);
 				else { // FIRST MESSAGE SHOULD BE HANDSHAKE WITH ID
 					const d = new Uint8Array(data.data); if (d[0] > 127) return; // not unicast, ignore
@@ -187,7 +187,7 @@ export class Topologist {
 
 					const { signatureStart, pubkey, signature } = message;
 					const signedData = d.subarray(0, signatureStart);
-					if (!this.cryptoCodex.verifySignature(pubkey, signature, signedData)) return;
+					if (!await this.cryptoCodex.verifySignature(pubkey, signature, signedData)) return;
 
 					remoteId = route[0];
 					this.peerStore.digestPeerNeighbors(remoteId, neighborsList); // Update known store

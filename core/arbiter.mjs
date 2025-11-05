@@ -99,7 +99,7 @@ export class Arbiter {
 	/** Call from HiveP2P module only! @param {string} from @param {any} message @param {Uint8Array} serialized @param {number} [powCheckFactor] default: 0.01 (1%) */
 	async digestMessage(from, message, serialized, powCheckFactor = .01) {
 		const { senderId, pubkey, topic, expectedEnd } = message; // avoid powControl() on banished peers
-		if (!this.#signatureControl(from, message, serialized)) return;
+		if (!await this.#signatureControl(from, message, serialized)) return;
 		if (!this.#lengthControl(from, topic ? 'gossip' : 'unicast', serialized, expectedEnd)) return;
 
 		const routeOrHopsOk = topic ? this.#hopsControl(from, message) : this.#routeLengthControl(from, message);
@@ -111,11 +111,11 @@ export class Arbiter {
 		return true;
 	}
 	/** @param {string} from @param {import('./gossip.mjs').GossipMessage} message @param {Uint8Array} serialized */
-	#signatureControl(from, message, serialized) {
+	async #signatureControl(from, message, serialized) {
 		try {
 			const { pubkey, signature, signatureStart } = message;
 			const signedData = serialized.subarray(0, signatureStart);
-			const signatureValid = this.cryptoCodex.verifySignature(pubkey, signature, signedData);
+			const signatureValid = await this.cryptoCodex.verifySignature(pubkey, signature, signedData);
 			if (!signatureValid) throw new Error('Gossip signature invalid');
 			this.adjustTrust(from, TRUST_VALUES.VALID_SIGNATURE, 'Gossip signature valid');
 			return true;

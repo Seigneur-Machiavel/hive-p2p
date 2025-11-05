@@ -168,9 +168,9 @@ export class CryptoCodex {
 
 	// MESSSAGE READING (DESERIALIZATION AND SIGNATURE VERIFICATION INCLUDED)
 	/** @param {Uint8Array} publicKey @param {Uint8Array} dataToVerify @param {Uint8Array} signature */
-	verifySignature(publicKey, dataToVerify, signature) {
+	async verifySignature(publicKey, dataToVerify, signature) {
 		if (this.AVOID_CRYPTO) return true;
-		return ed25519.verify(dataToVerify, signature, publicKey);
+		return ed25519.verifyAsync(dataToVerify, signature, publicKey);
 	}
 	/** @param {Uint8Array} bufferView */
 	readBufferHeader(bufferView, readAssociatedId = true) {
