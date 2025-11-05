@@ -3,7 +3,7 @@ import { SIMULATION, NODE, IDENTITY, GOSSIP, UNICAST, LOG_CSS } from './config.m
 import { GossipMessage } from './gossip.mjs';
 import { DirectMessage, ReroutedDirectMessage } from './unicast.mjs';
 import { Converter } from '../services/converter.mjs';
-import { ed25519, Argon2Unified } from '../services/cryptos.mjs';
+import { ed25519, Argon2Unified } from '../services/cryptos.mjs'; // now exposed in full and browser builds
 
 export class CryptoCodex {
 	argon2 = new Argon2Unified();
