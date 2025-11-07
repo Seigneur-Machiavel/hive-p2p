@@ -51,7 +51,7 @@ export class NodeServices {
 	#startWebSocketServer(domain = 'localhost', port = SERVICE.PORT) {
 		this.wsServer = new TRANSPORTS.WS_SERVER({ port, host: domain });
 		this.wsServer.on('error', (error) => console.error(`WebSocket error on Node #${this.id}:`, error));
-		this.wsServer.on('connection', (ws) => {
+		this.wsServer.on('connection', async (ws) => {
 			ws.on('close', () => { if (remoteId) for (const cb of this.peerStore.callbacks.disconnect) cb(remoteId, 'in'); });
 			ws.on('error', (error) => console.error(`WebSocket error on Node #${this.id} with peer ${remoteId}:`, error.stack));
 
@@ -78,7 +78,9 @@ export class NodeServices {
 					for (const cb of this.peerStore.callbacks.connect) cb(remoteId, 'in');
 				}
 			});
-			ws.send(this.cryptoCodex.createUnicastMessage('handshake', null, [this.id, this.id], this.peerStore.neighborsList));
+
+			const handshakeMsg = await this.cryptoCodex.createUnicastMessage('handshake', null, [this.id, this.id], this.peerStore.neighborsList);
+			ws.send(handshakeMsg);
 		});
 	}
 	#startSTUNServer(host = 'localhost', port = SERVICE.PORT + 1) {

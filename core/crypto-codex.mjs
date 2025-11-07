@@ -105,7 +105,7 @@ export class CryptoCodex {
 	async #generateAntiSybilIdentity(seed, asPublicNode) {
 		const maxIterations = (2 ** IDENTITY.DIFFICULTY) * 100; // avoid infinite loop
 		for (let i = 0; i < maxIterations; i++) { // avoid infinite loop
-			const { secretKey, publicKey } = ed25519.keygen(seed);
+			const { secretKey, publicKey } = await ed25519.keygenAsync(seed);
 			const id = this.#idFromPublicKey(publicKey);
 			if (asPublicNode && !this.isPublicNode(id)) continue; // Check prefix
 			if (!asPublicNode && this.isPublicNode(id)) continue; // Check prefix
@@ -120,13 +120,15 @@ export class CryptoCodex {
 	}
 
 	// MESSSAGE CREATION (SERIALIZATION AND SIGNATURE INCLUDED)
-	signBufferViewAndAppendSignature(bufferView, privateKey, signaturePosition = bufferView.length - IDENTITY.SIGNATURE_LENGTH) {
+	/** @param {Uint8Array} bufferView @param {Uint8Array} privateKey @param {number} [signaturePosition] */
+	async signBufferViewAndAppendSignature(bufferView, privateKey, signaturePosition = bufferView.length - IDENTITY.SIGNATURE_LENGTH) {
 		if (this.AVOID_CRYPTO) return;
 		const dataToSign = bufferView.subarray(0, signaturePosition);
-		bufferView.set(ed25519.sign(dataToSign, privateKey), signaturePosition);
+		const signature = await ed25519.signAsync(dataToSign, privateKey);
+		bufferView.set(signature, signaturePosition);
 	}
 	/** @param {string} topic @param {string | Uint8Array | Object} data @param {number} [HOPS] @param {string[]} route @param {string[]} [neighbors] */
-	createGossipMessage(topic, data, HOPS = 3, neighbors = [], timestamp = CLOCK.time) {
+	async createGossipMessage(topic, data, HOPS = 3, neighbors = [], timestamp = CLOCK.time) {
 		const MARKER = GOSSIP.MARKERS_BYTES[topic];
 		if (MARKER === undefined) throw new Error(`Failed to create gossip message: unknown topic '${topic}'.`);
 		
@@ -140,7 +142,7 @@ export class CryptoCodex {
 		bufferView.set(neighborsBytes, 47); 					// X bytes for neighbors
 		bufferView.set(dataBytes, 47 + neighborsBytes.length); 	// X bytes for data
 		bufferView.set([Math.min(255, HOPS)], totalBytes - 1); 	// 1 byte for HOPS (Unsigned)
-		this.signBufferViewAndAppendSignature(bufferView, this.privateKey, totalBytes - IDENTITY.SIGNATURE_LENGTH - 1);
+		await this.signBufferViewAndAppendSignature(bufferView, this.privateKey, totalBytes - IDENTITY.SIGNATURE_LENGTH - 1);
 		return bufferView;
 	}
 	/** @param {Uint8Array} serializedMessage */
@@ -151,7 +153,7 @@ export class CryptoCodex {
 		return clone;
 	}
 	/** @param {string} type @param {string | Uint8Array | Object} data @param {string[]} route @param {string[]} [neighbors] */
-	createUnicastMessage(type, data, route, neighbors = [], timestamp = CLOCK.time) {
+	async createUnicastMessage(type, data, route, neighbors = [], timestamp = CLOCK.time) {
 		const MARKER = UNICAST.MARKERS_BYTES[type];
 		if (MARKER === undefined) throw new Error(`Failed to create unicast message: unknown type '${type}'.`);
 		if (route.length < 2) throw new Error('Failed to create unicast message: route must have at least 2 nodes (next hop and target).');
@@ -171,11 +173,11 @@ export class CryptoCodex {
 		bufferView.set([route.length], 47 + NDBL);				// 1 byte for route length
 		bufferView.set(routeBytes, 47 + 1 + NDBL);				// X bytes for route
 
-		this.signBufferViewAndAppendSignature(bufferView, this.privateKey, totalBytes - IDENTITY.SIGNATURE_LENGTH);
+		await this.signBufferViewAndAppendSignature(bufferView, this.privateKey, totalBytes - IDENTITY.SIGNATURE_LENGTH);
 		return bufferView;
 	}
 	/** @param {Uint8Array} serialized @param {string[]} newRoute */
-	createReroutedUnicastMessage(serialized, newRoute) {
+	async createReroutedUnicastMessage(serialized, newRoute) {
 		if (newRoute.length < 2) throw new Error('Failed to create rerouted unicast message: route must have at least 2 nodes (next hop and target).');
 		if (newRoute.length > UNICAST.MAX_HOPS) throw new Error(`Failed to create rerouted unicast message: route exceeds max hops (${UNICAST.MAX_HOPS}).`);
 	
@@ -187,7 +189,7 @@ export class CryptoCodex {
 		bufferView.set(this.publicKey, serialized.length); // 32 bytes for new public key
 		for (let i = 0; i < routeBytesArray.length; i++) bufferView.set(routeBytesArray[i], serialized.length + 32 + (i * IDENTITY.ID_LENGTH)); // new route
 		
-		this.signBufferViewAndAppendSignature(bufferView, this.privateKey, totalBytes - IDENTITY.SIGNATURE_LENGTH);
+		await this.signBufferViewAndAppendSignature(bufferView, this.privateKey, totalBytes - IDENTITY.SIGNATURE_LENGTH);
 		return bufferView;
 	}
 	/** @param {string[]} ids */
@@ -217,8 +219,6 @@ export class CryptoCodex {
 	/** @param {Uint8Array} publicKey @param {Uint8Array} dataToVerify @param {Uint8Array} signature */
 	async verifySignature(publicKey, dataToVerify, signature) {
 		if (this.AVOID_CRYPTO) return true;
-		//return ed25519.verifyAsync(signature, dataToVerify, publicKey);
-		// new version with batching to optimize timings using ed25519 async.
 		return this.verifier.verifySignature(publicKey, dataToVerify, signature);
 	}
 	/** @param {Uint8Array} bufferView */

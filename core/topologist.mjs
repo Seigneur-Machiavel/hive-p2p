@@ -169,7 +169,7 @@ export class Topologist {
 		let remoteId = null;
 		const ws = new TRANSPORTS.WS_CLIENT(this.#getFullWsUrl(publicUrl)); ws.binaryType = 'arraybuffer';
 		ws.onerror = (error) => console.error(`WebSocket error:`, error.stack);
-		ws.onopen = () => {
+		ws.onopen = async () => {
 			this.bootstrapsConnectionState.set(publicUrl, true);
 			ws.onclose = () => {
 				this.bootstrapsConnectionState.set(publicUrl, false);
@@ -197,8 +197,9 @@ export class Topologist {
 					for (const cb of this.peerStore.callbacks.connect) cb(remoteId, 'out');
 				}
 			};
-			ws.send(this.cryptoCodex.createUnicastMessage('handshake', null, [this.id, this.id], this.peerStore.neighborsList));
-		};		
+			const handshakeMsg = await this.cryptoCodex.createUnicastMessage('handshake', null, [this.id, this.id], this.peerStore.neighborsList);
+			ws.send(handshakeMsg);
+		};
 	}
 	#tryToSpreadSDP(nonPublicNeighborsCount = 0, isHalfReached = false) { // LOOP TO SELECT ONE UNSEND READY OFFER AND BROADCAST IT
 		if (!this.automation.spreadOffers) return;

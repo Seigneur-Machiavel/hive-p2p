@@ -162,10 +162,10 @@ export class Node {
 	/** Broadcast a message to all connected peers or to a specified peer
 	 * @param {string | Uint8Array | Object} data @param {string} topic default: 'gossip' @param {string} [targetId] default: broadcast to all
 	 * @param {number} [timestamp] default: CLOCK.time @param {number} [HOPS] default: GOSSIP.HOPS[topic] || GOSSIP.HOPS.default */
-	broadcast(data, topic, HOPS) { this.gossip.broadcastToAll(data, topic, HOPS); }
+	async broadcast(data, topic, HOPS) { return this.gossip.broadcastToAll(data, topic, HOPS); }
 	
 	/** @param {string} remoteId @param {string | Uint8Array | Object} data @param {string} type */
-	sendMessage(remoteId, data, type, spread = 1) { this.messager.sendUnicast(remoteId, data, type, spread); }
+	async sendMessage(remoteId, data, type, spread = 1) { return this.messager.sendUnicast(remoteId, data, type, spread); }
 
 	/** Send a connection request to a peer */
 	async tryConnectToPeer(targetId = 'toto', retry = 10) {
