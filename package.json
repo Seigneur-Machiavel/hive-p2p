@@ -1,6 +1,6 @@
 {
   "name": "hive-p2p",
-  "version": "1.0.68",
+  "version": "1.0.69",
   "publishConfig": {
     "access": "public"
   },
@@ -24,7 +24,7 @@
   ],
   "dependencies": {
     "@noble/curves": "2.0.1",
-	"@noble/ciphers": "2.0.1",
+    "@noble/ciphers": "2.0.1",
     "argon2": "~0.44.0",
     "express": "~5.1.0",
     "node-pre-gyp": "~0.17.0",
