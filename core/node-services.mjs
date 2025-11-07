@@ -51,12 +51,12 @@ export class NodeServices {
 	#startWebSocketServer(domain = 'localhost', port = SERVICE.PORT) {
 		this.wsServer = new TRANSPORTS.WS_SERVER({ port, host: domain });
 		this.wsServer.on('error', (error) => console.error(`WebSocket error on Node #${this.id}:`, error));
-		this.wsServer.on('connection', async (ws) => {
+		this.wsServer.on('connection', (ws) => {
 			ws.on('close', () => { if (remoteId) for (const cb of this.peerStore.callbacks.disconnect) cb(remoteId, 'in'); });
 			ws.on('error', (error) => console.error(`WebSocket error on Node #${this.id} with peer ${remoteId}:`, error.stack));
 
 			let remoteId;
-			ws.on('message', async (data) => { // When peer proves his id, we can handle data normally
+			ws.on('message', (data) => { // When peer proves his id, we can handle data normally
 				if (remoteId) for (const cb of this.peerStore.callbacks.data) cb(remoteId, data);
 				else { // FIRST MESSAGE SHOULD BE HANDSHAKE WITH ID
 					const d = new Uint8Array(data); if (d[0] > 127) return; // not unicast, ignore
@@ -68,7 +68,7 @@ export class NodeServices {
 
 					const { signatureStart, pubkey, signature } = message;
 					const signedData = d.subarray(0, signatureStart);
-					if (!await this.cryptoCodex.verifySignature(pubkey, signedData, signature)) return;
+					if (!this.cryptoCodex.verifySignature(pubkey, signedData, signature)) return;
 
 					remoteId = route[0];
 					this.peerStore.digestPeerNeighbors(remoteId, neighborsList); // Update known store
@@ -79,8 +79,7 @@ export class NodeServices {
 				}
 			});
 
-			const handshakeMsg = await this.cryptoCodex.createUnicastMessage('handshake', null, [this.id, this.id], this.peerStore.neighborsList);
-			ws.send(handshakeMsg);
+			ws.send(this.cryptoCodex.createUnicastMessage('handshake', null, [this.id, this.id], this.peerStore.neighborsList));
 		});
 	}
 	#startSTUNServer(host = 'localhost', port = SERVICE.PORT + 1) {

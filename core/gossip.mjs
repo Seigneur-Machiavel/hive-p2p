@@ -103,9 +103,9 @@ export class Gossip {
 	}
 	/** Gossip a message to all connected peers > will be forwarded to all peers
 	 * @param {string | Uint8Array | Object} data @param {string} topic default: 'gossip' @param {number} [HOPS] */
-	async broadcastToAll(data, topic = 'gossip', HOPS) {
+	broadcastToAll(data, topic = 'gossip', HOPS) {
 		const hops = HOPS || GOSSIP.HOPS[topic] || GOSSIP.HOPS.default;
-		const serializedMessage = await this.cryptoCodex.createGossipMessage(topic, data, hops, this.peerStore.neighborsList);
+		const serializedMessage = this.cryptoCodex.createGossipMessage(topic, data, hops, this.peerStore.neighborsList);
 		if (!this.bloomFilter.addMessage(serializedMessage)) return; // avoid sending duplicate messages
 		if (this.verbose > 3) console.log(`(${this.id}) Gossip ${topic}, to ${JSON.stringify(this.peerStore.neighborsList)}: ${data}`);
 		for (const peerId of this.peerStore.neighborsList) this.#broadcastToPeer(peerId, serializedMessage);

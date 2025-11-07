@@ -5,54 +5,10 @@ import { DirectMessage, ReroutedDirectMessage } from './unicast.mjs';
 import { Converter } from '../services/converter.mjs';
 import { ed25519, Argon2Unified } from '../services/cryptos.mjs'; // now exposed in full and browser builds
 
-class Ed25519BatchVerifier {
-	#verifyQueue = [];
-	#verifyResolvers = new Map();
-	#batchTimer = null;
-	#nextId = 0;
-	#BATCH_SIZE = 10;
-	#BATCH_TIMEOUT = 5;
-
-	verifySignature(publicKey, dataToVerify, signature) {
-		return new Promise((resolve) => {
-			const id = this.#nextId++;
-			this.#verifyQueue.push({ id, publicKey, dataToVerify, signature });
-			this.#verifyResolvers.set(id, resolve);
-
-			// Flush immediately if batch full
-			if (this.#verifyQueue.length >= this.#BATCH_SIZE) {
-				this.#flushBatch();
-				return;
-			}
-
-			// Otherwise schedule flush
-			if (!this.#batchTimer)
-				this.#batchTimer = setTimeout(() => this.#flushBatch(), this.#BATCH_TIMEOUT);
-		});
-	}
-
-	async #flushBatch() {
-		if (this.#batchTimer) clearTimeout(this.#batchTimer), this.#batchTimer = null;
-		if (this.#verifyQueue.length === 0) return;
-
-		const batch = this.#verifyQueue.splice(0);
-		const results = await Promise.all(
-			batch.map(item => ed25519.verifyAsync(item.signature, item.dataToVerify, item.publicKey))
-		);
-
-		for (let i = 0; i < batch.length; i++) {
-			this.#verifyResolvers.get(batch[i].id)(results[i]);
-			this.#verifyResolvers.delete(batch[i].id);
-		}
-	}
-}
-
 export class CryptoCodex {
 	argon2 = new Argon2Unified();
 	converter = new Converter();
 	AVOID_CRYPTO = false;
-	/** @type {Ed25519BatchVerifier} only if "AVOID_CRYPTO" is disabled*/
-	verifier;
 	verbose = NODE.DEFAULT_VERBOSE;
 	/** @type {string} */ id;
     /** @type {Uint8Array} */ publicKey;
@@ -88,7 +44,6 @@ export class CryptoCodex {
 		if (this.nodeId) return;
 		await this.#generateAntiSybilIdentity(seed, asPublicNode);
 		this.AVOID_CRYPTO = false; // enable crypto operations
-		this.verifier = new Ed25519BatchVerifier();
 		if (!this.id) throw new Error('Failed to generate identity');
     }
 	/** Check if the pubKey meets the difficulty using Argon2 derivation @param {Uint8Array} publicKey */
@@ -105,7 +60,7 @@ export class CryptoCodex {
 	async #generateAntiSybilIdentity(seed, asPublicNode) {
 		const maxIterations = (2 ** IDENTITY.DIFFICULTY) * 100; // avoid infinite loop
 		for (let i = 0; i < maxIterations; i++) { // avoid infinite loop
-			const { secretKey, publicKey } = await ed25519.keygenAsync(seed);
+			const { secretKey, publicKey } = ed25519.keygen(seed);
 			const id = this.#idFromPublicKey(publicKey);
 			if (asPublicNode && !this.isPublicNode(id)) continue; // Check prefix
 			if (!asPublicNode && this.isPublicNode(id)) continue; // Check prefix
@@ -121,14 +76,14 @@ export class CryptoCodex {
 
 	// MESSSAGE CREATION (SERIALIZATION AND SIGNATURE INCLUDED)
 	/** @param {Uint8Array} bufferView @param {Uint8Array} privateKey @param {number} [signaturePosition] */
-	async signBufferViewAndAppendSignature(bufferView, privateKey, signaturePosition = bufferView.length - IDENTITY.SIGNATURE_LENGTH) {
+	signBufferViewAndAppendSignature(bufferView, privateKey, signaturePosition = bufferView.length - IDENTITY.SIGNATURE_LENGTH) {
 		if (this.AVOID_CRYPTO) return;
 		const dataToSign = bufferView.subarray(0, signaturePosition);
-		const signature = await ed25519.signAsync(dataToSign, privateKey);
+		const signature = ed25519.sign(dataToSign, privateKey);
 		bufferView.set(signature, signaturePosition);
 	}
 	/** @param {string} topic @param {string | Uint8Array | Object} data @param {number} [HOPS] @param {string[]} route @param {string[]} [neighbors] */
-	async createGossipMessage(topic, data, HOPS = 3, neighbors = [], timestamp = CLOCK.time) {
+	createGossipMessage(topic, data, HOPS = 3, neighbors = [], timestamp = CLOCK.time) {
 		const MARKER = GOSSIP.MARKERS_BYTES[topic];
 		if (MARKER === undefined) throw new Error(`Failed to create gossip message: unknown topic '${topic}'.`);
 		
@@ -142,7 +97,7 @@ export class CryptoCodex {
 		bufferView.set(neighborsBytes, 47); 					// X bytes for neighbors
 		bufferView.set(dataBytes, 47 + neighborsBytes.length); 	// X bytes for data
 		bufferView.set([Math.min(255, HOPS)], totalBytes - 1); 	// 1 byte for HOPS (Unsigned)
-		await this.signBufferViewAndAppendSignature(bufferView, this.privateKey, totalBytes - IDENTITY.SIGNATURE_LENGTH - 1);
+		this.signBufferViewAndAppendSignature(bufferView, this.privateKey, totalBytes - IDENTITY.SIGNATURE_LENGTH - 1);
 		return bufferView;
 	}
 	/** @param {Uint8Array} serializedMessage */
@@ -153,7 +108,7 @@ export class CryptoCodex {
 		return clone;
 	}
 	/** @param {string} type @param {string | Uint8Array | Object} data @param {string[]} route @param {string[]} [neighbors] */
-	async createUnicastMessage(type, data, route, neighbors = [], timestamp = CLOCK.time) {
+	createUnicastMessage(type, data, route, neighbors = [], timestamp = CLOCK.time) {
 		const MARKER = UNICAST.MARKERS_BYTES[type];
 		if (MARKER === undefined) throw new Error(`Failed to create unicast message: unknown type '${type}'.`);
 		if (route.length < 2) throw new Error('Failed to create unicast message: route must have at least 2 nodes (next hop and target).');
@@ -173,11 +128,11 @@ export class CryptoCodex {
 		bufferView.set([route.length], 47 + NDBL);				// 1 byte for route length
 		bufferView.set(routeBytes, 47 + 1 + NDBL);				// X bytes for route
 
-		await this.signBufferViewAndAppendSignature(bufferView, this.privateKey, totalBytes - IDENTITY.SIGNATURE_LENGTH);
+		this.signBufferViewAndAppendSignature(bufferView, this.privateKey, totalBytes - IDENTITY.SIGNATURE_LENGTH);
 		return bufferView;
 	}
 	/** @param {Uint8Array} serialized @param {string[]} newRoute */
-	async createReroutedUnicastMessage(serialized, newRoute) {
+	createReroutedUnicastMessage(serialized, newRoute) {
 		if (newRoute.length < 2) throw new Error('Failed to create rerouted unicast message: route must have at least 2 nodes (next hop and target).');
 		if (newRoute.length > UNICAST.MAX_HOPS) throw new Error(`Failed to create rerouted unicast message: route exceeds max hops (${UNICAST.MAX_HOPS}).`);
 	
@@ -189,7 +144,7 @@ export class CryptoCodex {
 		bufferView.set(this.publicKey, serialized.length); // 32 bytes for new public key
 		for (let i = 0; i < routeBytesArray.length; i++) bufferView.set(routeBytesArray[i], serialized.length + 32 + (i * IDENTITY.ID_LENGTH)); // new route
 		
-		await this.signBufferViewAndAppendSignature(bufferView, this.privateKey, totalBytes - IDENTITY.SIGNATURE_LENGTH);
+		this.signBufferViewAndAppendSignature(bufferView, this.privateKey, totalBytes - IDENTITY.SIGNATURE_LENGTH);
 		return bufferView;
 	}
 	/** @param {string[]} ids */
@@ -217,9 +172,9 @@ export class CryptoCodex {
 
 	// MESSSAGE READING (DESERIALIZATION AND SIGNATURE VERIFICATION INCLUDED)
 	/** @param {Uint8Array} publicKey @param {Uint8Array} dataToVerify @param {Uint8Array} signature */
-	async verifySignature(publicKey, dataToVerify, signature) {
+	verifySignature(publicKey, dataToVerify, signature) {
 		if (this.AVOID_CRYPTO) return true;
-		return this.verifier.verifySignature(publicKey, dataToVerify, signature);
+		return ed25519.verify(signature, dataToVerify, publicKey);
 	}
 	/** @param {Uint8Array} bufferView */
 	readBufferHeader(bufferView, readAssociatedId = true) {

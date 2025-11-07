@@ -76,15 +76,13 @@ export class UnicastMessager {
 	/** Send unicast message to a target
 	 * @param {string} remoteId @param {string | Uint8Array | Object} data @param {string} type
 	 * @param {number} [spread] Max neighbors used to relay the message, default: 1 */
-	async sendUnicast(remoteId, data, type = 'message', spread = 1) {
+	sendUnicast(remoteId, data, type = 'message', spread = 1) {
 		if (remoteId === this.id) return false;
 
 		const builtResult = this.pathFinder.buildRoutes(remoteId, this.maxRoutes, this.maxHops, this.maxNodes, true);
 		if (!builtResult.success) return false;
 
 		// Caution: re-routing usage who can involve insane results
-		const destinations = [];
-		const createdMessagePromises = [];
 		const finalSpread = builtResult.success === 'blind' ? 1 : spread; // Spread only if re-routing is false
 		for (let i = 0; i < Math.min(finalSpread, builtResult.routes.length); i++) {
 			const route = builtResult.routes[i].path;
@@ -92,14 +90,9 @@ export class UnicastMessager {
 				if (this.verbose > 1) console.warn(`Cannot send unicast message to ${remoteId} as route exceeds maxHops (${UNICAST.MAX_HOPS}). BFS incurred.`);
 				continue; // too long route
 			}
-			
-			destinations.push(route[1]); // send to next peer
-			createdMessagePromises.push(this.cryptoCodex.createUnicastMessage(type, data, route, this.peerStore.neighborsList));
+
+			this.#sendMessageToPeer(route[1], this.cryptoCodex.createUnicastMessage(type, data, route, this.peerStore.neighborsList));
 		}
-		
-		const createdMessages = await Promise.all(createdMessagePromises);
-		for (let i = 0; i < createdMessages.length; i++)
-			this.#sendMessageToPeer(destinations[i], createdMessages[i]);
 		return true;
 	}
 	/** @param {string} targetId @param {Uint8Array} serialized */

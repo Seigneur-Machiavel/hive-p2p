@@ -169,13 +169,13 @@ export class Topologist {
 		let remoteId = null;
 		const ws = new TRANSPORTS.WS_CLIENT(this.#getFullWsUrl(publicUrl)); ws.binaryType = 'arraybuffer';
 		ws.onerror = (error) => console.error(`WebSocket error:`, error.stack);
-		ws.onopen = async () => {
+		ws.onopen = () => {
 			this.bootstrapsConnectionState.set(publicUrl, true);
 			ws.onclose = () => {
 				this.bootstrapsConnectionState.set(publicUrl, false);
 				for (const cb of this.peerStore.callbacks.disconnect) cb(remoteId, 'out');
 			}
-			ws.onmessage = async (data) => {
+			ws.onmessage = (data) => {
 				if (remoteId) for (const cb of this.peerStore.callbacks.data) cb(remoteId, data.data);
 				else { // FIRST MESSAGE SHOULD BE HANDSHAKE WITH ID
 					const d = new Uint8Array(data.data); if (d[0] > 127) return; // not unicast, ignore
@@ -187,7 +187,7 @@ export class Topologist {
 
 					const { signatureStart, pubkey, signature } = message;
 					const signedData = d.subarray(0, signatureStart);
-					if (!await this.cryptoCodex.verifySignature(pubkey, signedData, signature)) return;
+					if (!this.cryptoCodex.verifySignature(pubkey, signedData, signature)) return;
 
 					remoteId = route[0];
 					this.peerStore.digestPeerNeighbors(remoteId, neighborsList); // Update known store
@@ -197,8 +197,8 @@ export class Topologist {
 					for (const cb of this.peerStore.callbacks.connect) cb(remoteId, 'out');
 				}
 			};
-			const handshakeMsg = await this.cryptoCodex.createUnicastMessage('handshake', null, [this.id, this.id], this.peerStore.neighborsList);
-			ws.send(handshakeMsg);
+
+			ws.send(this.cryptoCodex.createUnicastMessage('handshake', null, [this.id, this.id], this.peerStore.neighborsList));
 		};
 	}
 	#tryToSpreadSDP(nonPublicNeighborsCount = 0, isHalfReached = false) { // LOOP TO SELECT ONE UNSEND READY OFFER AND BROADCAST IT
