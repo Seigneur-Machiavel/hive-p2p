@@ -4,6 +4,7 @@ import { GossipMessage } from './gossip.mjs';
 import { DirectMessage, ReroutedDirectMessage } from './unicast.mjs';
 import { Converter } from '../services/converter.mjs';
 import { ed25519, x25519, chacha20poly1305, randomBytes , Argon2Unified } from '../services/cryptos.mjs'; // now exposed in full and browser builds
+import { concatBytes } from '@noble/ciphers/utils.js';
 
 export class CryptoCodex {
 	argon2 = new Argon2Unified();
@@ -52,6 +53,7 @@ export class CryptoCodex {
 		const { bitsString } = await this.argon2.hash(publicKey, 'HiveP2P', IDENTITY.ARGON2_MEM) || {};
 		if (bitsString && bitsString.startsWith('0'.repeat(IDENTITY.DIFFICULTY))) return true;
 	}
+	/** @param {Uint8Array} publicKey */
 	#idFromPublicKey(publicKey) {
 		if (IDENTITY.ARE_IDS_HEX) return this.converter.bytesToHex(publicKey.slice(0, this.idLength), IDENTITY.ID_LENGTH);
 		return this.converter.bytesToString(publicKey.slice(0, IDENTITY.ID_LENGTH));
@@ -81,6 +83,22 @@ export class CryptoCodex {
 	}
 	computeX25519SharedSecret(secret, pub) {
 		return x25519.getSharedSecret(secret, pub);
+	}
+	/** @param {Uint8Array} data @param {Uint8Array} sharedSecret */
+	encryptData(data, sharedSecret) {
+		if (!sharedSecret) throw new Error('Cannot encrypt data without shared secret.');
+		const nonce = randomBytes(12);
+		const cipher = chacha20poly1305(sharedSecret, nonce);
+		const encrypted = cipher.encrypt(data);
+		return concatBytes(nonce, encrypted);
+	}
+	/** @param {Uint8Array} encryptedData @param {Uint8Array} sharedSecret */
+	decryptData(encryptedData, sharedSecret) {
+		if (!sharedSecret) throw new Error('Cannot decrypt data without shared secret.');
+		const nonce = encryptedData.slice(0, 12);
+		const cipher = chacha20poly1305(sharedSecret, nonce);
+		const decrypted = cipher.decrypt(encryptedData.slice(12));
+		return decrypted;
 	}
 
 	// MESSAGE CREATION (SERIALIZATION AND SIGNATURE INCLUDED)
@@ -116,8 +134,8 @@ export class CryptoCodex {
 		clone[serializedMessage.length - 1] = Math.max(0, hops - 1);
 		return clone;
 	}
-	/** @param {string} type @param {string | Uint8Array | Object} data @param {string[]} route @param {string[]} [neighbors] */
-	createUnicastMessage(type, data, route, neighbors = [], timestamp = CLOCK.time) {
+	/** @param {string} type @param {string | Uint8Array | Object} data @param {string[]} route @param {string[]} [neighbors] @param {Uint8Array} [encryptionKey] @param {number} [timestamp] */
+	createUnicastMessage(type, data, route, neighbors = [], encryptionKey, timestamp = CLOCK.time) {
 		const MARKER = UNICAST.MARKERS_BYTES[type];
 		if (MARKER === undefined) throw new Error(`Failed to create unicast message: unknown type '${type}'.`);
 		if (route.length < 2) throw new Error('Failed to create unicast message: route must have at least 2 nodes (next hop and target).');
@@ -125,15 +143,16 @@ export class CryptoCodex {
 		
 		const neighborsBytes = this.#idsToBytes(neighbors);
 		const { dataCode, dataBytes } = this.#dataToBytes(data);
+		const dBytes = encryptionKey ? this.encryptData(dataBytes, encryptionKey) : dataBytes;
 		const routeBytes = this.#idsToBytes(route);
-		const totalBytes = 1 + 1 + 1 + 8 + 4 + 32 + neighborsBytes.length + 1 + routeBytes.length + dataBytes.length + IDENTITY.SIGNATURE_LENGTH;
+		const totalBytes = 1 + 1 + 1 + 8 + 4 + 32 + neighborsBytes.length + 1 + routeBytes.length + dBytes.length + IDENTITY.SIGNATURE_LENGTH;
 		const buffer = new ArrayBuffer(totalBytes);
 		const bufferView = new Uint8Array(buffer);
-		this.#setBufferHeader(bufferView, MARKER, dataCode, neighbors.length, timestamp, dataBytes, this.publicKey);
+		this.#setBufferHeader(bufferView, MARKER, dataCode, neighbors.length, timestamp, dBytes, this.publicKey);
 		
-		const NDBL = neighborsBytes.length + dataBytes.length;
+		const NDBL = neighborsBytes.length + dBytes.length;
 		bufferView.set(neighborsBytes, 47); 					// X bytes for neighbors
-		bufferView.set(dataBytes, 47 + neighborsBytes.length); 	// X bytes for data
+		bufferView.set(dBytes, 47 + neighborsBytes.length); 	// X bytes for data
 		bufferView.set([route.length], 47 + NDBL);				// 1 byte for route length
 		bufferView.set(routeBytes, 47 + 1 + NDBL);				// X bytes for route
 
@@ -219,8 +238,8 @@ export class CryptoCodex {
 		} catch (error) { if (this.verbose > 1) console.warn(`Error deserializing ${topic || 'unknown'} gossip message:`, error.stack); }
 		return null;
 	}
-	/** @param {Uint8Array | ArrayBuffer} serialized @return {DirectMessage | ReroutedDirectMessage | null} */
-	readUnicastMessage(serialized) {
+	/** @param {Uint8Array | ArrayBuffer} serialized @param {import('./peer-store.mjs').PeerStore} peerStore @return {DirectMessage | ReroutedDirectMessage | null} */
+	readUnicastMessage(serialized, peerStore) {
 		if (this.verbose > 3) console.log(`%creadUnicastMessage ${serialized.byteLength} bytes`, LOG_CSS.CRYPTO_CODEX);
 		if (this.verbose > 4) console.log(`%c${serialized}`, LOG_CSS.CRYPTO_CODEX);
 		try { // 1, 1, 1, 8, 4, 32, X, 1, X, 64
@@ -229,12 +248,18 @@ export class CryptoCodex {
 			if (type === undefined) throw new Error(`Failed to deserialize unicast message: unknown marker byte ${d[0]}.`);
 			const NDBL = neighLength + dataLength;
 			const neighbors = this.#bytesToIds(serialized.slice(47, 47 + neighLength));
-			const deserializedData = this.#bytesToData(dataCode, serialized.slice(47 + neighLength, 47 + NDBL));
 			const routeLength = serialized[47 + NDBL];
 			const routeBytesLength = routeLength * this.idLength;
 			const signatureStart = 47 + NDBL + 1 + routeBytesLength;
 			const routeBytes = serialized.slice(47 + NDBL + 1, signatureStart);
 			const route = this.#bytesToIds(routeBytes);
+			
+			const destId = route[route.length - 1];
+			const d = type === 'private_message' && this.id === destId
+			? this.decryptData(serialized.slice(47 + neighLength, 47 + NDBL), peerStore.privacy[this.#idFromPublicKey(pubkey)]?.sharedSecret)
+			: serialized.slice(47 + neighLength, 47 + NDBL);
+			
+			const deserializedData = this.id === destId ? this.#bytesToData(dataCode, d) : d;
 			const initialMessageEnd = signatureStart + IDENTITY.SIGNATURE_LENGTH;
 			const signature = serialized.slice(signatureStart, initialMessageEnd);
 			const isPatched = (serialized.length > initialMessageEnd);
@@ -252,7 +277,8 @@ export class CryptoCodex {
 	#bytesToIds(serialized) {
 		const ids = [];
 		const idLength = this.idLength;
-		if (serialized.length % idLength !== 0) throw new Error('Failed to parse ids: invalid serialized length.');
+		if (serialized.length % idLength !== 0)
+			throw new Error('Failed to parse ids: invalid serialized length.');
 
 		for (let i = 0; i < serialized.length / idLength; i++) {
 			const idBytes = serialized.slice(i * idLength, (i + 1) * idLength);

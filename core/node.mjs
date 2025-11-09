@@ -174,19 +174,25 @@ export class Node {
 	/** Send a unicast message to a specific peer
 	 * @param {string} remoteId @param {string | Uint8Array | Object} data
 	 * @param {Object} [options]
-	 * @param {string} [options.type] default: 'message'
-	 * @param {number} [options.spread=1] Number of neighbors used to relay the message
-	 * @param {boolean} [options.encrypted] If true, the message will be encrypted using established shared secret */
+	 * @param {'message' | 'private_message'} [options.type] default: 'message'
+	 * @param {number} [options.spread=1] Number of neighbors used to relay the message */
 	async sendMessage(remoteId, data, options = {}) {
-		const { type, spread, encrypted } = options;
-		const privacy = encrypted ? await this.getPeerPrivacy(remoteId) : null;
-		if (encrypted && !privacy?.sharedSecret) {
+		const { type, spread } = options;
+		const privacy = type === 'private_message' ? await this.getPeerPrivacy(remoteId) : null;
+		if (privacy && !privacy?.sharedSecret) {
 			this.verbose > 1 ? console.warn(`Cannot send encrypted message to ${remoteId} as shared secret could not be established.`) : null;
 			return false;
 		}
-		
-		const encryptionKey = privacy ? privacy.sharedSecret : null;
-		return this.messager.sendUnicast(remoteId, data, type, encryptionKey, spread);
+
+		return this.messager.sendUnicast(remoteId, data, type, spread);
+	}
+	/** Send a private message to a specific peer, ensuring shared secret is established
+	 * @param {string} remoteId @param {string | Uint8Array | Object} data
+	 * @param {Object} [options]
+	 * @param {number} [options.spread=1] Number of neighbors used to relay the message */
+	async sendPrivateMessage(remoteId, data, options = {}) {
+		const o = { ...options, type: 'private_message' };
+		return this.sendMessage(remoteId, data, o);
 	}
 	// Building this function, she can be moved to another class later
 	async getPeerPrivacy(peerId, retry = 20) {
@@ -196,11 +202,12 @@ export class Node {
 			p = this.peerStore.privacy[peerId];
 		}
 
-		let nextMessageIn = 0;
+		let nextMessageIn = 1;
 		while (!p?.sharedSecret && retry-- > 0) {
-			nextMessageIn--;
-			if (nextMessageIn < 0) this.messager.sendUnicast(peerId, p.myPub, 'privacy');
-			else nextMessageIn = 5;
+			if (nextMessageIn-- <= 0) {
+				this.messager.sendUnicast(peerId, p.myPub, 'privacy');
+				nextMessageIn = 5;
+			}
 			await new Promise(r => setTimeout(r, 100));
 			p = this.peerStore.privacy[peerId];
 		}
@@ -252,7 +259,14 @@ export class Node {
 
 	/** Triggered when a new message is received.
 	 *  @param {function} callback can use arguments: (senderId:string, data:any) */
-	onMessageData(callback) { this.messager.on('message', callback); }
+	onMessageData(callback, includesPrivate = true) {
+		this.messager.on('message', callback);
+		if (includesPrivate) this.messager.on('private_message', callback);
+	}
+
+	/** Triggered when a new private message is received.
+	 * @param {function} callback can use arguments: (senderId:string, data:any) */
+	onPrivateMessageData(callback) { this.messager.on('private_message', callback); }
 
 	/** Triggered when a new gossip message is received.
 	 * @param {function} callback can use arguments: (senderId:string, data:any, HOPS:number) */

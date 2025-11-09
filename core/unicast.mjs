@@ -75,15 +75,14 @@ export class UnicastMessager {
 	}
 	/** Send unicast message to a target
 	 * @param {string} remoteId @param {string | Uint8Array | Object} data @param {string} type
-	 * @param {Uint8Array} [encryptionKey] *Optional* Encryption key for the message
 	 * @param {number} [spread] *Optional* Max neighbors used to relay the message, default: 1 */
-	sendUnicast(remoteId, data, type = 'message', encryptionKey, spread = 1) {
+	sendUnicast(remoteId, data, type = 'message', spread = 1) {
 		if (remoteId === this.id) return false;
-		
+
 		const builtResult = this.pathFinder.buildRoutes(remoteId, this.maxRoutes, this.maxHops, this.maxNodes, true);
 		if (!builtResult.success) return false;
-
-		// Caution: re-routing usage who can involve insane results
+		
+		const encryptionKey = type === 'private_message' ? this.peerStore.privacy[remoteId]?.sharedSecret : undefined;
 		const finalSpread = builtResult.success === 'blind' ? 1 : spread; // Spread only if re-routing is false
 		for (let i = 0; i < Math.min(finalSpread, builtResult.routes.length); i++) {
 			const route = builtResult.routes[i].path;
@@ -92,7 +91,7 @@ export class UnicastMessager {
 				continue; // too long route
 			}
 
-			const msg = this.cryptoCodex.createUnicastMessage(type, data, route, this.peerStore.neighborsList);
+			const msg = this.cryptoCodex.createUnicastMessage(type, data, route, this.peerStore.neighborsList, encryptionKey);
 			this.#sendMessageToPeer(route[1], msg);
 		}
 		return true;
@@ -114,7 +113,7 @@ export class UnicastMessager {
 		if (this.arbiter.isBanished(from)) return this.verbose >= 3 ? console.info(`%cReceived direct message from banned peer ${from}, ignoring.`, 'color: red;') : null;
 		if (!this.arbiter.countMessageBytes(from, serialized.byteLength, 'unicast')) return; // ignore if flooding/banished
 
-		const message = this.cryptoCodex.readUnicastMessage(serialized);
+		const message = this.cryptoCodex.readUnicastMessage(serialized, this.peerStore);
 		if (!message) return this.arbiter.countPeerAction(from, 'WRONG_SERIALIZATION');
 		const isOk = await this.arbiter.digestMessage(from, message, serialized);
 		if (!isOk) return; // invalid message or from banished peer
@@ -150,7 +149,7 @@ export class UnicastMessager {
 				return; // too long route
 			}
 				
-			const patchedMessage = await this.cryptoCodex.createReroutedUnicastMessage(serialized, newRoute);
+			const patchedMessage = this.cryptoCodex.createReroutedUnicastMessage(serialized, newRoute);
 			const nextPeerId = newRoute[selfPosition + 1];
 			this.#sendMessageToPeer(nextPeerId, patchedMessage);
 		}

@@ -1,3 +1,5 @@
+// SIMPLE FILE TO TEST PRIVACY-RELATED FEATURES
+
 const { createNode, createPublicNode } = await import('../core/node.mjs'); // dynamic import to allow simulation overrides
 
 const b = await createPublicNode({autoStart: true});
@@ -12,5 +14,5 @@ for (const node of [b, n])
 
 setTimeout(() => {
 	n.sendMessage(b.id, 'hello');
-	n.sendMessage(b.id, 'private hello', { encrypted: true });
+	n.sendPrivateMessage(b.id, 'private hello');
 }, 2000);
