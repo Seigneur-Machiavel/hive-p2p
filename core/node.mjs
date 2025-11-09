@@ -164,10 +164,10 @@ export class Node {
 	 * @param {string | Uint8Array | Object} data @param {string} [targetId] default: broadcast to all
 	 * @param {number} [timestamp] default: CLOCK.time
 	 * @param {Object} [options]
-	 * @param {string} [options.type] default: 'gossip'
+	 * @param {string} [options.topic] default: 'gossip'
 	 * @param {number} [options.HOPS] default: GOSSIP.HOPS[topic] || GOSSIP.HOPS.default */
 	broadcast(data, options = {}) {
-		const { type, HOPS } = options;
+		const { topic, HOPS } = options;
 		return this.gossip.broadcastToAll(data, topic, HOPS);
 	}
 	
