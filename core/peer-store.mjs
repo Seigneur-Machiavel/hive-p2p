@@ -20,6 +20,13 @@ export class KnownPeer { // known peer, not necessarily connected
 	}
 }
 
+class Privacy {
+	/** @type {Uint8Array} */ 	sharedSecret;
+	/** @type {Uint8Array} */ 	myPub;
+	/** @type {Uint8Array} */ 	myPriv;
+	/** @type {Uint8Array} */	peerPub;
+}
+
 export class PeerConnection { // WebSocket or WebRTC connection wrapper
 	peerId; transportInstance; isWebSocket; direction; pendingUntil; connStartTime;
 
@@ -46,6 +53,7 @@ export class PeerStore { // Manages all peers informations and connections (WebS
 	/** @type {Record<string, PeerConnection>} */ 	connected = {};
 	/** @type {Record<string, KnownPeer>} */ 	  	known = {}; // known peers store
 	/** @type {number} */							knownCount = 0;
+	/** @type {Record<string, Privacy>} */ 			privacy = {}; // peerId, Privacy settings
 	/** @type {Record<string, number>} */ 			kick = {}; // peerId, timestamp until kick expires
 	/** @type {Record<string, Function[]>} */ 		callbacks = {
 		'connect': [(peerId, direction) => this.#handleConnect(peerId, direction)],

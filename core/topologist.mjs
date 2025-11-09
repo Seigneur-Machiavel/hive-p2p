@@ -252,7 +252,7 @@ export class Topologist {
 			if (sentTo.has(peerId)) continue;
 			if (sentTo.size === 0) readyOffer.sentCounter++;
 			sentTo.set(peerId, true);
-			this.messager.sendUnicast(peerId, { signal: readyOffer.signal, offerHash }, 'signal_offer', 1);
+			this.messager.sendUnicast(peerId, { signal: readyOffer.signal, offerHash }, 'signal_offer');
 			if (sentTo.size >= 12) break; // limit to 12 unicast max
 		}
 	}

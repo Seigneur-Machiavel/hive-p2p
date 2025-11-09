@@ -158,6 +158,8 @@ export const UNICAST = { // MARKERS RANGE: 0-127
 		'2': 'signal_answer',
 		signal_offer: 3,
 		'3': 'signal_offer',
+		privacy: 4,
+		'4': 'privacy',
 	},
 }
 

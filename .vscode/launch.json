@@ -18,6 +18,13 @@
 			"skipFiles": ["<node_internals>/**"],
 			"program": "${workspaceFolder}\\simulation\\simulator.mjs",
 			"runtimeArgs": ["--inspect"]
+		},
+		{
+			"type": "node",
+			"request": "launch",
+			"name": "Privacy_test",
+			"skipFiles": ["<node_internals>/**"],
+			"program": "${workspaceFolder}\\simulation\\privacy-test.mjs"
 		}
 	]
 }

@@ -3,7 +3,7 @@ import { SIMULATION, NODE, IDENTITY, GOSSIP, UNICAST, LOG_CSS } from './config.m
 import { GossipMessage } from './gossip.mjs';
 import { DirectMessage, ReroutedDirectMessage } from './unicast.mjs';
 import { Converter } from '../services/converter.mjs';
-import { ed25519, Argon2Unified } from '../services/cryptos.mjs'; // now exposed in full and browser builds
+import { ed25519, x25519, chacha20poly1305, randomBytes , Argon2Unified } from '../services/cryptos.mjs'; // now exposed in full and browser builds
 
 export class CryptoCodex {
 	argon2 = new Argon2Unified();
@@ -74,7 +74,16 @@ export class CryptoCodex {
 		if (this.verbose > 0) console.log(`%cFAILED to generate id after ${maxIterations} iterations. Try lowering the difficulty.`, LOG_CSS.CRYPTO_CODEX);
 	}
 
-	// MESSSAGE CREATION (SERIALIZATION AND SIGNATURE INCLUDED)
+	// PRIVACY
+	generateEphemeralX25519Keypair() {
+		const { secretKey, publicKey } = x25519.keygen();
+		return { myPub: publicKey, myPriv: secretKey };
+	}
+	computeX25519SharedSecret(secret, pub) {
+		return x25519.getSharedSecret(secret, pub);
+	}
+
+	// MESSAGE CREATION (SERIALIZATION AND SIGNATURE INCLUDED)
 	/** @param {Uint8Array} bufferView @param {Uint8Array} privateKey @param {number} [signaturePosition] */
 	signBufferViewAndAppendSignature(bufferView, privateKey, signaturePosition = bufferView.length - IDENTITY.SIGNATURE_LENGTH) {
 		if (this.AVOID_CRYPTO) return;

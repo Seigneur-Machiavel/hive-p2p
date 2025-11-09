@@ -17,9 +17,9 @@ import { NodeServices } from './node-services.mjs';
  * @param {string} [options.domain] If provided, the node will operate as a public node and start necessary services (e.g., WebSocket server)
  * @param {number} [options.port] If provided, the node will listen on this port (default: SERVICE.PORT)
  * @param {number} [options.verbose] Verbosity level for logging (default: NODE.DEFAULT_VERBOSE) */
-export async function createPublicNode(options) {
+export async function createPublicNode(options = {}) {
 	const verbose = options.verbose !== undefined ? options.verbose : NODE.DEFAULT_VERBOSE;
-	const domain = options.domain || undefined;
+	const domain = options.domain || "localhost";
 	const codex = options.cryptoCodex || new CryptoCodex(undefined, verbose);
 	const clockSync = CLOCK.sync(verbose);
 	if (!codex.publicKey) await codex.generate(domain ? true : false);
@@ -82,7 +82,7 @@ export class Node {
 		const { arbiter, peerStore, messager, gossip, topologist } = this;
 
 		// SETUP TRANSPORTS LISTENERS
-		peerStore.on('signal', (peerId, data) => this.sendMessage(peerId, data, 'signal_answer')); // answer created => send it to offerer
+		peerStore.on('signal', (peerId, data) => this.sendMessage(peerId, data, { type: 'signal_answer' })); // answer created => send it to offerer
 		peerStore.on('connect', (peerId, direction) => this.#onConnect(peerId, direction));
 		peerStore.on('disconnect', (peerId, direction) => this.#onDisconnect(peerId, direction));
 		peerStore.on('data', (peerId, data) => this.#onData(peerId, data));
@@ -90,6 +90,7 @@ export class Node {
 		// UNICAST LISTENERS
 		messager.on('signal_answer', (senderId, data) => topologist.handleIncomingSignal(senderId, data));
 		messager.on('signal_offer', (senderId, data) => topologist.handleIncomingSignal(senderId, data));
+		messager.on('privacy', (senderId, data) => this.#handlePrivacy(senderId, data));
 
 		// GOSSIP LISTENERS
 		gossip.on('signal_offer', (senderId, data, HOPS) => topologist.handleIncomingSignal(senderId, data, HOPS));
@@ -108,9 +109,9 @@ export class Node {
 		
 		const isHoverNeighbored = this.peerStore.neighborsList.length >= DISCOVERY.TARGET_NEIGHBORS_COUNT + this.halfTarget;
 		const dispatchEvents = () => {
-			//this.sendMessage(peerId, this.id, 'handshake'); // send it in both case, no doubt...
+			//this.sendMessage(peerId, this.id, { type: 'handshake' }); // send it in both case, no doubt...
 			if (DISCOVERY.ON_CONNECT_DISPATCH.OVER_NEIGHBORED && isHoverNeighbored)
-				this.broadcast([], 'over_neighbored'); // inform my neighbors that I am over neighbored
+				this.broadcast([], { type: 'over_neighbored' }); // inform my neighbors that I am over neighbored
 			if (DISCOVERY.ON_CONNECT_DISPATCH.SHARE_HISTORY) 
 				if (this.peerStore.getUpdatedPeerConnectionsCount(peerId) <= 1) this.gossip.sendGossipHistoryToPeer(peerId);
 		};
@@ -160,12 +161,62 @@ export class Node {
 	}
 	
 	/** Broadcast a message to all connected peers or to a specified peer
-	 * @param {string | Uint8Array | Object} data @param {string} topic default: 'gossip' @param {string} [targetId] default: broadcast to all
-	 * @param {number} [timestamp] default: CLOCK.time @param {number} [HOPS] default: GOSSIP.HOPS[topic] || GOSSIP.HOPS.default */
-	broadcast(data, topic, HOPS) { return this.gossip.broadcastToAll(data, topic, HOPS); }
+	 * @param {string | Uint8Array | Object} data @param {string} [targetId] default: broadcast to all
+	 * @param {number} [timestamp] default: CLOCK.time
+	 * @param {Object} [options]
+	 * @param {string} [options.type] default: 'gossip'
+	 * @param {number} [options.HOPS] default: GOSSIP.HOPS[topic] || GOSSIP.HOPS.default */
+	broadcast(data, options = {}) {
+		const { type, HOPS } = options;
+		return this.gossip.broadcastToAll(data, topic, HOPS);
+	}
 	
-	/** @param {string} remoteId @param {string | Uint8Array | Object} data @param {string} type */
-	sendMessage(remoteId, data, type, spread = 1) { return this.messager.sendUnicast(remoteId, data, type, spread); }
+	/** Send a unicast message to a specific peer
+	 * @param {string} remoteId @param {string | Uint8Array | Object} data
+	 * @param {Object} [options]
+	 * @param {string} [options.type] default: 'message'
+	 * @param {number} [options.spread=1] Number of neighbors used to relay the message
+	 * @param {boolean} [options.encrypted] If true, the message will be encrypted using established shared secret */
+	async sendMessage(remoteId, data, options = {}) {
+		const { type, spread, encrypted } = options;
+		const privacy = encrypted ? await this.getPeerPrivacy(remoteId) : null;
+		if (encrypted && !privacy?.sharedSecret) {
+			this.verbose > 1 ? console.warn(`Cannot send encrypted message to ${remoteId} as shared secret could not be established.`) : null;
+			return false;
+		}
+		
+		const encryptionKey = privacy ? privacy.sharedSecret : null;
+		return this.messager.sendUnicast(remoteId, data, type, encryptionKey, spread);
+	}
+	// Building this function, she can be moved to another class later
+	async getPeerPrivacy(peerId, retry = 20) {
+		let p = this.peerStore.privacy[peerId];
+		if (!p) {
+			this.peerStore.privacy[peerId] = this.cryptoCodex.generateEphemeralX25519Keypair();
+			p = this.peerStore.privacy[peerId];
+		}
+
+		let nextMessageIn = 0;
+		while (!p?.sharedSecret && retry-- > 0) {
+			nextMessageIn--;
+			if (nextMessageIn < 0) this.messager.sendUnicast(peerId, p.myPub, 'privacy');
+			else nextMessageIn = 5;
+			await new Promise(r => setTimeout(r, 100));
+			p = this.peerStore.privacy[peerId];
+		}
+		return p;
+	}
+	/** @param {string} senderId @param {Uint8Array} peerPub */
+	#handlePrivacy(senderId, peerPub) {
+		if (this.peerStore.privacy[senderId]?.sharedSecret) return; // already have shared secret
+		
+		if (!this.peerStore.privacy[senderId])
+			this.peerStore.privacy[senderId] = this.cryptoCodex.generateEphemeralX25519Keypair();
+
+		this.peerStore.privacy[senderId].peerPub = peerPub;
+		this.peerStore.privacy[senderId].sharedSecret = this.cryptoCodex.computeX25519SharedSecret(this.peerStore.privacy[senderId].myPriv, peerPub);
+		this.messager.sendUnicast(senderId, this.peerStore.privacy[senderId].myPub, 'privacy');
+	}
 
 	/** Send a connection request to a peer */
 	async tryConnectToPeer(targetId = 'toto', retry = 10) {
@@ -174,7 +225,7 @@ export class Node {
 			const { offerHash, readyOffer } = this.peerStore.offerManager.bestReadyOffer(100, false);
 			if (!offerHash || !readyOffer) await new Promise(r => setTimeout(r, 1000)); // build in progress...
 			else {
-				this.messager.sendUnicast(targetId, { signal: readyOffer.signal, offerHash }, 'signal_offer', 1);
+				this.messager.sendUnicast(targetId, { signal: readyOffer.signal, offerHash }, 'signal_offer');
 				return;
 			}
 		} while (retry-- > 0);

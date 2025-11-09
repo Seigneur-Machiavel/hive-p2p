@@ -75,10 +75,11 @@ export class UnicastMessager {
 	}
 	/** Send unicast message to a target
 	 * @param {string} remoteId @param {string | Uint8Array | Object} data @param {string} type
-	 * @param {number} [spread] Max neighbors used to relay the message, default: 1 */
-	sendUnicast(remoteId, data, type = 'message', spread = 1) {
+	 * @param {Uint8Array} [encryptionKey] *Optional* Encryption key for the message
+	 * @param {number} [spread] *Optional* Max neighbors used to relay the message, default: 1 */
+	sendUnicast(remoteId, data, type = 'message', encryptionKey, spread = 1) {
 		if (remoteId === this.id) return false;
-
+		
 		const builtResult = this.pathFinder.buildRoutes(remoteId, this.maxRoutes, this.maxHops, this.maxNodes, true);
 		if (!builtResult.success) return false;
 
@@ -91,7 +92,8 @@ export class UnicastMessager {
 				continue; // too long route
 			}
 
-			this.#sendMessageToPeer(route[1], this.cryptoCodex.createUnicastMessage(type, data, route, this.peerStore.neighborsList));
+			const msg = this.cryptoCodex.createUnicastMessage(type, data, route, this.peerStore.neighborsList);
+			this.#sendMessageToPeer(route[1], msg);
 		}
 		return true;
 	}
