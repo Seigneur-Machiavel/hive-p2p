@@ -73,7 +73,6 @@ export class Argon2Unified {
 		const hex = this.converter.bytesToHex(hash);
 		/** @type {string} */
 		const bitsString = Converter.hexToBits(hex, 'string');
-		if (!bitsString) return false;
 		return { encoded, hash, hex, bitsString };
 	}
 }
