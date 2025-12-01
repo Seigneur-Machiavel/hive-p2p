@@ -26,11 +26,9 @@ export async function createPublicNode(options = {}) {
 	
 	await clockSync;
 	const node = new Node(codex, options.bootstraps || [], verbose);
-	if (domain) {
-		node.services = new NodeServices(codex, node.peerStore, undefined, verbose);
-		node.services.start(domain, options.port || SERVICE.PORT);
-		node.topologist.services = node.services;
-	}
+	node.services = new NodeServices(codex, node.peerStore, undefined, verbose);
+	node.services.start(domain, options.port || SERVICE.PORT);
+	node.topologist.services = node.services;
 	if (options.autoStart !== false) await node.start();
 	return node;
 }

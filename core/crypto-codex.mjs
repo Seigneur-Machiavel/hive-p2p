@@ -3,7 +3,7 @@ import { SIMULATION, NODE, IDENTITY, GOSSIP, UNICAST, LOG_CSS } from './config.m
 import { GossipMessage } from './gossip.mjs';
 import { DirectMessage, ReroutedDirectMessage } from './unicast.mjs';
 import { Converter } from '../services/converter.mjs';
-import { ed25519, x25519, chacha20poly1305, randomBytes , Argon2Unified } from '../services/cryptos.mjs'; // now exposed in full and browser builds
+import { ed25519, x25519, chacha20poly1305, randomBytes, Argon2Unified } from '../services/cryptos.mjs'; // now exposed in full and browser builds
 import { concatBytes } from '@noble/ciphers/utils.js';
 
 export class CryptoCodex {
@@ -27,10 +27,11 @@ export class CryptoCodex {
 		for (let i = 0; i < IDENTITY.ID_LENGTH; i++) this.publicKey[i] = idBytes[i];
 	}
 
-	/** @param {boolean} asPublicNode Default: false @param {Uint8Array} seed PrivateKey *-optional* */
+	/** @param {boolean} asPublicNode Default: false @param {Uint8Array | string} seed 32 bytes PrivateKey *-optional* */
 	static async createCryptoCodex(asPublicNode, seed) {
 		const cryptoCodex = new CryptoCodex(undefined, this.verbose);
-		await cryptoCodex.generate(asPublicNode, seed);
+		const seedBytes = !seed ? undefined : (typeof seed === 'string' ? cryptoCodex.converter.hexToBytes(seed) : seed);
+		await cryptoCodex.generate(asPublicNode, seedBytes);
 		return cryptoCodex;
 	}
 
