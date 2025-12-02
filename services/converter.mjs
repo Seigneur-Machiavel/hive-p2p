@@ -67,8 +67,9 @@ export class Converter {
             n = n / BigInt(58);
         }
 
-        const bytes = isNode ? Buffer.from(base58) : new TextEncoder().encode(base58);
-        for (let i = 0; i < bytes.length && bytes[i] === 0; i++) base58 = '1' + base58;
+        //const bytes = isNode ? Buffer.from(base58) : new TextEncoder().encode(base58);
+        const bytes = this.textEncoder.encode(base58);
+		for (let i = 0; i < bytes.length && bytes[i] === 0; i++) base58 = '1' + base58;
 
         return base58;
     }
