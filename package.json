@@ -23,6 +23,7 @@
     "resources/the-gossip-grail.html"
   ],
   "dependencies": {
+	"node-pre-gyp": "~0.17.0",
     "@noble/curves": "2.0.1",
     "@noble/ciphers": "2.0.1",
     "argon2": "~0.44.0",
