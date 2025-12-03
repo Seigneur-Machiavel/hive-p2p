@@ -1,11 +1,13 @@
 import { CLOCK } from '../services/clock.mjs';
 import { NODE, TRANSPORTS, LOG_CSS } from './config.mjs';
 import { xxHash32 } from '../libs/xxhash32.mjs';
-async function getWrtc() {
+
+// WE SHOULD LOAD WRTC ONLY WHEN NEEDED ! => Now done in node.mjs
+/*async function getWrtc() {
     if (typeof globalThis.RTCPeerConnection !== 'undefined') return undefined;
     return (await import('wrtc')).default;
 }
-const wrtc = await getWrtc();
+const wrtc = await getWrtc();*/
 
 /** - 'OfferObj' Definition
  * @typedef {Object} OfferObj
@@ -20,6 +22,7 @@ const wrtc = await getWrtc();
 
 export class OfferManager { // Manages the creation of SDP offers and handling of answers
 	id;
+	wrtc;
 	verbose;
 	stunUrls;
 
@@ -36,6 +39,9 @@ export class OfferManager { // Manages the creation of SDP offers and handling o
 	offersToCreate = TRANSPORTS.MAX_SDP_OFFERS;
 	/** @type {Record<string, OfferObj>} key: offerHash **/ offers = {};
 
+	/** WRTC assignment, this is made to avoid import of wrtc while importing hive-p2P lib */
+	assignTransportWrtc(w) { this.wrtc = w; }
+	/** WRTC Should be assigned before calling tick() */
 	tick() { // called in peerStore to avoid multiple intervals
 		const now = CLOCK.time;
 		// CLEAR EXPIRED CREATOR OFFER INSTANCES
@@ -90,7 +96,7 @@ export class OfferManager { // Manages the creation of SDP offers and handling o
 	};
 	#createOffererInstance(expiration) {
 		const iceCompleteTimeout = TRANSPORTS.ICE_COMPLETE_TIMEOUT || 1_000;
-		const instance = new TRANSPORTS.PEER({ initiator: true, trickle: false, iceCompleteTimeout, wrtc, config: { iceServers: this.stunUrls } });
+		const instance = new TRANSPORTS.PEER({ initiator: true, trickle: false, iceCompleteTimeout, wrtc: this.wrtc, config: { iceServers: this.stunUrls } });
 		instance.on('error', error => this.#onError(error));
 		instance.on('signal', data => { // trickle: false => only one signal event with the full offer
 			const { candidate, type } = data; // with trickle, we need to adapt the approach.
@@ -183,7 +189,7 @@ export class OfferManager { // Manages the creation of SDP offers and handling o
 			
 			// type === 'offer' => CREATE ANSWERER INSTANCE
 			const iceCompleteTimeout = TRANSPORTS.ICE_COMPLETE_TIMEOUT || 1_000;
-			const instance = new TRANSPORTS.PEER({ initiator: false, trickle: false, iceCompleteTimeout, wrtc, config: { iceServers: this.stunUrls } });
+			const instance = new TRANSPORTS.PEER({ initiator: false, trickle: false, iceCompleteTimeout, wrtc: this.wrtc, config: { iceServers: this.stunUrls } });
 			instance.on('error', (error) => this.#onError(error));
 			instance.on('signal', (data) => this.onSignalAnswer(remoteId, data, offerHash));
 			instance.on('connect', () => this.onConnect(remoteId, instance));

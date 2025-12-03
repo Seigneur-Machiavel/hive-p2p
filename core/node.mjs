@@ -144,13 +144,23 @@ export class Node {
 	get publicUrl() { return this.services?.publicUrl; }
 	get time() { return CLOCK.time; }
 
+	async #getWrtc() {
+		if (typeof RTCPeerConnection !== 'undefined') return undefined;
+		return (await import('wrtc')).default;
+	}
 	async start() {
+		const w = await this.#getWrtc();
+		this.offerManager.assignTransportWrtc(w);
+
 		await CLOCK.sync(this.verbose);
 		this.started = true;
 		if (SIMULATION.AVOID_INTERVALS) return true; // SIMULATOR CASE
 
 		this.arbiterInterval = setInterval(() => this.arbiter.tick(), 1000);
-		this.peerStoreInterval = setInterval(() => { this.peerStore.cleanupExpired(); this.peerStore.offerManager.tick(); }, 2500);
+		this.peerStoreInterval = setInterval(() => {
+			this.peerStore.cleanupExpired();
+			this.peerStore.offerManager.tick();
+		}, 2500);
 		if (this.publicUrl) return true;
 		
 		this.enhancerInterval = setInterval(() => this.topologist.tick(), DISCOVERY.LOOP_DELAY);
