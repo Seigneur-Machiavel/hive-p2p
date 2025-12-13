@@ -16,20 +16,22 @@ function compare(iteration = 50_000) {
 	// ITERATION
 	start = performance.now();
 	for (const key in obj) obj[key].index++;
-	objTime = performance.now() - start;
+	objTime = (performance.now() - start) / iteration;
 
 	start = performance.now();
 	for (const [key, value] of map) value.index++;
-	console.log(`ITERATION: Obj: ${objTime.toFixed(2)} ms, Map: ${(performance.now() - start).toFixed(2)} ms`);
+	let arrayTime = (performance.now() - start) / iteration;
+	console.log(`ITERATION: Obj: ${objTime.toFixed(2)} ms, Map: ${arrayTime.toFixed(2)} ms`);
 	
 	// KEY ACCESS
 	start = performance.now();
 	for (let i = 0; i < iteration; i++) obj[i.toString()].index++;
-	objTime = performance.now() - start;
+	objTime = (performance.now() - start) / iteration;
 	
 	start = performance.now();
 	for (let i = 0; i < iteration; i++) map.get(i.toString()).index++;
-	console.log(`KEY ACCESS: Obj: ${objTime.toFixed(2)} ms, Map: ${(performance.now() - start).toFixed(2)} ms`);
+	arrayTime = (performance.now() - start) / iteration;
+	console.log(`KEY ACCESS: Obj: ${objTime.toFixed(2)} ms, Map: ${arrayTime.toFixed(2)} ms`);
 
 	// LENGTH RETRIEVAL
 	start = performance.now();
