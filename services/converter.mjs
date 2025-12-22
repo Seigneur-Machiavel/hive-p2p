@@ -84,46 +84,25 @@ export class Converter {
     }
 	/** @param {Uint8Array} uint8Array - Uint8Array to convert to string */
 	bytesToHex(uint8Array, minLength = 0) { return Converter.bytesToHex(uint8Array, minLength); }
-	
+
 	// BASE58
-	/** @param {string} hex - Hex string to convert to base58 */
-    hexToBase58(hex) {
-        const num = Converter.hexToBigInt(hex);
-        let base58 = '';
-        let n = num;
-        while (n > 0) {
-            const remainder = n % BigInt(58);
-            base58 = base58AlphabetArray[Number(remainder)] + base58;
-            n = n / BigInt(58);
-        }
-
-        //const bytes = isNode ? Buffer.from(base58) : new TextEncoder().encode(base58);
-        const bytes = this.textEncoder.encode(base58);
-		for (let i = 0; i < bytes.length && bytes[i] === 0; i++) base58 = '1' + base58;
-
-        return base58;
-    }
-    /** @param {string} base58 - Base58 string to convert to Hex */
-    base58ToHex(base58, minLength = 0) {
-        let num = BigInt(0);
-        const base = BigInt(58);
-        for (const char of base58) num = num * base + BigInt(base58Alphabet[char]);
-
-        let hex = num.toString(16);
-        if (hex.length % 2 !== 0) hex = '0' + hex;
-        if (minLength > 0) hex = hex.padStart(minLength, '0');
-        return hex;
-    }
-    /** @param {string} addressBase58 - Base58 address to convert to Uint8Array(16 bytes) */
-    addressBase58ToBytes(addressBase58) {
-        const hex = this.base58ToHex(addressBase58, 32);
-        return this.hexToBytes(hex);
-    }
-    /** @param {Uint8Array} addressUint8Array - Uint8Array(16 bytes) to convert to base58 */
-    addressBytesToBase58(addressUint8Array) {
-        const hex = this.bytesToHex(addressUint8Array, 32);
-        return this.hexToBase58(hex);
-    }
+	/** @param {number} num - Unsigned integer 4bytes to convert to Base58 string @param {number} [minLength] - Minimum length of the output string, padded with '1', default: 6 */
+	static uint32ToB58(num, minLength = 6) {
+		if (num === 0) return '1';
+		
+		let result = '';
+		while (num > 0) {
+			result = base58AlphabetArray[num % 58] + result;
+			num = Math.floor(num / 58);
+		}
+		return result.padStart(minLength, '1');
+	}
+	/** @param {string} b58 - Base58 string to convert to uint32 */
+	static b58ToUint32(b58) {
+		let result = 0;
+		for (const char of b58) result = result * 58 + base58Alphabet[char];
+		return result;
+	}
 
 	// OTHERS
 	/** @param {string} hex - Hex string to convert to BigInt */
