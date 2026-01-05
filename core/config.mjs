@@ -1,5 +1,10 @@
+if (typeof window === 'undefined' && typeof self !== 'undefined') {
+  globalThis.window = self; // PATCH THE WINDOW OBJECT FOR SIMPLEPEER
+  //globalThis.document = {};
+}
+
 const isNode = typeof self === 'undefined';
-//if (!isNode) (await import('../libs/simplepeer-9.11.1.min.js')).default;
+if (!isNode) (await import('../libs/simplepeer-9.11.1.min.js')).default;
 
 // HOLD: GLOBAL CONFIG FOR THE LIBRARY
 // AVOID: CIRCULAR DEPENDENCIES AND TOO MANY FUNCTION/CONSTRUCTOR CONFIG
@@ -108,8 +113,8 @@ export const TRANSPORTS = {
 	
 	WS_CLIENT: WebSocket,
 	WS_SERVER: isNode ? (await import('ws')).WebSocketServer : null,
-	//PEER: isNode ? (await import('simple-peer')).default : window.SimplePeer
-	PEER: (await import('simple-peer')).default,
+	PEER: isNode ? (await import('simple-peer')).default : globalThis.window.SimplePeer
+	//PEER: (await import('simple-peer')).default,
 }
 
 export const DISCOVERY = {
