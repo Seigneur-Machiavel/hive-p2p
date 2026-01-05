@@ -2,7 +2,7 @@ const base58Alphabet = { '1': 0, '2': 1, '3': 2, '4': 3, '5': 4, '6': 5, '7': 6,
 const base58AlphabetArray = [ '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J', 'K', 'L', 'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z' ];
 
 export class Converter {
-	IS_BROWSER = typeof window !== 'undefined';
+	IS_BROWSER = typeof self !== 'undefined';
 	FROMBASE64_AVAILABLE = typeof Uint8Array.fromBase64 === 'function';
 	textEncoder = new TextEncoder();
 	textDecoder = new TextDecoder();

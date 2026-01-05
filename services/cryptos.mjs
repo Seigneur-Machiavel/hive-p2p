@@ -1,5 +1,5 @@
 import { Converter } from './converter.mjs';
-const IS_BROWSER = typeof window !== 'undefined';
+const IS_BROWSER = typeof self !== 'undefined';
 
 // ED25519 EXPOSURE NODEJS/BROWSER COMPATIBLE ---------------------------------
 const { ed25519, x25519 } = await import('@noble/curves/ed25519.js');
