@@ -1,4 +1,4 @@
-const isNode = (typeof window === 'undefined');
+const isNode = typeof self === 'undefined';
 if (!isNode) (await import('../libs/simplepeer-9.11.1.min.js')).default;
 
 // HOLD: GLOBAL CONFIG FOR THE LIBRARY
