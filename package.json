@@ -1,6 +1,6 @@
 {
   "name": "hive-p2p",
-  "version": "1.0.81",
+  "version": "1.0.82",
   "publishConfig": {
     "access": "public"
   },
