@@ -4,18 +4,18 @@
  */
 
 export class Clock {
-	verbose;
-	mockMode; // if true, use local time without sync
+	verbose = 0;
+	mockMode = false; // if true, use local time without sync
 	static #instance = null;
 
+	/* PRIVATE PROPERTIES */
+	proxyUrl = null;
 	#offset = null; // ms difference from local time
 	#syncing = false;
 	#lastSync = 0;
 	#sources = ['time.google.com', 'time.cloudflare.com', 'pool.ntp.org'];
 
-	constructor(verbose = 0, mockMode = false) {
-		this.verbose = verbose;
-		this.mockMode = mockMode;
+	constructor() {
 		if (Clock.#instance) return Clock.#instance;
 		else Clock.#instance = this;
 	}
@@ -72,6 +72,12 @@ export class Clock {
 
 	// PRIVATE METHODS
 	async #fetchTimeSamples() { // Fetch time samples from all sources in parallel
+		if (this.proxyUrl) {
+			// Mode proxy : un seul fetch vers le serveur local
+			const sample = await this.#fetchTimeFromProxy();
+			return sample ? [sample] : [];
+		}
+
 		const promises = this.#sources.map(source => this.#fetchTimeFromSource(source));
 		const results = await Promise.allSettled(promises);
 		const samples = [];
@@ -95,6 +101,27 @@ export class Clock {
 			return {
 				source,
 				serverTime: serverTime + networkLatency, // Compensate for network delay
+				localTime: Date.now(),
+				latency: networkLatency * 2
+			};
+		} finally { clearTimeout(timeoutId); }
+	}
+	async #fetchTimeFromProxy() {
+		const controller = new AbortController();
+		const timeoutId = setTimeout(() => controller.abort(), 2000);
+		
+		try {
+			const startTime = Date.now();
+			const response = await fetch(this.proxyUrl, { method: 'HEAD', signal: controller.signal });
+			const networkLatency = (Date.now() - startTime) / 2;
+			if (!response.ok) throw new Error(`HTTP ${response.status}`);
+			
+			const serverTime = new Date(response.headers.get('date')).getTime();
+			if (isNaN(serverTime)) throw new Error('Invalid date header');
+			
+			return {
+				source: 'proxy',
+				serverTime: serverTime + networkLatency,
 				localTime: Date.now(),
 				latency: networkLatency * 2
 			};

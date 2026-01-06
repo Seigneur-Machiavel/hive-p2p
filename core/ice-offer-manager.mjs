@@ -2,13 +2,6 @@ import { CLOCK } from '../services/clock.mjs';
 import { NODE, TRANSPORTS, LOG_CSS } from './config.mjs';
 import { xxHash32 } from '../libs/xxhash32.mjs';
 
-// WE SHOULD LOAD WRTC ONLY WHEN NEEDED ! => Now done in node.mjs
-/*async function getWrtc() {
-    if (typeof globalThis.RTCPeerConnection !== 'undefined') return undefined;
-    return (await import('wrtc')).default;
-}
-const wrtc = await getWrtc();*/
-
 /** - 'OfferObj' Definition
  * @typedef {Object} OfferObj
  * @property {number} timestamp
