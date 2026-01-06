@@ -112,16 +112,13 @@ export class Clock {
 		
 		try {
 			const startTime = Date.now();
-			const response = await fetch(this.proxyUrl, { method: 'HEAD', signal: controller.signal });
+			const response = await fetch(this.proxyUrl, { signal: controller.signal });
 			const networkLatency = (Date.now() - startTime) / 2;
-			if (!response.ok) throw new Error(`HTTP ${response.status}`);
-			
-			const serverTime = new Date(response.headers.get('date')).getTime();
-			if (isNaN(serverTime)) throw new Error('Invalid date header');
+			const data = await response.json();
 			
 			return {
 				source: 'proxy',
-				serverTime: serverTime + networkLatency,
+				serverTime: data.time + networkLatency,
 				localTime: Date.now(),
 				latency: networkLatency * 2
 			};
