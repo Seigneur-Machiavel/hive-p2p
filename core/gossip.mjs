@@ -108,10 +108,10 @@ export class Gossip {
 		const serializedMessage = this.cryptoCodex.createGossipMessage(topic, data, hops, this.peerStore.neighborsList);
 		if (!this.bloomFilter.addMessage(serializedMessage)) return; // avoid sending duplicate messages
 		if (this.verbose > 3) console.log(`(${this.id}) Gossip ${topic}, to ${JSON.stringify(this.peerStore.neighborsList)}: ${data}`);
-		for (const peerId of this.peerStore.neighborsList) this.#broadcastToPeer(peerId, serializedMessage);
+		for (const peerId of this.peerStore.neighborsList) this.broadcastToPeer(peerId, serializedMessage);
 	}
 	/** @param {string} targetId @param {any} serializedMessage */
-	#broadcastToPeer(targetId, serializedMessage) {
+	broadcastToPeer(targetId, serializedMessage) {
 		if (targetId === this.id) throw new Error(`Refusing to send a gossip message to self (${this.id}).`);
 		const transportInstance = this.peerStore.connected[targetId]?.transportInstance;
 		if (!transportInstance) return { success: false, reason: `Transport instance is not available for peer ${targetId}.` };
@@ -120,7 +120,7 @@ export class Gossip {
 	}
 	sendGossipHistoryToPeer(peerId) {
 		const gossipHistory = this.bloomFilter.getGossipHistoryByTime('asc');
-		for (const entry of gossipHistory) this.#broadcastToPeer(peerId, entry.data);
+		for (const entry of gossipHistory) this.broadcastToPeer(peerId, entry.data);
 	}
 	/** @param {string} from @param {Uint8Array} serialized @returns {void} */
 	async handleGossipMessage(from, serialized) {
@@ -156,6 +156,6 @@ export class Gossip {
 		for (const peerId of this.peerStore.neighborsList)
 			if (peerId === from) continue; // avoid sending back to sender
 			else if (!avoidTransmissionRate && Math.random() > transmissionRate) continue; // apply gossip transmission rate
-			else this.#broadcastToPeer(peerId, serializedToTransmit);
+			else this.broadcastToPeer(peerId, serializedToTransmit);
 	}
 }
