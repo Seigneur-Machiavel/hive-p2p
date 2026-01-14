@@ -223,9 +223,10 @@ export class CryptoCodex {
 	readGossipMessage(serialized) {
 		if (this.verbose > 3) console.log(`%creadGossipMessage ${serialized.byteLength} bytes`, LOG_CSS.CRYPTO_CODEX);
 		if (this.verbose > 4) console.log(`%c${serialized}`, LOG_CSS.CRYPTO_CODEX);
+		let topic;
 		try { // 1, 1, 1, 8, 4, 32, X, 64, 1
 			const { marker, dataCode, neighLength, timestamp, dataLength, pubkey, associatedId } = this.readBufferHeader(serialized);
-			const topic = GOSSIP.MARKERS_BYTES[marker];
+			topic = GOSSIP.MARKERS_BYTES[marker];
 			if (topic === undefined) throw new Error(`Failed to deserialize gossip message: unknown marker byte ${d[0]}.`);
 			const NDBL = neighLength + dataLength;
 			const neighbors = this.#bytesToIds(serialized.slice(47, 47 + neighLength));
@@ -243,9 +244,10 @@ export class CryptoCodex {
 	readUnicastMessage(serialized, peerStore) {
 		if (this.verbose > 3) console.log(`%creadUnicastMessage ${serialized.byteLength} bytes`, LOG_CSS.CRYPTO_CODEX);
 		if (this.verbose > 4) console.log(`%c${serialized}`, LOG_CSS.CRYPTO_CODEX);
+		let type;
 		try { // 1, 1, 1, 8, 4, 32, X, 1, X, 64
 			const { marker, dataCode, neighLength, timestamp, dataLength, pubkey } = this.readBufferHeader(serialized, false);
-			const type = UNICAST.MARKERS_BYTES[marker];
+			type = UNICAST.MARKERS_BYTES[marker];
 			if (type === undefined) throw new Error(`Failed to deserialize unicast message: unknown marker byte ${d[0]}.`);
 			const NDBL = neighLength + dataLength;
 			const neighbors = this.#bytesToIds(serialized.slice(47, 47 + neighLength));
