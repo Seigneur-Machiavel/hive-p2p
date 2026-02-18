@@ -9,7 +9,7 @@ import { concatBytes } from '@noble/ciphers/utils.js';
 export class CryptoCodex {
 	argon2 = new Argon2Unified();
 	converter = new Converter();
-	AVOID_CRYPTO = false;
+	AVOID_CRYPTO = true; // AVOID CRYPTO OPERATIONS (default) => auto-enable when generate() is called, but can be set to true to disable crypto in any case (e.g. for testing with string ids)
 	verbose = NODE.DEFAULT_VERBOSE;
 	/** @type {string} */ id;
     /** @type {Uint8Array} */ publicKey;
@@ -92,6 +92,11 @@ export class CryptoCodex {
 		const cipher = chacha20poly1305(sharedSecret, nonce);
 		const encrypted = cipher.encrypt(data);
 		return concatBytes(nonce, encrypted);
+		// Vanilla =>
+		/*const result = new Uint8Array(nonce.length + encrypted.length);
+		result.set(nonce, 0);
+		result.set(encrypted, nonce.length);
+		return result;*/
 	}
 	/** @param {Uint8Array} encryptedData @param {Uint8Array} sharedSecret */
 	decryptData(encryptedData, sharedSecret) {

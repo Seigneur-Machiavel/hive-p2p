@@ -17,7 +17,9 @@ const { SANDBOX, ICE_CANDIDATE_EMITTER, TEST_WS_EVENT_MANAGER } = SIMULATION.ENA
  * @property {number} overlap
  * @property {number} neighborsCount
  * @property {number} timestamp
- * */
+ * 
+ * @typedef {import('./unicast.mjs').DirectMessage} DirectMessage
+ * @typedef {import('./gossip.mjs').GossipMessage} GossipMessage */
 
 export class OfferQueue {
 	maxOffers = 30;
@@ -88,8 +90,8 @@ export class Topologist {
 		if (this.phase === 0) this.tryConnectNextBootstrap(neighborsCount, nonPublicNeighborsCount);
 		if (this.phase === 1) this.#tryToSpreadSDP(nonPublicNeighborsCount, isHalfReached);
 	}
-	/** @param {string} peerId @param {SignalData} data @param {number} [HOPS] */
-	handleIncomingSignal(senderId, data, HOPS) {
+	/** @param {string} senderId @param {SignalData} data */
+	handleIncomingSignal(senderId, data) {
 		if (this.isPublicNode || !senderId || this.peerStore.isKicked(senderId)) return;
 		if (data.signal?.type !== 'offer' && data.signal?.type !== 'answer') return;
 		

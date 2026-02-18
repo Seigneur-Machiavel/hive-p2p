@@ -83,7 +83,7 @@ class DegenerateBloomFilter {
 }
 
 export class Gossip {
-	/** @type {Record<string, Function[]>} */ callbacks = { message_handle: [] };
+	/** @type {Record<string, function(GossipMessage)[]>} */ callbacks = { message_handle: [] };
 	id; cryptoCodex; arbiter; peerStore; verbose; bloomFilter;
 
 	/** @param {string} selfId @param {import('./crypto-codex.mjs').CryptoCodex} cryptoCodex @param {import('./arbiter.mjs').Arbiter} arbiter @param {import('./peer-store.mjs').PeerStore} peerStore */
@@ -96,7 +96,7 @@ export class Gossip {
 		this.bloomFilter = new DegenerateBloomFilter(cryptoCodex);
 	}
 
-	/** @param {string} callbackType @param {Function} callback */
+	/** @param {string} callbackType @param {function(GossipMessage)} callback */
 	on(callbackType, callback) {
 		if (!this.callbacks[callbackType]) this.callbacks[callbackType] = [callback];
 		else this.callbacks[callbackType].push(callback);
@@ -131,6 +131,7 @@ export class Gossip {
 
 		const message = this.cryptoCodex.readGossipMessage(serialized);
 		if (!message) return this.arbiter.countPeerAction(from, 'WRONG_SERIALIZATION');
+
 		const isOk = await this.arbiter.digestMessage(from, message, serialized);
 		if (!isOk) return; // invalid message or from banished peer
 		if (this.arbiter.isBanished(from)) return; // ignore messages from banished peers
@@ -144,7 +145,8 @@ export class Gossip {
 			else console.log(`(${this.id}) Gossip ${topic} from ${senderId} (by: ${from}): ${data}`);
 
 		this.peerStore.digestPeerNeighbors(senderId, neighborsList);
-		for (const cb of this.callbacks[topic] || []) cb(senderId, data, HOPS, message); // specific topic callback
+		//for (const cb of this.callbacks[topic] || []) cb(senderId, data, HOPS, message); // specific topic callback
+		for (const cb of this.callbacks[topic] || []) cb(message); // specific topic callback with full message object
 		if (HOPS < 1) return; // stop forwarding if HOPS is 0
 
 		const nCount = this.peerStore.neighborsList.length;

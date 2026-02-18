@@ -9,6 +9,13 @@ import { Topologist } from './topologist.mjs';
 import { CryptoCodex } from './crypto-codex.mjs';
 import { NodeServices } from './node-services.mjs';
 
+/**
+ * @typedef {import('./unicast.mjs').DirectMessage} DirectMessage
+ * @typedef {import('./unicast.mjs').ReroutedDirectMessage} ReroutedDirectMessage
+ * @typedef {import('./gossip.mjs').GossipMessage} GossipMessage
+ * @typedef {import('./topologist.mjs').SignalData} SignalData
+ */
+
 /** Create and start a new PublicNode instance.
  * @param {Object} options
  * @param {string[]} options.bootstraps List of bootstrap nodes used as P2P network entry
@@ -86,12 +93,12 @@ export class Node {
 		peerStore.on('data', (peerId, data) => this.#onData(peerId, data));
 		
 		// UNICAST LISTENERS
-		messager.on('signal_answer', (senderId, data) => topologist.handleIncomingSignal(senderId, data));
-		messager.on('signal_offer', (senderId, data) => topologist.handleIncomingSignal(senderId, data));
-		messager.on('privacy', (senderId, data) => this.#handlePrivacy(senderId, data));
+		messager.on('signal_answer', (msg) => topologist.handleIncomingSignal(msg.senderId, msg.data));
+		messager.on('signal_offer', (msg) => topologist.handleIncomingSignal(msg.senderId, msg.data));
+		messager.on('privacy', (msg) => this.#handlePrivacy(msg));
 
 		// GOSSIP LISTENERS
-		gossip.on('signal_offer', (senderId, data, HOPS) => topologist.handleIncomingSignal(senderId, data, HOPS));
+		gossip.on('signal_offer', (msg) => topologist.handleIncomingSignal(msg.senderId, msg.data));
 
 		if (verbose > 2) console.log(`Node initialized: ${this.id}`);
 	}
@@ -221,8 +228,13 @@ export class Node {
 		}
 		return p;
 	}
-	/** @param {string} senderId @param {Uint8Array} peerPub */
-	#handlePrivacy(senderId, peerPub) {
+	/** @param {DirectMessage} msg */
+	#handlePrivacy(msg) {
+		const { senderId, data: peerPub } = msg;
+		if (!(peerPub instanceof Uint8Array)) {
+			this.verbose > 1 ? console.warn(`Received invalid privacy message from ${senderId}, expected peer public key as Uint8Array.`) : null;
+			return;
+		}
 		if (this.peerStore.privacy[senderId]?.sharedSecret) return; // already have shared secret
 		
 		if (!this.peerStore.privacy[senderId])
@@ -256,36 +268,24 @@ export class Node {
 	}
 
 	// HANDLERS REGISTRATION --------------------------------------------------
-
 	/** Triggered when a new peer connection is established.
 	 *  @param {function} callback can use arguments: (peerId:string, direction:string) */
 	onPeerConnect(callback) { this.peerStore.on('connect', callback); }
-	
-	/** Triggered when a peer connection is closed.
-	 *  @param {function} callback can use arguments: (peerId:string, direction:string) */
+	/** Triggered when a peer connection is closed. @param {function} callback can use arguments: (peerId:string, direction:string) */
 	onPeerDisconnect(callback) { this.peerStore.on('disconnect', callback); }
-
-	/** Triggered when a new message is received.
-	 *  @param {function} callback can use arguments: (senderId:string, data:any) */
+	/** Triggered when a new message is received. @param {function(DirectMessage)} callback */
 	onMessageData(callback, includesPrivate = true) {
 		this.messager.on('message', callback);
 		if (includesPrivate) this.messager.on('private_message', callback);
 	}
-
-	/** Triggered when a new private message is received.
-	 * @param {function} callback can use arguments: (senderId:string, data:any) */
+	/** Triggered when a new private message is received. @param {function(DirectMessage)} callback */
 	onPrivateMessageData(callback) { this.messager.on('private_message', callback); }
-
-	/** Triggered when a new gossip message is received.
-	 * @param {function} callback can use arguments: (senderId:string, data:any, HOPS:number) */
+	/** Triggered when a new gossip message is received. @param {function(GossipMessage)} callback */
 	onGossipData(callback) { this.gossip.on('gossip', callback); }
-
-	/** Triggered when a new signal offer is received from another peer.
-	 *  @param {function} callback can use arguments: (senderId:string, data:SignalData) */
+	/** Triggered when a new signal offer is received from another peer. @param {function(string, SignalData)} callback can use arguments: (senderId:string, data:SignalData) */
 	onSignalOffer(callback) { this.messager.on('signal_offer', callback); this.gossip.on('signal_offer', callback); }
-
 	/** Triggered when a new signal answer is received from another peer.
-	 * @param {function} callback can use arguments: (senderId:string, data:SignalData) */
+	 * @param {function(string, SignalData)} callback can use arguments: (senderId:string, data:SignalData) */
 	onSignalAnswer(callback) { this.messager.on('signal_answer', callback); }
 
 	/** Kick a peer.  @param {string} peerId @param {string} [reason] */

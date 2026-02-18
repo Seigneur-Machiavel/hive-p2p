@@ -59,7 +59,8 @@ const bee2 = await HiveP2P.createNode({ bootstraps });
 
 // Listen for unicast messages (target id)
 for (const node of [publicNode, bee1, bee2])
-	node.onMessageData((fromId, message) => console.log(`[${node.id}] from [${fromId}]: ${message}`));
+	node.onMessageData(msg) => console.log(`[${node.id}] from [${msg.senderId}]: ${msg.data}`);
+	//node.onMessageData((fromId, message) => console.log(`[${node.id}] from [${fromId}]: ${message}`));
 
 // Listen for gossip messages (broadcast to all)
 for (const node of [publicNode, bee1, bee2])

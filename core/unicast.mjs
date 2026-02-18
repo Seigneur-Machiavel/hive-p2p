@@ -14,8 +14,10 @@ export class DirectMessage { // TYPE DEFINITION
 	signature;
 	signatureStart; // position in the serialized message where the signature starts
 	expectedEnd; // expected length of the serialized message
+	/** @type {string[] | undefined} */ newRoute; // for re-routing patch
+	get senderId() { return this.newRoute ? this.newRoute[0] : this.route[0]; }
 
-	/** @param {string} type @param {number} timestamp @param {string[]} neighborsList @param {string[]} route @param {string} pubkey @param {string | Uint8Array | Object} data @param {string | undefined} signature @param {number} signatureStart @param {number} expectedEnd */
+	/** @param {string} type @param {number} timestamp @param {string[]} neighborsList @param {string[]} route @param {Uint8Array} pubkey @param {string | Uint8Array | Object} data @param {Uint8Array | undefined} signature @param {number} signatureStart @param {number} expectedEnd */
 	constructor(type, timestamp, neighborsList, route, pubkey, data, signature, signatureStart, expectedEnd) {
 		this.type = type; this.timestamp = timestamp; this.neighborsList = neighborsList;
 		this.route = route; this.pubkey = pubkey; this.data = data; this.signature = signature; this.signatureStart = signatureStart; this.expectedEnd = expectedEnd;
@@ -30,7 +32,8 @@ export class DirectMessage { // TYPE DEFINITION
 			traveledRoute.push(route[i]);
 			if (route[i] === selfId) { selfPosition = i; break; }
 		}
-		const senderId = route[0];
+		//const senderId = route[0];
+		const senderId = this.senderId;
 		const targetId = route[route.length - 1];
 		const prevId = selfPosition > 0 ? route[selfPosition - 1] : null;
 		const nextId = (selfPosition !== -1) ? route[selfPosition + 1] : null;
@@ -51,7 +54,7 @@ export class ReroutedDirectMessage extends DirectMessage {
 }
 
 export class UnicastMessager {
-	/** @type {Record<string, Function[]>} */ callbacks = { message_handle: [] };
+	/** @type {Record<string, function(DirectMessage)[]>} */ callbacks = { message_handle: [] };
 	id; cryptoCodex; arbiter; peerStore; verbose; pathFinder;
 	
 	maxHops = UNICAST.MAX_HOPS;
@@ -68,7 +71,7 @@ export class UnicastMessager {
 		this.pathFinder = new RouteBuilder(this.id, this.peerStore);
 	}
 
-	/** @param {string} callbackType @param {Function} callback */
+	/** @param {string} callbackType @param {function(DirectMessage)} callback */
 	on(callbackType, callback) {
 		if (!this.callbacks[callbackType]) this.callbacks[callbackType] = [callback];
 		else this.callbacks[callbackType].push(callback);
@@ -135,7 +138,8 @@ export class UnicastMessager {
 		this.peerStore.digestPeerNeighbors(senderId, message.neighborsList);
 		if (from !== senderId) this.arbiter.adjustTrust(from, TRUST_VALUES.UNICAST_RELAYED, 'Relayed unicast message');
 		if (DISCOVERY.ON_UNICAST.DIGEST_TRAVELED_ROUTE) this.peerStore.digestValidRoute(traveledRoute);
-		if (this.id === targetId) { for (const cb of this.callbacks[message.type] || []) cb(senderId, message.data); return; } // message for self
+		//if (this.id === targetId) { for (const cb of this.callbacks[message.type] || []) cb(senderId, message.data); return; } // message for self
+		if (this.id === targetId) { for (const cb of this.callbacks[message.type] || []) cb(message); return; } // message for self
 
 		// re-send the message to the next peer in the route
 		const { success, reason } = this.#sendMessageToPeer(nextId, serialized);

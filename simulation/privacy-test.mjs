@@ -10,7 +10,7 @@ const n = await createNode({bootstraps: [url]});
 console.log(`Node ID: ${n.id}`);
 
 for (const node of [b, n])
-	node.onMessageData((from, data) => console.log(`Node ${node.id} received message from ${from}:`, data));
+	node.onMessageData((msg) => console.log(`Node ${node.id} received message from ${msg.senderId}:`, msg.data));
 
 setTimeout(() => {
 	n.sendMessage(b.id, 'hello');

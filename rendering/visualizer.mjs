@@ -1,5 +1,10 @@
 import { NetworkRenderer } from './NetworkRenderer.mjs';
-import { CryptoCodex } from '../core/crypto-codex.mjs';
+//import { CryptoCodex } from '../core/crypto-codex.mjs';
+//window.CryptoCodex = CryptoCodex; // Expose for debugging
+
+// NOW WE USE THE MIN LIBRARY WHICH EXPOSES CRYPTOCODEX IN THE BROWSER BUILD
+/** @type {import("../core/crypto-codex.mjs").CryptoCodex} */
+const CryptoCodex = HiveP2P.CryptoCodex;
 window.CryptoCodex = CryptoCodex; // Expose for debugging
 
 class SimulationInterface {
@@ -10,7 +15,6 @@ class SimulationInterface {
 	onPeersIds;
 	onPeerInfo;
 	onPeerMessage;
-
 	responseReceivedByType = {};
 
 	/** @param {function} onSettings @param {function} onPeersIds @param {function} onPeerInfo */
