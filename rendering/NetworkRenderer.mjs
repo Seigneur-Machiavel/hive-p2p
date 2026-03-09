@@ -283,7 +283,7 @@ export class NetworkRenderer {
 		}
 	}
 	displayDirectMessageRoute(relayerId, route = [], frameToIgnore = 30) {
-		const fto = Math.round(frameToIgnore * (this.frameCount / 60));
+		const fto = Math.round(frameToIgnore * (this.fps / 60));
 		const maxTraveledColorIndex = this.colors.traveledConnection.length - 1;
 		let traveledIndex = 0;
 		let isRelayerIdPassed = false;
@@ -295,8 +295,8 @@ export class NetworkRenderer {
 		}
 	}
 	displayGossipMessageRoute(relayerId, senderId, topic = 'peer_connected', data, frameToIgnore = 25) {
-		const fto = Math.round(frameToIgnore * (this.frameCount / 60));
-		const fto2 = Math.round((frameToIgnore + 5) * (this.frameCount / 60));
+		const fto = Math.round(frameToIgnore * (this.fps / 60));
+		const fto2 = Math.round((frameToIgnore + 5) * (this.fps / 60));
 		this.connectionsStore.updateOrAssignLineColor(senderId, relayerId, this.colors.gossipOutgoingColor, .4, fto, true);
 		this.connectionsStore.updateOrAssignLineColor(relayerId, this.currentPeerId, this.colors.gossipIncomingColor, .8, fto2, true);
 	}
@@ -701,8 +701,9 @@ export class NetworkRenderer {
 	}
 
 	lastPhysicUpdate = 0;
-	frameCount = 60;
 	lastFpsUpdate = 0;
+	frameCount = 60;
+	fps = 60;
 	#animate() {
 		if (!this.isAnimating) return;
 		
@@ -710,7 +711,8 @@ export class NetworkRenderer {
 		this.frameCount++;
 		if (currentTime - this.lastFpsUpdate >= 1000) {
 			if (this.frameCount < 60 * .98) this.updateBatchMax = Math.round(Math.max(100, this.updateBatchMax * .9));
-			this.fpsCountElement.textContent = this.frameCount;
+			this.fps = 0 + this.frameCount;
+			this.fpsCountElement.textContent = this.fps;
 			this.frameCount = 0;
 			this.lastFpsUpdate = currentTime;
 		}

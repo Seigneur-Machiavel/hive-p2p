@@ -284,8 +284,7 @@ export class Node {
 	onGossipData(callback) { this.gossip.on('gossip', callback); }
 	/** Triggered when a new signal offer is received from another peer. @param {function(string, SignalData)} callback can use arguments: (senderId:string, data:SignalData) */
 	onSignalOffer(callback) { this.messager.on('signal_offer', callback); this.gossip.on('signal_offer', callback); }
-	/** Triggered when a new signal answer is received from another peer.
-	 * @param {function(string, SignalData)} callback can use arguments: (senderId:string, data:SignalData) */
+	/** Triggered when a new signal answer is received from another peer. @param {function(string, SignalData)} callback can use arguments: (senderId:string, data:SignalData) */
 	onSignalAnswer(callback) { this.messager.on('signal_answer', callback); }
 
 	/** Kick a peer.  @param {string} peerId @param {string} [reason] */

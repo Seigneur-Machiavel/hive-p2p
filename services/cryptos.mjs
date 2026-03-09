@@ -35,6 +35,7 @@ export class Argon2Unified {
 	
 		return result;
 	}
+	/** This function tries to load an Argon2 library in a unified way for both browser and NodeJS environments. */
 	async getArgon2Lib() {
 		if (this.argon2) return this.argon2;
 
@@ -57,8 +58,9 @@ export class Argon2Unified {
 		this.argon2 = argon2ES6.default;
 		return this.argon2;
 	};
+	/** @param {string} pass @param {string | Uint8Array} salt @param {number} time @param {number} mem @param {number} parallelism @param {number} type @param {number} hashLen */
 	#createArgon2Params(pass = "averylongpassword123456", salt = "saltsaltsaltsaltsalt", time = 1, mem = 2**10, parallelism = 1, type = 2, hashLen = 32) {
-		const fixedSalt = salt.padEnd(20, '0').substring(0, 16); // 16 bytes minimum
+		const fixedSalt = salt.padEnd(16, '0').substring(0, 16); // 32 bytes minimum
 		return {
 			type, pass, parallelism,
 			time, timeCost: time, 			// we preserve both for compatibility
@@ -67,6 +69,7 @@ export class Argon2Unified {
 			salt: IS_BROWSER ? fixedSalt : Buffer.from(fixedSalt),
 		};
 	}
+	/** @param {string} encoded - Argon2 encoded string (e.g. $argon2id$v=19$m=1048576,t=1,p=1$c2FsdHNhbHRzYWx0c2FsdHNhbHQ$UamPN/XTTX4quPewQNw4/s3y1JJeS22cRroh5l7OTMM) */
 	#standardizeArgon2FromEncoded(encoded = '$argon2id$v=19$m=1048576,t=1,p=1$c2FsdHNhbHRzYWx0c2FsdHNhbHQ$UamPN/XTTX4quPewQNw4/s3y1JJeS22cRroh5l7OTMM') {
 		const base64 = encoded.split('$').pop();
 		const hash = this.converter.base64toBytes(base64);
