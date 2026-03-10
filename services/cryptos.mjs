@@ -60,7 +60,10 @@ export class Argon2Unified {
 	};
 	/** @param {string} pass @param {string | Uint8Array} salt @param {number} time @param {number} mem @param {number} parallelism @param {number} type @param {number} hashLen */
 	#createArgon2Params(pass = "averylongpassword123456", salt = "saltsaltsaltsaltsalt", time = 1, mem = 2**10, parallelism = 1, type = 2, hashLen = 32) {
-		const fixedSalt = salt.padEnd(16, '0').substring(0, 16); // 32 bytes minimum
+		const fixedSalt = IS_BROWSER
+			? salt.padEnd(16, '0').substring(0, 16) // 
+			: Buffer.from(fixedSalt); // 32 bytes minimum
+
 		return {
 			type, pass, parallelism,
 			time, timeCost: time, 			// we preserve both for compatibility

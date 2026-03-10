@@ -78,8 +78,10 @@ export class CryptoCodex {
 	}
 
 	// PRIVACY
-	generateEphemeralX25519Keypair() {
-		const { secretKey, publicKey } = x25519.keygen();
+	/** @param {string} [seedHex] A 32bytes hex-encoded seed for key generation */
+	generateEphemeralX25519Keypair(seedHex) {
+		const seed = seedHex ? this.converter.hexToBytes(seedHex) : undefined;
+		const { secretKey, publicKey } = x25519.keygen(seed);
 		return { myPub: publicKey, myPriv: secretKey };
 	}
 	computeX25519SharedSecret(secret, pub) {
