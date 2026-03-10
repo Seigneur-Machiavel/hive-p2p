@@ -17,7 +17,7 @@ export class Argon2Unified {
 
 	/** This function hashes a password using Argon2 - Browser/NodeJS unified
 	 * @param {string} pass - Password to hash
-	 * @param {string} salt - Salt to use for the hash
+	 * @param {string | Uint8Array} salt - Salt to use for the hash, in browser: string, in NodeJS: Uint8Array
 	 * @param {number} [mem] - Memory usage in KiB, default: 2**16 = 65_536 (64 MiB) | RECOMMENDED: 2**16
 	 * @param {number} [time] - Time cost in iterations, default: 1
 	 * @param {number} [parallelism] - Number of threads to use, default: 1
@@ -60,16 +60,15 @@ export class Argon2Unified {
 	};
 	/** @param {string} pass @param {string | Uint8Array} salt @param {number} time @param {number} mem @param {number} parallelism @param {number} type @param {number} hashLen */
 	#createArgon2Params(pass = "averylongpassword123456", salt = "saltsaltsaltsaltsalt", time = 1, mem = 2**10, parallelism = 1, type = 2, hashLen = 32) {
-		const fixedSalt = IS_BROWSER
-			? salt.padEnd(16, '0').substring(0, 16) // 
-			: Buffer.from(fixedSalt); // 32 bytes minimum
+		if (IS_BROWSER && typeof salt !== 'string') throw new Error('In browser, salt must be a string');
+		if (!IS_BROWSER && !(salt instanceof Uint8Array)) throw new Error('In NodeJS, salt must be a Uint8Array');
 
-		return {
+		return { // If string salt: Pad/truncate to 16 characters
 			type, pass, parallelism,
 			time, timeCost: time, 			// we preserve both for compatibility
 			mem, memoryCost: mem, 			// we preserve both for compatibility
 			hashLen, hashLength: hashLen, 	// we preserve both for compatibility
-			salt: IS_BROWSER ? fixedSalt : Buffer.from(fixedSalt),
+			salt: IS_BROWSER ? salt.padEnd(16, '0').substring(0, 16) : Buffer.from(salt)
 		};
 	}
 	/** @param {string} encoded - Argon2 encoded string (e.g. $argon2id$v=19$m=1048576,t=1,p=1$c2FsdHNhbHRzYWx0c2FsdHNhbHQ$UamPN/XTTX4quPewQNw4/s3y1JJeS22cRroh5l7OTMM) */
