@@ -62,8 +62,8 @@ export class Argon2Unified {
 	#createArgon2Params(pass = "averylongpassword123456", salt = "saltsaltsaltsaltsalt", time = 1, mem = 2**10, parallelism = 1, type = 2, hashLen = 32) {
 		if (typeof salt !== 'string') throw new Error('salt must be a string');
 
-		const s = salt.padEnd(16, '0').substring(0, 16);
-		return { // If string salt: Pad/truncate to 16 characters
+		const s = salt.padEnd(64, '0').substring(0, 64); // 32 bytes = 64 hex chars, we ensure it's always 32 bytes by padding/truncating
+		return {
 			type, pass, parallelism,
 			time, timeCost: time, 			// we preserve both for compatibility
 			mem, memoryCost: mem, 			// we preserve both for compatibility
