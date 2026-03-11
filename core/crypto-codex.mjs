@@ -44,8 +44,10 @@ export class CryptoCodex {
     /** @param {boolean} asPublicNode @param {Uint8Array} [seed] The privateKey. DON'T USE IN SIMULATION */
 	async generate(asPublicNode, seed) { // Generate Ed25519 keypair cross-platform | set id only for simulator
 		if (this.nodeId) return;
-		await this.#generateAntiSybilIdentity(seed, asPublicNode);
-		this.AVOID_CRYPTO = false; // enable crypto operations
+
+		const s = seed || await CryptoCodex.generateNewSybilIdentity(asPublicNode, this.verbose > 0);
+		await this.#generateAntiSybilIdentity(s, asPublicNode);
+		this.AVOID_CRYPTO = false; // force enable crypto operations
 		if (!this.id) throw new Error('Failed to generate identity');
     }
 	/** Check if the pubKey meets the difficulty using Argon2 derivation @param {Uint8Array} publicKey */
@@ -61,20 +63,27 @@ export class CryptoCodex {
 	}
 	/** @param {Uint8Array} seed The privateKey. @param {boolean} asPublicNode */
 	async #generateAntiSybilIdentity(seed, asPublicNode) {
-		const maxIterations = (2 ** IDENTITY.DIFFICULTY) * 100; // avoid infinite loop
-		for (let i = 0; i < maxIterations; i++) { // avoid infinite loop
-			const { secretKey, publicKey } = ed25519.keygen(seed);
-			const id = this.#idFromPublicKey(publicKey);
-			if (asPublicNode && !this.isPublicNode(id)) continue; // Check prefix
-			if (!asPublicNode && this.isPublicNode(id)) continue; // Check prefix
-			if (!await this.pubkeyDifficultyCheck(publicKey)) continue; // Check difficulty
+		const { secretKey, publicKey } = ed25519.keygen(seed);
+		const id = this.#idFromPublicKey(publicKey);
+		if (asPublicNode && !this.isPublicNode(id)) throw new Error('Seed does not produce a public node identity.');
+		if (!asPublicNode && this.isPublicNode(id)) throw new Error('Seed does not produce a private node identity.');
+		if (!await this.pubkeyDifficultyCheck(publicKey)) throw new Error('Seed does not meet difficulty requirements.');
+		this.id = id;
+		this.privateKey = secretKey; this.publicKey = publicKey;
+	}
+	/** @param {boolean} asPublicNode */
+	static async generateNewSybilIdentity(asPublicNode, log = true) {
+		const cryptoCodex = new CryptoCodex();
+		const maxIterations = (2 ** IDENTITY.DIFFICULTY) * 128;
+		for (let i = 0; i < maxIterations; i++) {
+			const seed = randomBytes(32);
+			try { await cryptoCodex.#generateAntiSybilIdentity(seed, asPublicNode); }
+			catch { continue; }
 
-			this.id = id;
-			this.privateKey = secretKey; this.publicKey = publicKey;
-			if (this.verbose > 2) console.log(`%cNode generated id: ${this.id} (isPublic: ${asPublicNode}, difficulty: ${IDENTITY.DIFFICULTY}) after ${((i + 1) / 2).toFixed(1)} iterations`, LOG_CSS.CRYPTO_CODEX);
-			return;
+			if (log) console.log(`Generated new ${asPublicNode ? 'public' : 'private'} identity after ${i + 1} iterations.`);
+			return seed;
 		}
-		if (this.verbose > 0) console.log(`%cFAILED to generate id after ${maxIterations} iterations. Try lowering the difficulty.`, LOG_CSS.CRYPTO_CODEX);
+		throw new Error(`Failed to generate identity after ${maxIterations} iterations. Try lowering the difficulty.`);
 	}
 
 	// PRIVACY
