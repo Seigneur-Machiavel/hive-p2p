@@ -49,7 +49,7 @@ export class OfferQueue {
 }
 
 export class Topologist {
-	id; cryptoCodex; gossip; messager; peerStore; bootstraps; offersQueue = new OfferQueue();
+	verbose; id; cryptoCodex; gossip; messager; peerStore; bootstraps; offersQueue = new OfferQueue();
 	/** @type {Map<string, boolean>} */ bootstrapsConnectionState = new Map();
 	/** @type {import('./node-services.mjs').NodeServices | undefined} */ services;
 	/** @type {number} */ NEIGHBORS_TARGET;
@@ -67,9 +67,9 @@ export class Topologist {
 	get isPublicNode() { return this.services?.publicUrl ? true : false; }
 
 	/** @param {string} selfId @param {import('./crypto-codex.mjs').CryptoCodex} cryptoCodex @param {import('./gossip.mjs').Gossip} gossip @param {import('./unicast.mjs').UnicastMessager} messager @param {import('./peer-store.mjs').PeerStore} peerStore @param {string[]} bootstraps */
-	constructor(selfId, cryptoCodex, gossip, messager, peerStore, bootstraps) {
+	constructor(selfId, cryptoCodex, gossip, messager, peerStore, bootstraps, verbose = 1) {
 		this.setNeighborsTarget(DISCOVERY.TARGET_NEIGHBORS_COUNT);
-		this.id = selfId; this.cryptoCodex = cryptoCodex; this.gossip = gossip; this.messager = messager; this.peerStore = peerStore;
+		this.verbose = verbose; this.id = selfId; this.cryptoCodex = cryptoCodex; this.gossip = gossip; this.messager = messager; this.peerStore = peerStore;
 		for (const url of bootstraps) this.bootstrapsConnectionState.set(url, false);
 		this.bootstraps = [...bootstraps].sort(() => Math.random() - 0.5); // shuffle
 		this.nextBootstrapIndex = Math.random() * this.bootstraps.length | 0;
@@ -170,7 +170,7 @@ export class Topologist {
 	#connectToPublicNode(publicUrl = 'localhost:8080') {
 		let remoteId = null;
 		const ws = new TRANSPORTS.WS_CLIENT(this.#getFullWsUrl(publicUrl)); ws.binaryType = 'arraybuffer';
-		ws.onerror = (error) => console.warn(`WebSocket error:`, error.stack);
+		if (this.verbose > 1) ws.onerror = (error) => console.warn(`WebSocket error:`, error.stack);
 		ws.onopen = () => {
 			this.bootstrapsConnectionState.set(publicUrl, true);
 			ws.onclose = () => {
