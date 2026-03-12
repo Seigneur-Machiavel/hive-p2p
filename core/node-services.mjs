@@ -50,10 +50,10 @@ export class NodeServices {
 	}
 	#startWebSocketServer(domain = 'localhost', port = SERVICE.PORT) {
 		this.wsServer = new TRANSPORTS.WS_SERVER({ port, host: domain });
-		this.wsServer.on('error', (error) => console.error(`WebSocket error on Node #${this.id}:`, error));
+		this.wsServer.on('error', (error) => console.warn(`WebSocket error on Node #${this.id}:`, error));
 		this.wsServer.on('connection', (ws) => {
 			ws.on('close', () => { if (remoteId) for (const cb of this.peerStore.callbacks.disconnect) cb(remoteId, 'in'); });
-			ws.on('error', (error) => console.error(`WebSocket error on Node #${this.id} with peer ${remoteId}:`, error.stack));
+			ws.on('error', (error) => console.warn(`WebSocket error on Node #${this.id} with peer ${remoteId}:`, error.stack));
 
 			let remoteId;
 			ws.on('message', (data) => { // When peer proves his id, we can handle data normally

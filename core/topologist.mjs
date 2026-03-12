@@ -170,7 +170,7 @@ export class Topologist {
 	#connectToPublicNode(publicUrl = 'localhost:8080') {
 		let remoteId = null;
 		const ws = new TRANSPORTS.WS_CLIENT(this.#getFullWsUrl(publicUrl)); ws.binaryType = 'arraybuffer';
-		ws.onerror = (error) => console.error(`WebSocket error:`, error.stack);
+		ws.onerror = (error) => console.warn(`WebSocket error:`, error.stack);
 		ws.onopen = () => {
 			this.bootstrapsConnectionState.set(publicUrl, true);
 			ws.onclose = () => {
