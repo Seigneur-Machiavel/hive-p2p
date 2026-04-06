@@ -1,10 +1,12 @@
 {
   "name": "hive-p2p",
   "version": "1.0.98",
+  "license": "GPL-3.0",
+  "author": "PinkParrot",
+  "description": "P2P networking library for Node.js with WebRTC - Full featured package",
   "publishConfig": {
     "access": "public"
   },
-  "description": "P2P networking library for Node.js with WebRTC - Full featured package",
   "type": "module",
   "main": "./packages/full/index.mjs",
   "scripts": {
@@ -48,7 +50,5 @@
     "gossip",
     "mesh",
     "simulation"
-  ],
-  "author": "PinkParrot",
-  "license": "GPL-3.0"
+  ]
 }

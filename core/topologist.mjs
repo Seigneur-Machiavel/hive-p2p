@@ -50,8 +50,8 @@ export class OfferQueue {
 
 export class Topologist {
 	verbose; id; cryptoCodex; gossip; messager; peerStore; bootstraps; offersQueue = new OfferQueue();
-	/** @type {Map<string, boolean>} */	bootstrapConnexionStates = new Map();
-	/** @type {Set<string>} */			connectedBootstrapIds = new Set();
+	/** @type {Set<string>} */	connectedBootstraps = new Set();
+	/** @type {Set<string>} */	connectedBootstrapIds = new Set();
 	/** @type {import('./node-services.mjs').NodeServices | undefined} */ services;
 	/** @type {number} */ NEIGHBORS_TARGET;
 	/** @type {number} */ HALF_TARGET;
@@ -132,7 +132,7 @@ export class Topologist {
 			else if (connectingCount + nonPublicNeighborsCount > this.TWICE_TARGET) return; // no more bootstrap needed
 
 		const publicUrl = this.bootstraps[this.nextBootstrapIndex++ % this.bootstraps.length];
-		if (this.bootstrapConnexionStates.get(publicUrl)) return; // already connected/connecting
+		if (this.connectedBootstraps.has(publicUrl)) return; // already connected/connecting
 		this.#connectToPublicNode(publicUrl);
 	}
 	
@@ -173,10 +173,10 @@ export class Topologist {
 		const ws = new TRANSPORTS.WS_CLIENT(this.#getFullWsUrl(publicUrl)); ws.binaryType = 'arraybuffer';
 		if (this.verbose > 1) ws.onerror = (error) => console.warn(`WebSocket error:`, error.stack);
 		ws.onopen = () => {
-			this.bootstrapConnexionStates.set(publicUrl, true);
+			this.connectedBootstraps.add(publicUrl);
 			ws.onclose = () => {
-				if (isAliasDetected) return;
-				this.bootstrapConnexionStates.set(publicUrl, false);
+				this.connectedBootstraps.delete(publicUrl);
+				if (isAliasDetected) return; // early return (not totally connected, no peerStore record)
 				this.connectedBootstrapIds.delete(remoteId);
 				for (const cb of this.peerStore.callbacks.disconnect) cb(remoteId, 'out');
 			}
