@@ -1,6 +1,6 @@
 {
   "name": "hive-p2p",
-  "version": "1.0.99",
+  "version": "1.0.100",
   "license": "GPL-3.0",
   "author": "PinkParrot",
   "description": "P2P networking library for Node.js with WebRTC - Full featured package",
