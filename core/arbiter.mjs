@@ -5,11 +5,8 @@ import { NODE, GOSSIP, UNICAST, LOG_CSS } from './config.mjs';
 // Growing each second by 1000ms until 0
 // Lowered each second by 100ms until 0 (avoid attacker growing balances on multiple disconnected peers)
 
-const BYTES_COUNT_PERIOD 			= 10_000; 		// 10 seconds
-const MAX_UNICAST_BYTES_PER_PERIOD 	= 1_000_000; 	// 1MB per period
-const MAX_GOSSIP_BYTES_PER_PERIOD 	= 100_000; 		// 100KB per period
-
-const MAX_TRUST 	= 		3_600_000; 		// +3600 seconds = 1 hour of good behavior
+const BYTES_COUNT_PERIOD	= 10_000; 		// 10 seconds
+const MAX_TRUST 			= 3_600_000; 	// +3600 seconds = 1 hour of good behavior
 export const TRUST_VALUES = {
 	// POSITIVE IDENTITY
 	VALID_SIGNATURE: 		+10_000, 		// +10 seconds
@@ -90,8 +87,8 @@ export class Arbiter {
 		if (!this.bytesCounters[type][peerId]) this.bytesCounters[type][peerId] = 0;
 		this.bytesCounters[type][peerId] += byteLength;
 		const [maxByte, penality] = type === 'gossip'
-		? [MAX_GOSSIP_BYTES_PER_PERIOD, TRUST_VALUES.GOSSIP_FLOOD]
-		: [MAX_UNICAST_BYTES_PER_PERIOD, TRUST_VALUES.UNICAST_FLOOD];
+		? [GOSSIP.MAX_BYTES_PER_PERIOD, TRUST_VALUES.GOSSIP_FLOOD]
+		: [UNICAST.MAX_BYTES_PER_PERIOD, TRUST_VALUES.UNICAST_FLOOD];
 		// If under the limit, return true -> else apply penality and return undefined
 		if (this.bytesCounters[type][peerId] < maxByte) return true;
 		return this.adjustTrust(peerId, penality, `Message ${type} flood detected`);

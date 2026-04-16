@@ -145,6 +145,8 @@ export const DISCOVERY = {
 }
 
 export const UNICAST = { // MARKERS RANGE: 0-127
+	/** Maximum number of bytes per period | Default: 2_000_000 (2MB per period of 10 seconds) */
+	MAX_BYTES_PER_PERIOD: 2_000_000,
 	/** Maximum number of hops(relaying) for direct message | Default: 8
 	 * - Default: 8, light: 6, super-light: 4, direct-only: 2 */
 	MAX_HOPS: 8,
@@ -172,6 +174,8 @@ export const UNICAST = { // MARKERS RANGE: 0-127
 }
 
 export const GOSSIP = { // MARKERS RANGE: 128-255
+	/** Maximum number of bytes per period | Default: 5_000_000 (5MB per period of 10 seconds) */
+	MAX_BYTES_PER_PERIOD: 5_000_000,
 	/** Time to consider a message as valid | Default: 10_000 (10 seconds) */
 	EXPIRATION: 10_000,
 	/** Time to keep messages in cache to avoid reprocessing | Default: 20_000 (20 seconds) */
