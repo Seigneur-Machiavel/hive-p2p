@@ -3,10 +3,10 @@ const IS_BROWSER = typeof self !== 'undefined';
 
 // ED25519 EXPOSURE NODEJS/BROWSER COMPATIBLE ---------------------------------
 const { ed25519, x25519 } = await import('@noble/curves/ed25519.js');
-const { chacha20poly1305 } = await import('@noble/ciphers/chacha.js');
+const { chacha20poly1305, xchacha20poly1305 } = await import('@noble/ciphers/chacha.js');
 const { randomBytes } = await import('@noble/ciphers/utils.js');
 
-export { ed25519, x25519, chacha20poly1305, randomBytes };
+export { ed25519, x25519, chacha20poly1305, xchacha20poly1305, randomBytes };
 
 //-----------------------------------------------------------------------------
 
