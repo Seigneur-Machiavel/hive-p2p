@@ -73,7 +73,7 @@ export class Clock {
 	// PRIVATE METHODS
 	async #fetchTimeSamples() { // Fetch time samples from all sources in parallel
 		if (this.proxyUrl) {
-			// Mode proxy : un seul fetch vers le serveur local
+			// Proxy mode: fetch from proxy instead of NTP sources
 			const sample = await this.#fetchTimeFromProxy();
 			return sample ? [sample] : [];
 		}

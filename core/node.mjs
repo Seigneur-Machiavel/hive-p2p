@@ -31,7 +31,7 @@ export async function createPublicNode(options = {}) {
 	const clockSync = CLOCK.sync(verbose);
 	if (!codex.publicKey) await codex.generate(domain ? true : false);
 	
-	await clockSync;
+	if (options.autoStart !== false) await clockSync;
 	const node = new Node(codex, options.bootstraps || [], verbose);
 	node.services = new NodeServices(codex, node.peerStore, undefined, verbose);
 	node.services.start(domain, options.port || SERVICE.PORT);
