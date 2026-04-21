@@ -52,7 +52,7 @@ export async function createNode(options = {}) {
 	const clockSync = CLOCK.sync(verbose);
 	if (!codex.publicKey) await codex.generate(false);
 
-	await clockSync;
+	if (options.autoStart !== false) await clockSync;
 	const node = new Node(codex, options.bootstraps || [], verbose);
 	if (options.autoStart !== false) await node.start();
 	return node;
