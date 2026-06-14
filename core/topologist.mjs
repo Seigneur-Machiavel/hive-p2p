@@ -1,7 +1,7 @@
 import { CLOCK } from '../services/clock.mjs';
 import { SIMULATION, TRANSPORTS, NODE, DISCOVERY, GOSSIP } from './config.mjs';
 import { PeerConnection } from './peer-store.mjs';
-const { SANDBOX, ICE_CANDIDATE_EMITTER, TEST_WS_EVENT_MANAGER } = SIMULATION.ENABLED ? await import('../simulation/test-transports.mjs') : {};
+const { SANDBOX, ICE_CANDIDATE_EMITTER, TEST_WS_EVENT_MANAGER } = SIMULATION.USE_TEST_TRANSPORTS ? await import('../simulation/test-transports.mjs') : {};
 
 /**
  * @typedef {Object} SignalData

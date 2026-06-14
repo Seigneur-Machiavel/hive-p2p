@@ -17,8 +17,7 @@ console.log('Package root:', packageRoot); // debug
 
 // SETUP SIMULATION ENV -----------------------------------------------\
 SIMULATION.USE_TEST_TRANSPORTS = true; //								|
-IDENTITY.ARE_IDS_HEX = false;		// FOR SIMULATOR STRING IDS			|
-IDENTITY.PUBLIC_PREFIX = 'P_'; //										|
+IDENTITY.ARE_IDS_HEX = false;		// FOR SIMULATOR STRING IDS			|									|
 SIMULATION.AVOID_INTERVALS = true; //									|
 CLOCK.mockMode = SIMULATION.USE_TEST_TRANSPORTS; //						|
 TRANSPORTS.WS_SERVER = TestWsServer;	 // default: WebSocketServer	|
@@ -155,7 +154,7 @@ async function addPeer(type, i = 0, bootstraps = [], init = false, setPublic = f
 	const selectedBootstraps = type === 'STANDARD_NODE' ? pickUpRandomBootstraps() : bootstraps;
 	const domain = setPublic ? 'localhost' : undefined;
 	const port = setPublic ? 8080 + (i * 2) : undefined;
-	const cryptoCodex = IDENTITY.ARE_IDS_HEX ? new CryptoCodex() : new CryptoCodex(`${type === 'STANDARD_NODE' ? 'N_' : IDENTITY.PUBLIC_PREFIX}${i}`);
+	const cryptoCodex = IDENTITY.ARE_IDS_HEX ? new CryptoCodex() : new CryptoCodex(`${type === 'STANDARD_NODE' ? IDENTITY.STANDARD_PREFIX[1] : IDENTITY.PUBLIC_PREFIX[1]}${i}`);
 	let peer = domain
 		? await createPublicNode({ bootstraps: selectedBootstraps, cryptoCodex, autoStart: init, domain, port, verbose: NODE.DEFAULT_VERBOSE })
 		: await createNode({ bootstraps: selectedBootstraps, cryptoCodex, autoStart: init, verbose: NODE.DEFAULT_VERBOSE });
@@ -234,10 +233,7 @@ const server = app.listen(3000, () => console.log('%cServer listening on http://
 app.get('/core/config.mjs', (req, res) => { // CONFIG PATCH FOR SIMULATOR
     const configPath = join(packageRoot, 'core/config.mjs');
     let content = readFileSync(configPath, 'utf8');
-    content = content // Patch the values
-	.replace(/ARE_IDS_HEX:\s*true/g, 'ARE_IDS_HEX: false')
-	.replace(/PUBLIC_PREFIX:\s*'0'/g, "PUBLIC_PREFIX: 'P_'")
-	.replace(/STANDARD_PREFIX:\s*'1'/g, "STANDARD_PREFIX: 'N_'");
+    content = content.replace(/ARE_IDS_HEX:\s*true/g, 'ARE_IDS_HEX: false')
     
     res.set({ 'Content-Type': 'application/javascript', 'Cache-Control': 'no-cache, no-store, must-revalidate'});
     res.send(content);

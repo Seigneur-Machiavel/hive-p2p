@@ -1,7 +1,8 @@
+// @ts-check
 import { SIMULATION, DISCOVERY, UNICAST } from "./config.mjs";
 import { TRUST_VALUES } from "./arbiter.mjs";
 import { RouteBuilder_V2 } from "./route-builder.mjs";
-const { SANDBOX, ICE_CANDIDATE_EMITTER, TEST_WS_EVENT_MANAGER } = SIMULATION.ENABLED ? await import('../simulation/test-transports.mjs') : {};
+//const { SANDBOX, ICE_CANDIDATE_EMITTER, TEST_WS_EVENT_MANAGER } = SIMULATION.USE_TEST_TRANSPORTS ? await import('../simulation/test-transports.mjs') : {};
 const RouteBuilder = RouteBuilder_V2; // temporary switch
 
 export class DirectMessage { // TYPE DEFINITION
@@ -14,13 +15,29 @@ export class DirectMessage { // TYPE DEFINITION
 	signature;
 	signatureStart; // position in the serialized message where the signature starts
 	expectedEnd; // expected length of the serialized message
-	/** @type {string[] | undefined} */ newRoute; // for re-routing patch
-	get senderId() { return this.newRoute ? this.newRoute[0] : this.route[0]; }
 
-	/** @param {string} type @param {number} timestamp @param {string[]} neighborsList @param {string[]} route @param {Uint8Array} pubkey @param {string | Uint8Array | Object} data @param {Uint8Array | undefined} signature @param {number} signatureStart @param {number} expectedEnd */
-	constructor(type, timestamp, neighborsList, route, pubkey, data, signature, signatureStart, expectedEnd) {
+	/** Redirect only */ rerouterPubkey;
+	/** Redirect only */ newRoute; // for re-routing patch
+	/** Redirect only */ rerouterSignature;
+
+	get senderId() { return this.newRoute ? this.newRoute[0] : this.route[0]; }
+	get isRerouted() { return (this.rerouterPubkey && this.newRoute && this.rerouterSignature); }
+	getRerouterId() { if (this.newRoute) return this.newRoute[0]; }
+
+	/** 
+	 * @param {string} type @param {number} timestamp @param {string[]} neighborsList
+	 * @param {string[]} route @param {Uint8Array} pubkey @param {string | Uint8Array | Object} data
+	 * @param {Uint8Array | undefined} signature @param {number} signatureStart @param {number} expectedEnd
+	 * @param {Uint8Array} [rerouterPubkey] @param {string[]} [newRoute] @param {Uint8Array} [rerouterSignature] */
+	constructor(type, timestamp, neighborsList, route, pubkey, data, signature, signatureStart, expectedEnd, rerouterPubkey, newRoute, rerouterSignature) {
 		this.type = type; this.timestamp = timestamp; this.neighborsList = neighborsList;
-		this.route = route; this.pubkey = pubkey; this.data = data; this.signature = signature; this.signatureStart = signatureStart; this.expectedEnd = expectedEnd;
+		this.route = route; this.pubkey = pubkey; this.data = data; this.signature = signature;
+		this.signatureStart = signatureStart;
+		this.expectedEnd = expectedEnd;
+
+		this.rerouterPubkey = rerouterPubkey;
+		this.newRoute = newRoute;
+		this.rerouterSignature = rerouterSignature;
 	}
 	getSenderId() { return this.route[0]; }
 	getTargetId() { return this.route[this.route.length - 1]; }
@@ -39,18 +56,6 @@ export class DirectMessage { // TYPE DEFINITION
 		const nextId = (selfPosition !== -1) ? route[selfPosition + 1] : null;
 		return { traveledRoute, selfPosition, senderId, targetId, prevId, nextId, routeLength: route.length };
 	}
-}
-export class ReroutedDirectMessage extends DirectMessage {
-	rerouterPubkey;
-	newRoute;
-	rerouterSignature;
-
-	/** @param {string} type @param {number} timestamp @param {string[]} route @param {string} pubkey @param {string | Uint8Array | Object} data @param {Uint8Array} rerouterPubkey @param {string | undefined} signature @param {string[]} newRoute @param {string} rerouterSignature */
-	constructor(type, timestamp, route, pubkey, data, signature, rerouterPubkey, newRoute, rerouterSignature) {
-		super(type, timestamp, route, pubkey, data, signature);
-		this.rerouterPubkey = rerouterPubkey; this.newRoute = newRoute; this.rerouterSignature = rerouterSignature; // patch
-	}
-	getRerouterId() { return this.newRoute[0]; }
 }
 
 export class UnicastMessager {
@@ -89,7 +94,7 @@ export class UnicastMessager {
 		const finalSpread = builtResult.success === 'blind' ? 1 : spread; // Spread only if re-routing is false
 		for (let i = 0; i < Math.min(finalSpread, builtResult.routes.length); i++) {
 			const route = builtResult.routes[i].path;
-			if (route.length > UNICAST.MAX_HOPS) {
+			if (route.length > UNICAST.MAX_HOPS + 1) {
 				if (this.verbose > 1) console.warn(`Cannot send unicast message to ${remoteId} as route exceeds maxHops (${UNICAST.MAX_HOPS}). BFS incurred.`);
 				continue; // too long route
 			}
@@ -105,7 +110,7 @@ export class UnicastMessager {
 		const transportInstance = this.peerStore.connected[targetId]?.transportInstance;
 		if (!transportInstance) return { success: false, reason: `Transport instance is not available for peer ${targetId}.` };
 		try { transportInstance.send(serialized); return { success: true }; }
-		catch (error) {
+		catch (/** @type {any} */ error) {
 			this.peerStore.kickPeer(targetId, 0, 'send-error');
 			if (this.verbose > 0) console.error(`Error sending message to ${targetId}:`, error.message);
 		}
@@ -141,14 +146,16 @@ export class UnicastMessager {
 		//if (this.id === targetId) { for (const cb of this.callbacks[message.type] || []) cb(senderId, message.data); return; } // message for self
 		if (this.id === targetId) { for (const cb of this.callbacks[message.type] || []) cb(message); return; } // message for self
 
-		// re-send the message to the next peer in the route
+		// re-send the message to the next peer in the route-
+		if (!nextId) throw new Error('Needs to tranmit message but no "nextId" provied!');
+		
 		const { success, reason } = this.#sendMessageToPeer(nextId, serialized);
 		if (!success && !message.rerouterSignature) { // try to patch the route
 			const builtResult = this.pathFinder.buildRoutes(targetId, this.maxRoutes, this.maxHops, this.maxNodes, true);
 			if (!builtResult.success) return;
 
 			const newRoute = builtResult.routes[0].path;
-			if (newRoute.length > UNICAST.MAX_HOPS) {
+			if (newRoute.length > UNICAST.MAX_HOPS + 1) {
 				if (this.verbose > 1) console.warn(`Cannot re-route unicast message to ${targetId} as new route exceeds maxHops (${UNICAST.MAX_HOPS}).`);
 				return; // too long route
 			}

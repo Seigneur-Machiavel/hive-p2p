@@ -88,10 +88,10 @@ export const IDENTITY = {
 	ARGON2_MEM: 2**16,
 	/** Boolean to indicate if we use hex ids, Default: true = hex | false = strings as Bytes (can involve in serialization failures) */
 	ARE_IDS_HEX: true,
-	/** Identifier prefix for public nodes | Default: '0' */
-	PUBLIC_PREFIX: '0',
-	/** Identifier prefix for standard nodes | Default: '1' */
-	STANDARD_PREFIX: '1',
+	/** Identifier prefix for public nodes [binaryPrefix, StringPrefix] | Default: ['0', 'P_'] */
+	PUBLIC_PREFIX: ['0', 'P_'],
+	/** Identifier prefix for standard nodes [binaryPrefix, StringPrefix]  | Default: ['1', 'N_'] */
+	STANDARD_PREFIX: ['1', 'N_'],
 	/** !!EVEN NUMBER ONLY!! length of peer id | Default: 16 */
 	ID_LENGTH: 16,
 	PUBKEY_LENGTH: 32,
@@ -156,7 +156,7 @@ export const UNICAST = { // MARKERS RANGE: 0-127
 	/** Maximum number of routes to consider during BFS
 	 * - Default: 5, light: 3, super-light: 1 */
 	MAX_ROUTES: 5,
-	/** First byte markers for unicast messages | RANGE: 0-127 */
+	/** First byte markers for unicast messages | RANGE: 0-127 @type {Record<string, string | number>} */
 	MARKERS_BYTES: {
 		message: 0,
 		'0': 'message',
@@ -181,7 +181,7 @@ export const GOSSIP = { // MARKERS RANGE: 128-255
 	/** Time to keep messages in cache to avoid reprocessing | Default: 20_000 (20 seconds) */
 	CACHE_DURATION: 20_000,
 	/** Maximum number of hops for gossip messages | Default: 20 
-	 * - Here you can set different max hops for different message types */
+	 * - Here you can set different max hops for different message types @type {Record<string, number>} */
 	HOPS: {
 		default: 20, 		// 16 should be the maximum
 		signal_offer: 6, 	// works with 3 ?
@@ -192,7 +192,8 @@ export const GOSSIP = { // MARKERS RANGE: 128-255
 	},
 	/** Ponderation to lower the transmission rate based on neighbors count
 	 * - Lowering the transmission rate based on neighbors count, but involve a lower gossip diffusion
-	 * - As well you can apply different ponderation factors for different message types */
+	 * - As well you can apply different ponderation factors for different message types
+	 * @type {Record<string, number>} */
 	TRANSMISSION_RATE: {
 		/** Minimum neighbors to apply ponderation, Default: 2
 		 * - Decrease to apply ponderation sooner */
@@ -206,7 +207,7 @@ export const GOSSIP = { // MARKERS RANGE: 128-255
 		// peer_connected: .5, 		// we can reduce this, but lowering the map quality
 		// peer_disconnected: .618
 	},
-	/** First byte markers for gossip messages | RANGE: 128-255 */
+	/** First byte markers for gossip messages | RANGE: 128-255 @type {Record<string, string | number>} */
 	MARKERS_BYTES: {
 		gossip: 128,
 		'128': 'gossip',

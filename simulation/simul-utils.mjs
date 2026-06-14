@@ -35,10 +35,11 @@ export class Statician { // DO NOT ADD VARIABLES, JUST COUNTERS !!
 			for (const peerId in peers.all) {
 				if (CryptoCodex.isPublicNode(peerId)) continue;
 				if (!peers.all[peerId].started) continue;
-				wrtcToEstablishCount++;
+				wrtcToEstablishCount++; // count active non-public node
+
 				const standardNeighborsCount = peers.all[peerId].peerStore.standardNeighborsList.length;
 				if (standardNeighborsCount === 0) continue;
-				establishedWrtcConnCount++;
+				establishedWrtcConnCount++; // count non-public node connection
 				peersConnectionsCount.push(standardNeighborsCount);
 			}
 			const averagePeersConnections = peersConnectionsCount.length === 0 ? 0 : (peersConnectionsCount.reduce((a, b) => a + b, 0) / peersConnectionsCount.length).toFixed(1);

@@ -11,10 +11,8 @@ import { NodeServices } from './node-services.mjs';
 
 /**
  * @typedef {import('./unicast.mjs').DirectMessage} DirectMessage
- * @typedef {import('./unicast.mjs').ReroutedDirectMessage} ReroutedDirectMessage
  * @typedef {import('./gossip.mjs').GossipMessage} GossipMessage
- * @typedef {import('./topologist.mjs').SignalData} SignalData
- */
+ * @typedef {import('./topologist.mjs').SignalData} SignalData */
 
 /** Create and start a new PublicNode instance.
  * @param {Object} options

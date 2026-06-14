@@ -55,11 +55,8 @@ export class RouteBuilder_V2 {
 			for (let i = 1; i < path.length; i++) {
 				const from = path[i - 1];
 				const to = path[i];
-				if (from === this.id) {
-					if (!this.peerStore.connected[to]) return false;
-				} else {
-					if (!this.peerStore.known[from]?.neighbors?.[to]) return false;
-				}
+				if (from === this.id) if (!this.peerStore.connected[to]) return false;
+				else if (!this.peerStore.known[from]?.neighbors?.[to]) return false;
 			}
 		}
 		return true;
@@ -100,7 +97,7 @@ export class RouteBuilder_V2 {
 		const backwardQueue = [{ node: remoteId, path: [remoteId], pathSet: new Set([remoteId]), depth: 0 }];
 		const backwardVisited = new Map(); // node -> path from remoteId
 		backwardVisited.set(remoteId, [remoteId]);
-
+		
 		const maxDepthPerSide = Math.ceil(maxHops / 2);
 		while ((forwardQueue.length > 0 || backwardQueue.length > 0) && nodesExplored < maxNodes) {
 			if (forwardQueue.length > 0) { // Expand forward search

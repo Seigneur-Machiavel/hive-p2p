@@ -1,3 +1,4 @@
+// @ts-check
 import { CLOCK } from '../services/clock.mjs';
 import { GOSSIP } from './config.mjs';
 import { xxHash32 } from '../libs/xxhash32.mjs';
@@ -14,7 +15,7 @@ export class GossipMessage { // TYPE DEFINITION
 	signatureStart; // position in the serialized message where the signature starts
 	expectedEnd; // expected length of the serialized message
 
-	/** @param {string} topic @param {number} timestamp @param {string[]} neighborsList @param {number} HOPS @param {string} senderId @param {string} pubkey @param {string | Uint8Array | Object} data @param {string | undefined} signature @param {number} signatureStart @param {number} expectedEnd */
+	/** @param {string} topic @param {number} timestamp @param {string[]} neighborsList @param {number} HOPS @param {string} senderId @param {Uint8Array} pubkey @param {string | Uint8Array | Object} data @param {Uint8Array | undefined} signature @param {number} signatureStart @param {number} expectedEnd */
 	constructor(topic, timestamp, neighborsList, HOPS, senderId, pubkey, data, signature, signatureStart, expectedEnd) {
 		this.topic = topic; this.timestamp = timestamp; this.neighborsList = neighborsList;
 		this.HOPS = HOPS; this.senderId = senderId; this.pubkey = pubkey; this.data = data;
@@ -28,6 +29,7 @@ export class GossipMessage { // TYPE DEFINITION
  * @property {string} senderId
  * @property {string} topic
  * @property {Uint8Array} serializedMessage
+ * @property {number} timestamp
  * @property {number} expiration
  */
 class DegenerateBloomFilter {
@@ -54,23 +56,31 @@ class DegenerateBloomFilter {
 	addMessage(serializedMessage) {
     	const n = CLOCK.time;
 		const { marker, neighLength, timestamp, dataLength, pubkey, associatedId } = this.cryptoCodex.readBufferHeader(serializedMessage);
-		if (n - timestamp > GOSSIP.EXPIRATION) return;
+		const topic = GOSSIP.MARKERS_BYTES[marker];
+		if (typeof topic !== 'string') throw new Error(`Wrong topic byte: ${marker}`)
+		if (n === null || n - timestamp > GOSSIP.EXPIRATION) return;
+		if (!associatedId) return;
 
 		const hashableData = serializedMessage.subarray(0, 47 + neighLength + dataLength);
-		const h = xxHash32(hashableData);
+		const h = xxHash32(hashableData).toString();
 		this.xxHash32UsageCount++;
 		if (this.seenTimeouts[h]) return;
 
-		const topic = GOSSIP.MARKERS_BYTES[marker];
-		const senderId = associatedId;
 		const expiration = n + GOSSIP.CACHE_DURATION;
-		this.cache.push({ hash: h, senderId, topic, serializedMessage, timestamp, expiration });
+		this.cache.push({
+			hash: h,
+			senderId: associatedId,
+			topic,
+			serializedMessage,
+			timestamp,
+			expiration
+		});
 		this.seenTimeouts[h] = expiration;
 
 		if (--this.cleanupIn <= 0) this.#cleanupOldestEntries(n);
 		return { hash: h, isNew: !this.seenTimeouts[h] };
 	}
-	#cleanupOldestEntries(n = CLOCK.time) {
+	#cleanupOldestEntries(n = CLOCK.time || 0) {
 		let firstValidIndex = -1;
 		for (let i = 0; i < this.cache.length; i++)
 			if (this.cache[i].expiration <= n) delete this.seenTimeouts[this.cache[i].hash];
@@ -83,7 +93,7 @@ class DegenerateBloomFilter {
 }
 
 export class Gossip {
-	/** @type {Record<string, function(GossipMessage)[]>} */ callbacks = { message_handle: [] };
+	/** @type {Record<string, function[]>} */ callbacks = { message_handle: [] };
 	id; cryptoCodex; arbiter; peerStore; verbose; bloomFilter;
 
 	/** @param {string} selfId @param {import('./crypto-codex.mjs').CryptoCodex} cryptoCodex @param {import('./arbiter.mjs').Arbiter} arbiter @param {import('./peer-store.mjs').PeerStore} peerStore */
@@ -96,7 +106,7 @@ export class Gossip {
 		this.bloomFilter = new DegenerateBloomFilter(cryptoCodex);
 	}
 
-	/** @param {string} callbackType @param {function(GossipMessage)} callback */
+	/** @param {string} callbackType @param {function} callback */
 	on(callbackType, callback) {
 		if (!this.callbacks[callbackType]) this.callbacks[callbackType] = [callback];
 		else this.callbacks[callbackType].push(callback);
@@ -118,11 +128,12 @@ export class Gossip {
 		try { transportInstance.send(serializedMessage); }
 		catch (error) { this.peerStore.connected[targetId]?.close(); }
 	}
+	/** @param {string} peerId */
 	sendGossipHistoryToPeer(peerId) {
 		const gossipHistory = this.bloomFilter.getGossipHistoryByTime('asc');
 		for (const entry of gossipHistory) this.#broadcastSerializedToPeer(peerId, entry.data);
 	}
-	/** @param {string} from @param {Uint8Array} serialized @returns {void} */
+	/** @param {string} from @param {Uint8Array} serialized */
 	async handleGossipMessage(from, serialized) {
 		if (this.arbiter.isBanished(from)) return this.verbose >= 3 ? console.info(`%cReceived gossip message from banned peer ${from}, ignoring.`, 'color: red;') : null;
 		if (!this.arbiter.countMessageBytes(from, serialized.byteLength, 'gossip')) return; // ignore if flooding/banished
