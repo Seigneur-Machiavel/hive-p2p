@@ -13,19 +13,19 @@ export class CryptoCodex {
 	AVOID_CRYPTO = true; // AVOID CRYPTO OPERATIONS (default) => auto-enable when generate() is called, but can be set to true to disable crypto in any case (e.g. for testing with string ids)
 	verbose = NODE.DEFAULT_VERBOSE;
 	id;
-    /** @type {Uint8Array} */ publicKey;
-    /** @type {Uint8Array} */ privateKey;
+    publicKey;
+    privateKey;
 	get idLength() { return IDENTITY.ARE_IDS_HEX ? IDENTITY.ID_LENGTH / 2 : IDENTITY.ID_LENGTH; }
 
 	/** @param {string} [nodeId] If provided: used to generate a fake keypair > disable crypto operations */
 	constructor(nodeId, verbose = NODE.DEFAULT_VERBOSE) {
-		this.privateKey = new Uint8Array(32).fill(0);
-		this.publicKey = new Uint8Array(32).fill(0);
 		this.verbose = verbose;
 		//this.AVOID_CRYPTO = IDENTITY.ARE_IDS_HEX ? false : true; // disable crypto if string ids are used
 		if (!nodeId) return; // IF NOT PROVIDED: generate() should be called.
-
+		
 		this.id = nodeId.padEnd(IDENTITY.ID_LENGTH, ' ').slice(0, IDENTITY.ID_LENGTH);
+		this.privateKey = new Uint8Array(32).fill(0);
+		this.publicKey = new Uint8Array(32).fill(0);
 		const idBytes = new TextEncoder().encode(this.id); // use nodeId to create a fake public key
 		for (let i = 0; i < IDENTITY.ID_LENGTH; i++) this.publicKey[i] = idBytes[i];
 	}
@@ -76,8 +76,8 @@ export class CryptoCodex {
 		if (!asPublicNode && this.isPublicNode(id)) throw new Error('Seed does not produce a private node identity.');
 		if (!await this.pubkeyDifficultyCheck(publicKey)) throw new Error('Seed does not meet difficulty requirements.');
 		this.id = id;
-		this.privateKey = secretKey;
-		this.publicKey = publicKey;
+		this.privateKey = new Uint8Array(secretKey);
+		this.publicKey = new Uint8Array(publicKey);
 	}
 	/** @param {boolean} asPublicNode */
 	static async generateNewSybilIdentity(asPublicNode, log = true) {
@@ -135,6 +135,7 @@ export class CryptoCodex {
 		const MARKER = GOSSIP.MARKERS_BYTES[topic];
 		if (typeof MARKER !== 'number') throw new Error(`Failed to create gossip message: wrong topic '${topic}'.`);
 		if (typeof timestamp !== 'number') throw new Error('Wrong timestamp type!');
+		if (!this.publicKey ||!this.privateKey) throw new Error('KeyPair not initialized!');
 
 		const neighborsBytes = this.#idsToBytes(neighbors);
 		const { dataCode, dataBytes } = this.#dataToBytes(data);
@@ -161,6 +162,7 @@ export class CryptoCodex {
 		const MARKER = UNICAST.MARKERS_BYTES[type];
 		if (typeof MARKER !== 'number') throw new Error(`Failed to create gossip message: wrong type '${type}'.`);
 		if (typeof timestamp !== 'number') throw new Error('Wrong timestamp type!');
+		if (!this.publicKey ||!this.privateKey) throw new Error('KeyPair not initialized!');
 		if (route.length < 2) throw new Error('Failed to create unicast message: route must have at least 2 nodes (next hop and target).');
 		if (route.length > UNICAST.MAX_HOPS + 1) throw new Error(`Failed to create unicast message: route exceeds max hops (${UNICAST.MAX_HOPS}).`);
 		
@@ -184,6 +186,7 @@ export class CryptoCodex {
 	}
 	/** @param {Uint8Array} serialized @param {string[]} newRoute */
 	createReroutedUnicastMessage(serialized, newRoute) {
+		if (!this.publicKey ||!this.privateKey) throw new Error('KeyPair not initialized!');
 		if (newRoute.length < 2) throw new Error('Failed to create rerouted unicast message: route must have at least 2 nodes (next hop and target).');
 		if (newRoute.length > UNICAST.MAX_HOPS + 1) throw new Error(`Failed to create rerouted unicast message: route exceeds max hops (${UNICAST.MAX_HOPS}).`);
 	
@@ -283,8 +286,8 @@ export class CryptoCodex {
 			
 			const destId = route[route.length - 1];
 			const d = type === 'private_message' && this.id === destId
-			? this.decryptData(serialized.slice(47 + neighLength, 47 + NDBL), peerStore.privacy[this.#idFromPublicKey(pubkey)]?.sharedSecret)
-			: serialized.slice(47 + neighLength, 47 + NDBL);
+				? this.decryptData(serialized.slice(47 + neighLength, 47 + NDBL), peerStore.privacy[this.#idFromPublicKey(pubkey)]?.sharedSecret)
+				: serialized.slice(47 + neighLength, 47 + NDBL);
 			
 			const deserializedData = this.id === destId ? this.#bytesToData(dataCode, d) : d;
 			const initialMessageEnd = signatureStart + IDENTITY.SIGNATURE_LENGTH;
