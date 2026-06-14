@@ -69,7 +69,7 @@ export class Arbiter {
 		if (peerId === this.id) return; // self
 		if (delta) this.trustBalances[peerId] = Math.min(MAX_TRUST, (this.trustBalances[peerId] || 0) + delta);
 		if (delta && this.verbose > 3) console.log(`%c(Arbiter: ${this.id}) ${peerId} +${delta}ms (${reason}). Updated: ${this.trustBalances[peerId]}ms.`, LOG_CSS.ARBITER);
-		if (this.isBanished(peerId) && this.verbose > 1) console.log(`%c(Arbiter: ${this.id}) Peer ${peerId} is now banished.`, LOG_CSS.ARBITER);
+		if (this.isBanished(peerId) && this.verbose > 1) console.log(`%c(Arbiter: ${this.id}) Peer ${peerId} is now banished. (${reason})`, LOG_CSS.ARBITER);
 	}
 	/** MANUAL BAN (if enabled) @param {string} peerId */
 	setBanished(peerId) {
@@ -134,7 +134,7 @@ export class Arbiter {
 	}
 	/** UNICAST only @param {string} from @param {import('./unicast.mjs').DirectMessage} message */
 	#routeLengthControl(from, message) {
-		if (message.route.length <= UNICAST.MAX_HOPS) return true;
+		if (message.route.length <= UNICAST.MAX_HOPS + 1) return true;
 		this.adjustTrust(from, TRUST_VALUES.HOPS_EXCEEDED, 'Unicast HOPS exceeded');
 	}
 	/** ONLY APPLY AFTER #signatureControl() - @param {string} senderId @param {Uint8Array} pubkey */

@@ -88,8 +88,6 @@ export class Converter {
 	// BASE58
 	/** @param {number} num - Unsigned integer 4bytes to convert to Base58 string @param {number} [minLength] - Minimum length of the output string, padded with '1', default: 6 */
 	static uint32ToB58(num, minLength = 6) {
-		if (num === 0) return '1';
-		
 		let result = '';
 		while (num > 0) {
 			result = base58AlphabetArray[num % 58] + result;

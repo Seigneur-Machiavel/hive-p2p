@@ -293,13 +293,13 @@ export class CryptoCodex {
 			const initialMessageEnd = signatureStart + IDENTITY.SIGNATURE_LENGTH;
 			const signature = serialized.slice(signatureStart, initialMessageEnd);
 			const isPatched = (serialized.length > initialMessageEnd);
-
-			if (!isPatched) return new DirectMessage(type, timestamp, neighbors, route, pubkey, deserializedData, signature, signatureStart, initialMessageEnd);
-
-			const rerouterPubkey = serialized.slice(initialMessageEnd, initialMessageEnd + 32);
-			const newRoute = this.#bytesToIds(serialized.slice(initialMessageEnd + 32, serialized.length - IDENTITY.SIGNATURE_LENGTH));
-			const rerouterSignature = serialized.slice(serialized.length - IDENTITY.SIGNATURE_LENGTH);
-			return new DirectMessage(type, timestamp, neighbors, route, pubkey, deserializedData, signature, signatureStart, serialized.length, rerouterPubkey, newRoute, rerouterSignature);
+			//if (!isPatched) return new DirectMessage(type, timestamp, neighbors, route, pubkey, deserializedData, signature, signatureStart, initialMessageEnd);
+			
+			const expectedEnd = isPatched ? serialized.length : initialMessageEnd;
+			const rerouterPk = 	isPatched ? serialized.slice(initialMessageEnd, initialMessageEnd + 32) : undefined;
+			const newRoute = 	isPatched ? this.#bytesToIds(serialized.slice(initialMessageEnd + 32, serialized.length - IDENTITY.SIGNATURE_LENGTH)) : undefined;
+			const rerouterSig = isPatched ? serialized.slice(serialized.length - IDENTITY.SIGNATURE_LENGTH) : undefined;
+			return new DirectMessage(type, timestamp, neighbors, route, pubkey, deserializedData, signature, signatureStart, expectedEnd, rerouterPk, newRoute, rerouterSig);
 		} catch (/** @type {any} */ error) { if (this.verbose > 1) console.warn(`Error deserializing ${type || 'unknown'} unicast message:`, error.stack); }
 		return null;
 	}
